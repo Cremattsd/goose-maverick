@@ -4,13 +4,82 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #6a11cb, #2575fc);
+            color: #fff;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        .login-container {
+            background: #ffffff;
+            color: #333;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+        }
+        .login-container h1 {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+            color: #6a11cb;
+        }
+        .login-container label {
+            font-weight: bold;
+            display: block;
+            margin: 1rem 0 0.5rem;
+        }
+        .login-container input {
+            width: 100%;
+            padding: 0.8rem;
+            margin-bottom: 1rem;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-size: 1rem;
+        }
+        .login-container button {
+            width: 100%;
+            padding: 0.8rem;
+            background: #6a11cb;
+            border: none;
+            border-radius: 5px;
+            font-size: 1rem;
+            font-weight: bold;
+            color: white;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        .login-container button:hover {
+            background: #2575fc;
+        }
+        .login-container p {
+            margin-top: 1rem;
+            font-size: 0.9rem;
+        }
+        .login-container a {
+            color: #6a11cb;
+            text-decoration: none;
+        }
+        .login-container a:hover {
+            text-decoration: underline;
+        }
+    </style>
 </head>
 <body>
-    <h1>Login</h1>
-    <form action="/login" method="POST">
-        <label for="api_key">API Key:</label>
-        <input type="text" id="api_key" name="api_key" required>
-        <button type="submit">Login</button>
-    </form>
+    <div class="login-container">
+        <h1>Login</h1>
+        <form action="/login" method="POST">
+            <label for="api_key">API Key</label>
+            <input type="text" id="api_key" name="api_key" placeholder="Enter your API key" required>
+            <button type="submit">Login</button>
+        </form>
+        <p>Need help? <a href="/help">Contact support</a></p>
+    </div>
 </body>
 </html>
