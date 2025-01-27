@@ -29,15 +29,15 @@ def login():
     api_key = request.form.get('api_key')
     logger.info(f"Login attempt with API key: {api_key}")
     realnex_api = RealNexAPI(api_key)
-    try:
-        test_response = realnex_api.fetch_data("test-endpoint")  # Replace with a valid endpoint
-        if test_response.get("success"):
-            session['api_key'] = api_key
-            logger.info("Login successful")
-            return redirect(url_for('dashboard'))
-    except Exception as e:
-        logger.error(f"Login failed: {str(e)}")
-        return f"Invalid API Key: {str(e)}", 401
+    auth_response = realnex_api.authenticate()  # Authenticate using the /api/Client endpoint
+    if "error" not in auth_response:
+        session['api_key'] = api_key
+        session['client_name'] = auth_response.get("clientName", "User")  # Store client name in session
+        logger.info("Login successful")
+        return redirect(url_for('dashboard'))
+    else:
+        logger.error(f"Login failed: {auth_response.get('error')}")
+        return f"Invalid API Key: {auth_response.get('error')}", 401
 
 @app.route('/dashboard')
 def dashboard():
@@ -45,7 +45,8 @@ def dashboard():
         logger.warning("Unauthorized access to dashboard")
         return redirect(url_for('home'))
     logger.info("Dashboard accessed")
-    return render_template('dashboard.html')
+    client_name = session.get('client_name', 'User')  # Get client name from session
+    return render_template('dashboard.html', client_name=client_name)
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
@@ -70,13 +71,13 @@ def upload_file():
         return jsonify({"error": "Unauthorized"}), 401
 
     realnex_api = RealNexAPI(api_key)
-    try:
-        response = realnex_api.upload_file(file_path)
+    upload_response = realnex_api.upload_file(file_path)
+    if "error" not in upload_response:
         logger.info(f"File uploaded successfully: {file.filename}")
-        return jsonify(response)
-    except Exception as e:
-        logger.error(f"Error uploading file: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify(upload_response)
+    else:
+        logger.error(f"Error uploading file: {upload_response.get('error')}")
+        return jsonify(upload_response), 500
 
 # Run the app
 if __name__ == '__main__':
