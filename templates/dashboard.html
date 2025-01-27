@@ -6,39 +6,83 @@
     <title>Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
+        body {
+            background: linear-gradient(135deg, #6a11cb, #2575fc);
+            color: #fff;
+            min-height: 100vh;
+        }
+        .dashboard-container {
+            background: #fff;
+            color: #333;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+            padding: 30px;
+            max-width: 800px;
+            margin: 40px auto;
+        }
         #drop-zone {
             border: 2px dashed #ccc;
-            padding: 20px;
+            padding: 40px;
             text-align: center;
-            margin: 20px;
+            border-radius: 10px;
+            background: #f9f9f9;
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+        #drop-zone:hover, #drop-zone.drag-over {
+            background: #e9f7ff;
+            border-color: #6a11cb;
+        }
+        #output pre {
+            background: #f4f4f4;
+            padding: 10px;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
         }
     </style>
 </head>
 <body>
-    <div class="container mt-5">
-        <h1 class="text-center">Welcome, {{ client_name }}!</h1>
-        <div id="drop-zone" class="bg-light p-5">
-            <p>Drag and drop a PDF or Excel file here</p>
+    <div class="container">
+        <div class="dashboard-container">
+            <h1 class="text-center mb-4">Welcome, {{ client_name }}!</h1>
+            <div id="drop-zone" class="mb-4">
+                <p class="mb-0">Drag and drop a PDF or Excel file here</p>
+                <small class="text-muted">or click to select a file</small>
+            </div>
+            <div id="output" class="mt-4"></div>
         </div>
-        <div id="output" class="mt-4"></div>
     </div>
 
     <script>
         const dropZone = document.getElementById('drop-zone');
         const output = document.getElementById('output');
 
+        // Add click-to-upload functionality
+        dropZone.addEventListener('click', () => {
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.accept = '.pdf,.xls,.xlsx';
+            fileInput.onchange = () => {
+                const file = fileInput.files[0];
+                if (file) {
+                    uploadFile(file);
+                }
+            };
+            fileInput.click();
+        });
+
         dropZone.addEventListener('dragover', (e) => {
             e.preventDefault();
-            dropZone.style.backgroundColor = '#f0f0f0';
+            dropZone.classList.add('drag-over');
         });
 
         dropZone.addEventListener('dragleave', () => {
-            dropZone.style.backgroundColor = '';
+            dropZone.classList.remove('drag-over');
         });
 
         dropZone.addEventListener('drop', (e) => {
             e.preventDefault();
-            dropZone.style.backgroundColor = '';
+            dropZone.classList.remove('drag-over');
 
             const file = e.dataTransfer.files[0];
             if (file) {
@@ -50,6 +94,8 @@
             const formData = new FormData();
             formData.append('file', file);
 
+            output.innerHTML = '<div class="alert alert-info">Uploading file...</div>';
+
             fetch('/upload', {
                 method: 'POST',
                 body: formData
@@ -59,7 +105,10 @@
                 if (data.error) {
                     output.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
                 } else {
-                    output.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+                    output.innerHTML = `
+                        <div class="alert alert-success">File uploaded successfully!</div>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    `;
                 }
             })
             .catch(error => {
