@@ -38,7 +38,8 @@ def login():
         auth_response = client_api.get_client()  # Authenticate using the SDK
         session['api_key'] = api_key
         session['client_name'] = auth_response.get("clientName", "User")  # Store client name in session
-        logger.info("Login successful")
+        session['full_name'] = auth_response.get("fullName", "User")  # Store full name in session
+        logger.info(f"Login successful - Welcome {session['full_name']}")
         return redirect(url_for('dashboard'))
     except Exception as e:
         logger.error(f"Login failed: {str(e)}")
@@ -50,7 +51,7 @@ def dashboard():
         logger.warning("Unauthorized access to dashboard")
         return redirect(url_for('home'))
     logger.info("Dashboard accessed")
-    client_name = session.get('client_name', 'User')  # Get client name from session
+    client_name = session.get('full_name', 'User')  # Show full name instead of email
     return render_template('dashboard.html', client_name=client_name)
 
 @app.route('/upload', methods=['POST'])
