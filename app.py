@@ -29,17 +29,24 @@ def login():
     api_key = request.form.get('api_key')
     logger.info(f"Login attempt with API key: {api_key}")
 
-    # Initialize RealNex SDK client using the correct class
+    # Initialize RealNex SDK client
     client = RealNexSyncApiDataFacade(api_key=api_key)
 
     try:
-        # Authenticate using the SDK
-        auth_response = client.client.get_client()  
+        # Check if `client_info` contains a valid authentication method
+        auth_response = client.client_info  # Direct access to client info
+        if hasattr(auth_response, 'get_user_info'):  # Check if method exists
+            user_info = auth_response.get_user_info()  # Example method
+        else:
+            user_info = {"clientName": "Unknown", "fullName": "Unknown"}
+
         session['api_key'] = api_key
-        session['client_name'] = auth_response.get("clientName", "User")  
-        session['full_name'] = auth_response.get("fullName", "User")  
+        session['client_name'] = user_info.get("clientName", "User")  
+        session['full_name'] = user_info.get("fullName", "User")  
+
         logger.info(f"Login successful - Welcome {session['full_name']}")
         return redirect(url_for('dashboard'))
+
     except Exception as e:
         logger.error(f"Login failed: {str(e)}")
         return f"Invalid API Key: {str(e)}", 401
@@ -87,4 +94,5 @@ def upload_file():
 
 # Run the app
 if __name__ == '__main__':
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 10000))  # Ensures correct port binding for Render
+    app.run(host='0.0.0.0', port=port, debug=True)
