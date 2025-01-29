@@ -1,5 +1,7 @@
 Flask==2.3.2
 requests==2.31.0
 gunicorn==20.1.0
+PyMuPDF==1.22.3
 git+https://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@github.com/Cremattsd/realnex-sdk.git@main#egg=real_nex_sync_api_data_facade
+
 
