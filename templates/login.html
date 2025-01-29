@@ -4,57 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: linear-gradient(135deg, #6a11cb, #2575fc);
-            color: #fff;
-            margin: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-        }
-        .login-container {
-            background: #ffffff;
-            color: #333;
-            padding: 2rem;
-            border-radius: 10px;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
-            width: 100%;
-            max-width: 400px;
-            text-align: center;
-        }
-        .login-container h1 {
-            font-size: 2rem;
-            margin-bottom: 1rem;
-            color: #6a11cb;
-        }
-        .login-container input, .login-container button {
-            width: 100%;
-            padding: 0.8rem;
-            margin-bottom: 1rem;
-            border-radius: 5px;
-            font-size: 1rem;
-        }
-        .login-container button {
-            background: #6a11cb;
-            color: white;
-            cursor: pointer;
-            transition: background 0.3s;
-        }
-        .login-container button:hover {
-            background: #2575fc;
-        }
-    </style>
+    <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body>
-    <div class="login-container">
-        <h1>Login</h1>
-        <form action="/login" method="POST">
-            <label for="api_key">Enter API Key:</label>
-            <input type="text" id="api_key" name="api_key" required>
-            <button type="submit">Login</button>
+<body class="bg-gray-100 flex items-center justify-center h-screen">
+    <div class="bg-white p-8 rounded-lg shadow-md w-96">
+        <h2 class="text-2xl font-semibold text-center text-gray-800">Login</h2>
+        <p class="text-center text-gray-600 mb-4">Enter your RealNex API Key</p>
+        {% if error %}
+            <p class="text-red-500 text-sm text-center mb-2">{{ error }}</p>
+        {% endif %}
+        <form action="{{ url_for('login') }}" method="POST" class="space-y-4">
+            <input type="text" name="api_key" placeholder="Enter API Key" class="w-full px-4 py-2 border rounded-lg focus:ring focus:ring-blue-300">
+            <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition">Login</button>
         </form>
     </div>
 </body>
