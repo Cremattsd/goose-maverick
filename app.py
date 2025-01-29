@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 import requests
 import fitz  # PyMuPDF for PDF parsing
 import pandas as pd
@@ -40,13 +40,19 @@ def dashboard():
         return redirect(url_for('login'))
     
     if request.method == 'POST':
+        if 'file' not in request.files:
+            return jsonify({"error": "No file uploaded"}), 400
+
         file = request.files['file']
-        if file:
-            filename = secure_filename(file.filename)
-            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            file.save(file_path)
-            parsed_data = parse_file(file_path)
-            return render_template('dashboard.html', user=session['user'], data=parsed_data)
+        if file.filename == '':
+            return jsonify({"error": "No file selected"}), 400
+
+        filename = secure_filename(file.filename)
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(file_path)
+
+        parsed_data = parse_file(file_path)
+        return jsonify(parsed_data)
 
     return render_template('dashboard.html', user=session['user'])
 
@@ -61,6 +67,8 @@ def parse_file(file_path):
         return parse_pdf(file_path)
     elif ext.lower() in [".xls", ".xlsx"]:
         return parse_excel(file_path)
+    elif ext.lower() in [".png", ".jpg", ".jpeg"]:
+        return parse_image(file_path)
     else:
         return {"Error": "Unsupported file format"}
 
@@ -79,6 +87,12 @@ def parse_excel(file_path):
     try:
         data = pd.read_excel(file_path)
         return data.to_dict(orient="records")
+    except Exception as e:
+        return {"Error": str(e)}
+
+def parse_image(file_path):
+    try:
+        return {"ExtractedText": "Image processing functionality to be added."}
     except Exception as e:
         return {"Error": str(e)}
 
