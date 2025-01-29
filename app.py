@@ -1,7 +1,7 @@
 import logging
 from flask import Flask, request, jsonify, render_template, redirect, url_for, session
 import os
-from realnex_sdk import RealNexAPI  # Importing from your SDK
+from real_nex_sync_api_data_facade.sdk import RealNexAPI  # Importing from your SDK
 
 # Initialize Flask app
 app = Flask(__name__)
