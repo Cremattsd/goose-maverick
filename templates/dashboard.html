@@ -4,10 +4,28 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body>
-    <h1>Welcome, {{ user_name }}!</h1>
-    <p>You have successfully logged in.</p>
-    <a href="{{ url_for('logout') }}">Logout</a>
+<body class="bg-gray-100">
+    <nav class="bg-blue-600 p-4 text-white flex justify-between">
+        <span class="text-xl font-semibold">Welcome, {{ user }}</span>
+        <a href="{{ url_for('logout') }}" class="bg-red-500 px-4 py-2 rounded hover:bg-red-600 transition">Logout</a>
+    </nav>
+    <div class="max-w-4xl mx-auto mt-10 bg-white p-6 rounded-lg shadow-md">
+        <h2 class="text-2xl font-bold text-gray-800 text-center">Upload Your Files</h2>
+        <p class="text-gray-600 text-center">Drag and drop or select a file to upload.</p>
+
+        <form action="{{ url_for('dashboard') }}" method="POST" enctype="multipart/form-data" class="mt-6 text-center">
+            <input type="file" name="file" class="border px-4 py-2 rounded-lg">
+            <button type="submit" class="ml-4 px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition">Upload</button>
+        </form>
+
+        {% if data %}
+            <div class="mt-6 p-4 border rounded-lg bg-gray-50">
+                <h3 class="text-lg font-semibold text-gray-800">Parsed Data:</h3>
+                <pre class="text-sm text-gray-700 bg-gray-200 p-3 rounded">{{ data }}</pre>
+            </div>
+        {% endif %}
+    </div>
 </body>
 </html>
