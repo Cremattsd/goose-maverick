@@ -1,7 +1,7 @@
 import logging
 from flask import Flask, request, jsonify, render_template, redirect, url_for, session
 import os
-from real_nex_sync_api_data_facade.sdk import RealNexSyncApiDataFacade  # Corrected import
+from real_nex_sync_api_data_facade.sdk import RealNexSyncApiDataFacade  # ✅ Corrected import
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -29,20 +29,23 @@ def login():
     api_key = request.form.get('api_key')
     logger.info(f"Login attempt with API key: {api_key}")
 
-    # Initialize RealNex SDK client
-    client = RealNexSyncApiDataFacade(api_key=api_key)
+    # ✅ Set the correct RealNex API base URL
+    realnex_api_url = os.getenv('REALNEX_API_URL', 'https://sync.realnex.com/api')
+
+    # ✅ Initialize RealNex SDK client with the correct API URL
+    client = RealNexSyncApiDataFacade(api_key=api_key, base_url=realnex_api_url)
 
     try:
-        # Use get_user() from ClientService for authentication
+        # ✅ Authenticate using get_user() from ClientService
         if hasattr(client, "client") and hasattr(client.client, "get_user"):
-            user_info = client.client.get_user()  # Correct authentication method
+            user_info = client.client.get_user()
         else:
             user_info = {"clientName": "Unknown", "fullName": "Unknown"}
 
         # Save user session
         session['api_key'] = api_key
-        session['client_name'] = getattr(user_info, "client_name", "User")  
-        session['full_name'] = getattr(user_info, "full_name", "User")  
+        session['client_name'] = getattr(user_info, "client_name", "User")
+        session['full_name'] = getattr(user_info, "full_name", "User")
 
         logger.info(f"Login successful - Welcome {session['full_name']}")
         return redirect(url_for('dashboard'))
