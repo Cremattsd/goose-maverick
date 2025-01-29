@@ -7,7 +7,7 @@ from real_nex_sync_api_data_facade.sdk import RealNexSyncApiDataFacade
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'a-default-secret-key')
 
-# RealNex API base URL (Update this to the correct API URL)
+# RealNex API base URL (Update this if needed)
 REALNEX_API_URL = "https://sync.realnex.com/api"
 
 # Configure logging
@@ -31,29 +31,30 @@ def home():
 def login():
     try:
         # Ensure required fields are present
-        if 'email' not in request.form or 'password' not in request.form:
-            logger.error("Email or Password is missing in the request")
+        if "email" not in request.form or "password" not in request.form:
+            logger.error("Missing Email or Password in the request form")
             return "Email and Password are required", 400
 
-        email = request.form['email']
-        password = request.form['password']
+        email = request.form.get("email")
+        password = request.form.get("password")
 
         logger.info(f"Login attempt with Email: {email}")
 
-        # Initialize SDK and authenticate with email/password
+        # Initialize SDK and authenticate
         client = RealNexSyncApiDataFacade(base_url=REALNEX_API_URL)
-        auth_response = client.client.get_user(email=email, password=password)  # Modify if needed
+        auth_response = client.client.get_user(email=email, password=password)  # Modify as needed
 
-        if not auth_response:
+        if not auth_response or "token" not in auth_response:
             logger.error("Invalid credentials or no user data returned")
             return "Invalid Email or Password", 401
 
-        session['user_token'] = auth_response.get('token')
-        session['client_name'] = auth_response.get("clientName", "User")
-        session['full_name'] = auth_response.get("fullName", "User")
+        # Store session data
+        session["user_token"] = auth_response["token"]
+        session["client_name"] = auth_response.get("clientName", "User")
+        session["full_name"] = auth_response.get("fullName", "User")
 
         logger.info(f"Login successful - Welcome {session['full_name']}")
-        return redirect(url_for('dashboard'))
+        return redirect(url_for("dashboard"))
 
     except Exception as e:
         logger.error(f"Login failed: {str(e)}")
