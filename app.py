@@ -1,8 +1,9 @@
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session
 import requests
 import fitz  # PyMuPDF for PDF parsing
 import pandas as pd
 import os
+import re
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
@@ -40,19 +41,13 @@ def dashboard():
         return redirect(url_for('login'))
     
     if request.method == 'POST':
-        if 'file' not in request.files:
-            return jsonify({"error": "No file uploaded"}), 400
-
         file = request.files['file']
-        if file.filename == '':
-            return jsonify({"error": "No file selected"}), 400
-
-        filename = secure_filename(file.filename)
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(file_path)
-
-        parsed_data = parse_file(file_path)
-        return jsonify(parsed_data)
+        if file:
+            filename = secure_filename(file.filename)
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            file.save(file_path)
+            parsed_data = parse_file(file_path)
+            return render_template('dashboard.html', user=session['user'], data=parsed_data)
 
     return render_template('dashboard.html', user=session['user'])
 
@@ -79,7 +74,21 @@ def parse_pdf(file_path):
         for page in document:
             text += page.get_text()
         document.close()
-        return {"ExtractedText": text}
+        
+        # Extract key information using regex
+        extracted_data = {
+            "Property Address": re.search(r"\d{1,5}\s[\w\s]+,\s?[\w\s]+", text).group(0) if re.search(r"\d{1,5}\s[\w\s]+,\s?[\w\s]+", text) else "N/A",
+            "City State": re.search(r"[A-Za-z]+,\s[A-Z]{2}\s\d{5}", text).group(0) if re.search(r"[A-Za-z]+,\s[A-Z]{2}\s\d{5}", text) else "N/A",
+            "Number of Units": re.search(r"Number of Units\s+(\d+)", text).group(1) if re.search(r"Number of Units\s+(\d+)", text) else "N/A",
+            "Rentable SqFt": re.search(r"Rentable SqFt\s+(\d+,?\d*)", text).group(1) if re.search(r"Rentable SqFt\s+(\d+,?\d*)", text) else "N/A",
+            "Contact Name": re.search(r"Managing Director\\n([A-Za-z\s]+)", text).group(1) if re.search(r"Managing Director\\n([A-Za-z\s]+)", text) else "N/A",
+            "Email": re.search(r"[\w.]+@[\w.]+", text).group(0) if re.search(r"[\w.]+@[\w.]+", text) else "N/A",
+            "Cap Rate": re.search(r"Cap Rate\s+(\d+.\d+%)", text).group(1) if re.search(r"Cap Rate\s+(\d+.\d+%)", text) else "N/A",
+            "Pro Forma Cap Rate": re.search(r"Pro Forma Cap Rate\s+(\d+.\d+%)", text).group(1) if re.search(r"Pro Forma Cap Rate\s+(\d+.\d+%)", text) else "N/A",
+            "Net Operating Income": re.search(r"Net Operating Income\s+\$(\d+,?\d*)", text).group(1) if re.search(r"Net Operating Income\s+\$(\d+,?\d*)", text) else "N/A"
+        }
+        
+        return extracted_data
     except Exception as e:
         return {"Error": str(e)}
 
