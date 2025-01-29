@@ -30,27 +30,15 @@
             margin-bottom: 1rem;
             color: #6a11cb;
         }
-        .login-container label {
-            font-weight: bold;
-            display: block;
-            margin: 1rem 0 0.5rem;
-        }
-        .login-container input {
+        .login-container input, .login-container button {
             width: 100%;
             padding: 0.8rem;
             margin-bottom: 1rem;
-            border: 1px solid #ccc;
             border-radius: 5px;
             font-size: 1rem;
         }
         .login-container button {
-            width: 100%;
-            padding: 0.8rem;
             background: #6a11cb;
-            border: none;
-            border-radius: 5px;
-            font-size: 1rem;
-            font-weight: bold;
             color: white;
             cursor: pointer;
             transition: background 0.3s;
@@ -64,8 +52,8 @@
     <div class="login-container">
         <h1>Login</h1>
         <form action="/login" method="POST">
-            <label for="api_key">API Key</label>
-            <input type="text" id="api_key" name="api_key" placeholder="Enter your API key" required>
+            <label for="api_key">Enter API Key:</label>
+            <input type="text" id="api_key" name="api_key" required>
             <button type="submit">Login</button>
         </form>
     </div>
