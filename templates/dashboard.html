@@ -27,6 +27,7 @@
             border-radius: 10px;
             background: #f9f9f9;
             transition: background-color 0.3s ease, border-color 0.3s ease;
+            cursor: pointer;
         }
         #drop-zone:hover, #drop-zone.drag-over {
             background: #e9f7ff;
@@ -39,16 +40,38 @@
             white-space: pre-wrap;
             word-wrap: break-word;
         }
+        .logout-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: red;
+            color: white;
+            padding: 10px 15px;
+            border-radius: 5px;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .logout-btn:hover {
+            background: darkred;
+        }
     </style>
 </head>
 <body>
+    <!-- Logout Button -->
+    <button class="logout-btn" onclick="logout()">Logout</button>
+
     <div class="container">
         <div class="dashboard-container">
             <h1 class="text-center mb-4">Welcome, {{ client_name }}!</h1>
+            <p class="text-center">You are logged in as: <strong>{{ user_email }}</strong></p>
+
+            <!-- Drag and Drop File Upload -->
             <div id="drop-zone" class="mb-4">
                 <p class="mb-0">Drag and drop a PDF or Excel file here</p>
                 <small class="text-muted">or click to select a file</small>
             </div>
+            
             <div id="output" class="mt-4"></div>
         </div>
     </div>
@@ -57,7 +80,23 @@
         const dropZone = document.getElementById('drop-zone');
         const output = document.getElementById('output');
 
-        // Add click-to-upload functionality
+        // Ensure user is authenticated
+        fetch('/check-auth')
+            .then(response => {
+                if (!response.ok) {
+                    window.location.href = '/'; // Redirect to login if not authenticated
+                }
+            });
+
+        // Logout function
+        function logout() {
+            fetch('/logout', { method: 'POST' })
+                .then(() => {
+                    window.location.href = '/'; // Redirect to login page
+                });
+        }
+
+        // Click-to-upload functionality
         dropZone.addEventListener('click', () => {
             const fileInput = document.createElement('input');
             fileInput.type = 'file';
@@ -107,6 +146,7 @@
                 } else {
                     output.innerHTML = `
                         <div class="alert alert-success">File uploaded successfully!</div>
+                        <p><strong>File Name:</strong> ${file.name}</p>
                         <pre>${JSON.stringify(data, null, 2)}</pre>
                     `;
                 }
