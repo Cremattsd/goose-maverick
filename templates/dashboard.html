@@ -4,35 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: linear-gradient(135deg, #6a11cb, #2575fc);
-            color: #fff;
-            text-align: center;
-            padding: 50px;
-        }
-        .dashboard-container {
-            background: #fff;
-            color: #333;
-            padding: 30px;
-            border-radius: 10px;
-            max-width: 600px;
-            margin: auto;
-        }
-        a {
-            display: block;
-            margin-top: 20px;
-            color: #6a11cb;
-            text-decoration: none;
-        }
-    </style>
 </head>
 <body>
-    <div class="dashboard-container">
-        <h1>Welcome, {{ client_name }}!</h1>
-        <p>You are now logged in.</p>
-        <a href="/logout">Logout</a>
-    </div>
+    <h1>Welcome, {{ client_name }}!</h1>
+    <p>You have successfully logged in.</p>
+    <a href="/logout">Logout</a>
 </body>
 </html>
