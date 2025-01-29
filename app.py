@@ -9,11 +9,11 @@ app.secret_key = os.getenv('SECRET_KEY', 'a-default-secret-key')
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,  # Set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',  # Log format
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('app.log'),  # Log to a file
-        logging.StreamHandler()  # Log to the console
+        logging.FileHandler('app.log'),
+        logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
@@ -33,16 +33,16 @@ def login():
     client = RealNexSyncApiDataFacade(api_key=api_key)
 
     try:
-        # Check if `client_info` contains a valid authentication method
-        auth_response = client.client_info  # Direct access to client info
-        if hasattr(auth_response, 'get_user_info'):  # Check if method exists
-            user_info = auth_response.get_user_info()  # Example method
+        # Use get_user() from ClientService for authentication
+        if hasattr(client, "client") and hasattr(client.client, "get_user"):
+            user_info = client.client.get_user()  # Correct authentication method
         else:
             user_info = {"clientName": "Unknown", "fullName": "Unknown"}
 
+        # Save user session
         session['api_key'] = api_key
-        session['client_name'] = user_info.get("clientName", "User")  
-        session['full_name'] = user_info.get("fullName", "User")  
+        session['client_name'] = getattr(user_info, "client_name", "User")  
+        session['full_name'] = getattr(user_info, "full_name", "User")  
 
         logger.info(f"Login successful - Welcome {session['full_name']}")
         return redirect(url_for('dashboard'))
@@ -94,5 +94,5 @@ def upload_file():
 
 # Run the app
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 10000))  # Ensures correct port binding for Render
+    port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port, debug=True)
