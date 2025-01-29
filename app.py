@@ -1,63 +1,48 @@
-from flask import Flask, render_template, request, redirect, url_for, session
+from flask import Flask, render_template, request, redirect, url_for, session, flash
 import requests
 import logging
 
 app = Flask(__name__)
-app.secret_key = "your_secret_key"  # Change this to a strong, random secret key
+app.secret_key = "your_secret_key"
 
-# Configure logging
+REALNEX_API_URL = "https://sync.realnex.com/api"
+
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-REALNEX_API_URL = "https://sync.realnex.com/api/Client"  # Update if needed
 
 @app.route("/")
 def home():
-    """Render the homepage where users can enter their API Key."""
+    if "user_name" in session:
+        return render_template("dashboard.html", user_name=session["user_name"])
     return render_template("index.html")
 
-@app.route("/login", methods=["POST"])
+@app.route("/login", methods=["GET", "POST"])
 def login():
-    """Handle login with API Key authentication."""
-    api_key = request.form.get("api_key")  # Get API key from form input
-    logger.info(f"Login attempt with API Key: {api_key}")
+    if request.method == "POST":
+        api_key = request.form.get("api_key")
+        headers = {"Authorization": f"Bearer {api_key}"}
 
-    if not api_key:
-        logger.error("No API key provided.")
-        return "API Key is required", 400
+        response = requests.get(f"{REALNEX_API_URL}/Client", headers=headers)
 
-    headers = {"Authorization": f"Bearer {api_key}"}
+        if response.status_code == 200:
+            user_data = response.json()
+            session["user_name"] = user_data.get("clientName", "Unknown User")  # Store user's name
+            session["api_key"] = api_key  # Store API key for future use
+            logging.info(f"User logged in: {session['user_name']}")
+            return redirect(url_for("dashboard"))
+        else:
+            flash("Invalid API Key. Please try again.", "danger")
+            logging.error(f"Login failed: {response.text}")
 
-    try:
-        response = requests.get(REALNEX_API_URL, headers=headers)
-        response.raise_for_status()
-
-        client_data = response.json()
-        client_name = client_data.get("clientName", "User")  # Extract client name if available
-
-        # Store API key & client name in session
-        session["api_key"] = api_key
-        session["client_name"] = client_name
-
-        logger.info(f"Login successful! Welcome, {client_name}")
-        return redirect(url_for("dashboard"))
-
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Invalid API Key: {e}")
-        return "Invalid API Key", 401
+    return render_template("login.html")
 
 @app.route("/dashboard")
 def dashboard():
-    """Render the user dashboard if logged in."""
-    if "api_key" not in session:
-        return redirect(url_for("home"))  # Redirect to home if not logged in
-
-    client_name = session.get("client_name", "User")
-    return render_template("dashboard.html", client_name=client_name)
+    if "user_name" not in session:
+        return redirect(url_for("login"))
+    return render_template("dashboard.html", user_name=session["user_name"])
 
 @app.route("/logout")
 def logout():
-    """Logout user by clearing the session."""
     session.clear()
     return redirect(url_for("home"))
 
