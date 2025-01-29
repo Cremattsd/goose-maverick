@@ -1,7 +1,7 @@
 import logging
-import os
 from flask import Flask, request, jsonify, render_template, redirect, url_for, session
-from real_nex_sync_api_data_facade.sdk import RealNexSyncApiDataFacade
+import os
+from real_nex_sync_api_data_facade.sdk import RealNexSyncApiDataFacade  # Import SDK
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -9,17 +9,17 @@ app.secret_key = os.getenv('SECRET_KEY', 'a-default-secret-key')
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,  
+    level=logging.INFO,  # Set the logging level
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('app.log'),
-        logging.StreamHandler()
+        logging.FileHandler('app.log'),  # Log to a file
+        logging.StreamHandler()  # Log to the console
     ]
 )
 logger = logging.getLogger(__name__)
 
-# RealNex API base URL
-realnex_api_url = "https://sync.realnex.com/api"
+# RealNex API Base URL
+REALNEX_API_URL = "https://sync.realnex.com/api"
 
 # Routes
 @app.route('/')
@@ -29,39 +29,43 @@ def home():
 
 @app.route('/login', methods=['POST'])
 def login():
-    api_key = request.form.get('api_key')
-    logger.info(f"Login attempt with API key: {api_key}")
+    email = request.form.get('email')
+    password = request.form.get('password')
 
-    if not api_key:
-        logger.error("No API key provided")
-        return "API Key is required", 400
+    if not email or not password:
+        logger.error("Email or Password is missing in the request")
+        return "Email and Password are required", 400
+
+    logger.info(f"Login attempt with Email: {email}")
 
     try:
-        # Initialize RealNex SDK client with the correct base_url
-        client = RealNexSyncApiDataFacade(api_key=api_key, base_url=realnex_api_url)
-        user_info = client.client.get_user()
+        # Initialize SDK and authenticate with email/password
+        client = RealNexSyncApiDataFacade(base_url=REALNEX_API_URL)
 
-        if not user_info:
-            logger.error("Invalid API key or no user data returned")
-            return "Invalid API Key", 401
+        # Use the RealNex SDK's authentication method (assuming `authenticate_user` exists)
+        auth_response = client.client.get_user(email=email, password=password)  # Modify if needed
 
-        session['api_key'] = api_key
-        session['client_name'] = getattr(user_info, "clientName", "User")
-        session['full_name'] = getattr(user_info, "fullName", "User")
+        if not auth_response:
+            logger.error("Invalid credentials or no user data returned")
+            return "Invalid Email or Password", 401
+
+        session['user_token'] = auth_response.get('token')  # Store user token in session
+        session['client_name'] = auth_response.get("clientName", "User")
+        session['full_name'] = auth_response.get("fullName", "User")
 
         logger.info(f"Login successful - Welcome {session['full_name']}")
         return redirect(url_for('dashboard'))
 
     except Exception as e:
         logger.error(f"Login failed: {str(e)}")
-        return f"Invalid API Key: {str(e)}", 401
+        return f"Login Error: {str(e)}", 401
 
 @app.route('/dashboard')
 def dashboard():
-    if 'api_key' not in session:
+    if 'user_token' not in session:
         logger.warning("Unauthorized access to dashboard")
         return redirect(url_for('home'))
-    
+
     logger.info("Dashboard accessed")
     client_name = session.get('full_name', 'User')
     return render_template('dashboard.html', client_name=client_name)
@@ -77,18 +81,20 @@ def upload_file():
         logger.error("No file selected")
         return jsonify({"error": "No file selected"}), 400
 
+    # Save file temporarily
     file_path = f"/tmp/{file.filename}"
     file.save(file_path)
     logger.info(f"File saved temporarily: {file_path}")
 
-    api_key = session.get('api_key')
-    if not api_key:
+    # Upload the file to RealNex API using the SDK
+    user_token = session.get('user_token')
+    if not user_token:
         logger.error("Unauthorized access")
         return jsonify({"error": "Unauthorized"}), 401
 
     try:
-        client = RealNexSyncApiDataFacade(api_key=api_key, base_url=realnex_api_url)
-        upload_response = client.crm_attachment.upload_file(file_path)  
+        client = RealNexSyncApiDataFacade(base_url=REALNEX_API_URL)
+        upload_response = client.crm.upload_file(file_path)  # Replace with actual SDK method
 
         logger.info(f"File uploaded successfully: {file.filename}")
         return jsonify(upload_response)
@@ -96,6 +102,6 @@ def upload_file():
         logger.error(f"Error uploading file: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
+# Run the app
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port, debug=True)  # ✅ Enable Debug Mode
+    app.run(debug=True)
