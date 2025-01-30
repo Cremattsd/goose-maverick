@@ -5,16 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Matty's Drag & Drop App</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-    <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
-    <meta name="description" content="Welcome to Matty's Drag & Drop App. Effortlessly upload and process your files.">
 </head>
 <body>
-    <div class="index-wrapper">
-        <div class="index-box">
-            <h1>Welcome to Matty's Drag & Drop App</h1>
-            <p class="subtitle">Effortlessly upload and process your files.</p>
-            <a href="{{ url_for('login') }}" class="btn" aria-label="Get Started">Get Started</a>
-        </div>
+    <div class="centered-box">
+        <h1>Welcome to Matty's Drag & Drop App</h1>
+        <p class="subtitle">Effortlessly upload and process your files.</p>
+        <a href="{{ url_for('login') }}" class="btn" aria-label="Get Started">Get Started</a>
     </div>
 </body>
 </html>
