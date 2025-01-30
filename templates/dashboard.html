@@ -4,26 +4,40 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard</title>
-    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
     <div class="container">
         <h1>Welcome, {{ user }}</h1>
-        <a href="{{ url_for('logout') }}" class="btn">Logout</a>
         
-        <h2>Upload a File</h2>
-        <div id="drop-area">
-            <p>Drag & Drop your file here</p>
-            <form action="{{ url_for('dashboard') }}" method="POST" enctype="multipart/form-data">
-                <input type="file" name="file" id="fileElem">
-                <button type="submit" class="btn">Upload</button>
-            </form>
+        <!-- Logout Button -->
+        <a href="{{ url_for('logout') }}" class="btn">Logout</a>
+
+        <!-- Drag & Drop File Upload -->
+        <div class="dropzone" onclick="document.getElementById('fileInput').click();">
+            <p>Drag & Drop or Click to Upload Files</p>
+            <input type="file" id="fileInput" class="file-input" name="file" accept=".pdf,.xls,.xlsx,.png,.jpg">
         </div>
 
+        <!-- Preview Uploaded Data -->
         {% if data %}
-            <h2>Extracted Data</h2>
-            <pre>{{ data | tojson(indent=2) }}</pre>
+        <h2>Extracted Data:</h2>
+        <div id="parsed-data">
+            <pre>{{ data }}</pre>
+        </div>
+        <form action="{{ url_for('send_data') }}" method="POST">
+            <button type="submit">Send Data to CRM</button>
+        </form>
         {% endif %}
     </div>
+
+    <script>
+        document.getElementById("fileInput").addEventListener("change", function(event) {
+            const file = event.target.files[0];
+            if (file) {
+                alert("File selected: " + file.name);
+            }
+        });
+    </script>
 </body>
 </html>
