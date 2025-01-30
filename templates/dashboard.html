@@ -3,98 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Dashboard | RealNex Uploader</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
-<body class="bg-gray-100">
+<body>
+    <div class="container">
+        <h1>Welcome, {{ user }}!</h1>
+        <a href="{{ url_for('logout') }}" class="logout-button">Logout</a>
 
-    <div class="container mx-auto px-4 py-6">
-        <div class="bg-white shadow-lg rounded-lg p-6">
-            <h1 class="text-2xl font-semibold mb-4">Welcome, {{ user }}!</h1>
+        <h2>Upload a File</h2>
+        <form action="{{ url_for('upload_file') }}" method="POST" enctype="multipart/form-data" class="upload-form">
+            <input type="file" name="file" id="fileInput" required>
+            <button type="submit">Upload</button>
+        </form>
 
-            <!-- Drag & Drop File Upload -->
-            <div id="drop-area" class="border-2 border-dashed border-gray-400 p-6 text-center bg-gray-50 cursor-pointer">
-                <p class="text-gray-600">Drag & Drop files here or <span class="text-blue-500 underline">click to upload</span></p>
-                <input type="file" id="fileInput" class="hidden" accept=".pdf,.xls,.xlsx,.png,.jpg,.jpeg">
-            </div>
+        {% if data %}
+            <h2>Parsed Data</h2>
+            <pre>{{ data | tojson(indent=2) }}</pre>
 
-            <!-- File Upload Form -->
-            <form id="uploadForm" action="{{ url_for('dashboard') }}" method="POST" enctype="multipart/form-data" class="mt-4 hidden">
-                <input type="file" name="file" id="hiddenFileInput" accept=".pdf,.xls,.xlsx,.png,.jpg,.jpeg">
-                <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded-lg mt-2">Upload</button>
+            <form action="{{ url_for('send_data') }}" method="POST">
+                <button type="submit">Send Data to RealNex</button>
             </form>
-
-            <!-- Display Parsed Data -->
-            <div class="mt-6">
-                {% if data %}
-                    <h2 class="text-xl font-semibold mb-2">Parsed Data</h2>
-                    <table class="min-w-full bg-white border border-gray-300 rounded-lg shadow-md">
-                        <thead>
-                            <tr class="bg-gray-200">
-                                <th class="py-2 px-4 border">Field</th>
-                                <th class="py-2 px-4 border">Value</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for key, value in data.items() %}
-                                <tr>
-                                    <td class="py-2 px-4 border">{{ key }}</td>
-                                    <td class="py-2 px-4 border">{{ value }}</td>
-                                </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-
-                    <!-- Send Data to CRM Button -->
-                    <form action="{{ url_for('send_data') }}" method="POST" class="mt-4">
-                        <input type="hidden" name="parsed_data" value="{{ data }}">
-                        <button type="submit" class="bg-green-500 text-white px-4 py-2 rounded-lg">Send to RealNex CRM</button>
-                    </form>
-                {% endif %}
-            </div>
-
-            <!-- Logout Button -->
-            <div class="mt-6">
-                <a href="{{ url_for('logout') }}" class="bg-red-500 text-white px-4 py-2 rounded-lg">Logout</a>
-            </div>
-        </div>
+        {% endif %}
     </div>
-
-    <script>
-        document.addEventListener("DOMContentLoaded", function() {
-            let dropArea = document.getElementById("drop-area");
-            let fileInput = document.getElementById("fileInput");
-            let hiddenFileInput = document.getElementById("hiddenFileInput");
-            let uploadForm = document.getElementById("uploadForm");
-
-            dropArea.addEventListener("click", () => fileInput.click());
-
-            fileInput.addEventListener("change", function() {
-                hiddenFileInput.files = fileInput.files;
-                uploadForm.submit();
-            });
-
-            dropArea.addEventListener("dragover", (e) => {
-                e.preventDefault();
-                dropArea.classList.add("bg-gray-200");
-            });
-
-            dropArea.addEventListener("dragleave", () => {
-                dropArea.classList.remove("bg-gray-200");
-            });
-
-            dropArea.addEventListener("drop", (e) => {
-                e.preventDefault();
-                dropArea.classList.remove("bg-gray-200");
-                let files = e.dataTransfer.files;
-                if (files.length > 0) {
-                    fileInput.files = files;
-                    hiddenFileInput.files = files;
-                    uploadForm.submit();
-                }
-            });
-        });
-    </script>
-
 </body>
 </html>
