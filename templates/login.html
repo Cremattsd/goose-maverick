@@ -8,18 +8,12 @@
 </head>
 <body>
     <div class="login-container">
-        <div class="login-box">
-            <h1>Login</h1>
-            <p>Enter your API Key</p>
-            {% if error %}
-                <p class="error">{{ error }}</p>
-            {% endif %}
-            <form action="{{ url_for('login') }}" method="POST">
-                <input type="text" name="api_key" placeholder="Enter API Key" required>
-                <button type="submit">Login</button>
-            </form>
-            <p class="support-text">Need help? <a href="#">Contact support</a></p>
-        </div>
+        <h2>Login</h2>
+        <form method="POST">
+            <label for="api_key">API Key</label>
+            <input type="text" name="api_key" placeholder="Enter API Key" required>
+            <button type="submit" class="btn">Login</button>
+        </form>
     </div>
 </body>
 </html>
