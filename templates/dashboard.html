@@ -7,29 +7,82 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
-    <div class="dashboard-container">
-        <h2>Welcome, {{ user }}</h2>
-        
-        <form action="{{ url_for('upload_file') }}" method="POST" enctype="multipart/form-data">
-            <div class="upload-area">
-                <p>Drag & Drop your file here</p>
-                <input type="file" name="file" id="file-input" hidden>
-                <button type="button" onclick="document.getElementById('file-input').click()">Choose File</button>
-                <button type="submit">Upload</button>
-            </div>
-        </form>
+    <div class="container">
+        <h2>Welcome, <span class="user-email">{{ user }}</span></h2>
 
-        {% if data %}
-        <div class="output">
-            <h3>Extracted Data</h3>
-            <textarea readonly>{{ data }}</textarea>
-            <form action="{{ url_for('send_data') }}" method="POST">
-                <button type="submit">Send to CRM</button>
-            </form>
+        <!-- Drag and Drop Upload Box -->
+        <div class="upload-box" id="drop-area">
+            <p>Drag & Drop your file here</p>
+            <input type="file" id="fileInput" hidden>
+            <button onclick="document.getElementById('fileInput').click()">Choose File</button>
+            <button id="uploadButton">Upload</button>
         </div>
-        {% endif %}
 
-        <a href="{{ url_for('logout') }}" class="btn logout">Logout</a>
+        <!-- Extracted Data Display -->
+        <div class="data-container">
+            <h3>Extracted Data</h3>
+            <pre id="extractedData">{% if data %}{{ data | tojson(indent=4) }}{% else %}No data available{% endif %}</pre>
+        </div>
+
+        <!-- Send Data to CRM -->
+        <button id="sendToCRM">Send to CRM</button>
+
+        <!-- Logout -->
+        <button onclick="window.location.href='{{ url_for('logout') }}'">Logout</button>
     </div>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            const dropArea = document.getElementById("drop-area");
+            const fileInput = document.getElementById("fileInput");
+            const uploadButton = document.getElementById("uploadButton");
+
+            dropArea.addEventListener("dragover", (event) => {
+                event.preventDefault();
+                dropArea.classList.add("drag-over");
+            });
+
+            dropArea.addEventListener("dragleave", () => {
+                dropArea.classList.remove("drag-over");
+            });
+
+            dropArea.addEventListener("drop", (event) => {
+                event.preventDefault();
+                dropArea.classList.remove("drag-over");
+
+                if (event.dataTransfer.files.length > 0) {
+                    fileInput.files = event.dataTransfer.files;
+                    uploadFile(fileInput.files[0]);
+                }
+            });
+
+            uploadButton.addEventListener("click", () => {
+                if (fileInput.files.length > 0) {
+                    uploadFile(fileInput.files[0]);
+                } else {
+                    alert("Please select a file first!");
+                }
+            });
+
+            function uploadFile(file) {
+                let formData = new FormData();
+                formData.append("file", file);
+
+                fetch("/upload", {
+                    method: "POST",
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        alert("Error: " + data.error);
+                    } else {
+                        document.getElementById("extractedData").textContent = JSON.stringify(data, null, 4);
+                    }
+                })
+                .catch(error => console.error("Upload Error:", error));
+            }
+        });
+    </script>
 </body>
 </html>
