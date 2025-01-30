@@ -3,14 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Welcome</title>
-    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='style.css') }}">
+    <title>RealNex Data Parser</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
     <div class="container">
-        <h1>Welcome to Matty's Drag & Drop App</h1>
-        <p>Streamline your RealNex data entry with ease.</p>
-        <a href="{{ url_for('login') }}" class="btn">Login</a>
+        <h1>Welcome to RealNex Data Parser</h1>
+        <p>Please <a href="{{ url_for('login') }}">Login</a> to continue.</p>
     </div>
 </body>
 </html>
