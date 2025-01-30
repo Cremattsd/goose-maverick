@@ -21,104 +21,70 @@
         <!-- Extracted Data Display -->
         <div class="data-container">
             <h3>Extracted Data</h3>
-
-            {% if data %}
-                <table>
-                    <thead>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Extracted Field</th>
+                        <th>Extracted Value</th>
+                        <th>CRM Field Mapping</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for key, value in data.items() %}
                         <tr>
-                            <th>Extracted Field</th>
-                            <th>Extracted Value</th>
-                            <th>CRM Field Mapping</th>
+                            <td>{{ key }}</td>
+                            <td>{{ value }}</td>
+                            <td>
+                                <select class="crm-field-dropdown">
+                                    <option value="none">Select CRM Field</option>
+                                    <option value="property_name" {% if key == "property_name" %}selected{% endif %}>Property Name</option>
+                                    <option value="address" {% if key == "address" %}selected{% endif %}>Address</option>
+                                    <option value="city" {% if key == "city" %}selected{% endif %}>City</option>
+                                    <option value="state" {% if key == "state" %}selected{% endif %}>State</option>
+                                    <option value="price" {% if key == "price" %}selected{% endif %}>Price</option>
+                                    <option value="cap_rate" {% if key == "cap_rate" %}selected{% endif %}>Cap Rate</option>
+                                    <option value="units" {% if key == "number_of_units" %}selected{% endif %}>Number of Units</option>
+                                    <option value="agent_name" {% if key == "agent_name" %}selected{% endif %}>Agent Name</option>
+                                    <option value="agent_phone" {% if key == "agent_phone" %}selected{% endif %}>Agent Phone</option>
+                                    <option value="agent_email" {% if key == "agent_email" %}selected{% endif %}>Agent Email</option>
+                                </select>
+                            </td>
                         </tr>
-                    </thead>
-                    <tbody>
-                        {% for key, value in data.items() %}
-                            <tr>
-                                <td>{{ key }}</td>
-                                <td>{{ value }}</td>
-                                <td>
-                                    <select class="crm-field-dropdown">
-                                        <option value="none">Select CRM Field</option>
-                                        <option value="property_name">Property Name</option>
-                                        <option value="address">Address</option>
-                                        <option value="city">City</option>
-                                        <option value="state">State</option>
-                                        <option value="price">Price</option>
-                                        <option value="cap_rate">Cap Rate</option>
-                                        <option value="units">Number of Units</option>
-                                        <option value="agent_name">Agent Name</option>
-                                        <option value="agent_phone">Agent Phone</option>
-                                        <option value="agent_email">Agent Email</option>
-                                    </select>
-                                </td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            {% else %}
-                <p class="no-data">No data available. Upload a file to extract information.</p>
-            {% endif %}
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
 
         <!-- Send Data to CRM -->
         <button id="sendToCRM">Send to CRM</button>
 
-        <!-- Logout -->
-        <button onclick="window.location.href='{{ url_for('logout') }}'">Logout</button>
-    </div>
-
-    <script>
+        <script>
         document.addEventListener("DOMContentLoaded", function () {
-            const dropArea = document.getElementById("drop-area");
-            const fileInput = document.getElementById("fileInput");
-            const uploadButton = document.getElementById("uploadButton");
+            const sendToCRMButton = document.getElementById("sendToCRM");
 
-            dropArea.addEventListener("dragover", (event) => {
-                event.preventDefault();
-                dropArea.classList.add("drag-over");
-            });
-
-            dropArea.addEventListener("dragleave", () => {
-                dropArea.classList.remove("drag-over");
-            });
-
-            dropArea.addEventListener("drop", (event) => {
-                event.preventDefault();
-                dropArea.classList.remove("drag-over");
-
-                if (event.dataTransfer.files.length > 0) {
-                    fileInput.files = event.dataTransfer.files;
-                    uploadFile(fileInput.files[0]);
+            sendToCRMButton.addEventListener("click", () => {
+                if (confirm("Are you sure you want to send this data to RealNex CRM?")) {
+                    fetch("/send-to-crm", {
+                        method: "POST",
+                        body: JSON.stringify({ data: collectedData }),
+                        headers: { "Content-Type": "application/json" }
+                    })
+                    .then(response => response.json())
+                    .then(result => {
+                        if (result.success) {
+                            alert("✅ Data successfully sent to CRM!");
+                        } else {
+                            alert("❌ Error sending data. Please try again.");
+                        }
+                    })
+                    .catch(error => {
+                        alert("❌ Network error. Please check your connection.");
+                        console.error(error);
+                    });
                 }
             });
-
-            uploadButton.addEventListener("click", () => {
-                if (fileInput.files.length > 0) {
-                    uploadFile(fileInput.files[0]);
-                } else {
-                    alert("Please select a file first!");
-                }
-            });
-
-            function uploadFile(file) {
-                let formData = new FormData();
-                formData.append("file", file);
-
-                fetch("/upload", {
-                    method: "POST",
-                    body: formData
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.error) {
-                        alert("Error: " + data.error);
-                    } else {
-                        location.reload(); // Refresh to display extracted data
-                    }
-                })
-                .catch(error => console.error("Upload Error:", error));
-            }
         });
-    </script>
+        </script>
+    </div>
 </body>
 </html>
