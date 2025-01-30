@@ -7,28 +7,35 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
-    <div class="container">
-        <h2>Welcome, <span class="user-email">{{ user }}</span></h2>
-
-        <!-- Drag and Drop Upload Box -->
-        <div class="upload-box" id="drop-area">
-            <p>Drag & Drop your file here</p>
-            <input type="file" id="fileInput" hidden>
-            <button onclick="document.getElementById('fileInput').click()">Choose File</button>
-            <button id="uploadButton">Upload</button>
+    <div class="dashboard-wrapper">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <h2>RealNex Sync</h2>
+            <p>Welcome, <span class="user-email">{{ user }}</span></p>
+            <button onclick="window.location.href='{{ url_for('logout') }}'" class="btn logout-btn">Logout</button>
         </div>
 
-        <!-- Extracted Data Display -->
-        <div class="data-container">
-            <h3>Extracted Data</h3>
-            <pre id="extractedData">{% if data %}{{ data | tojson(indent=4) }}{% else %}No data available{% endif %}</pre>
+        <!-- Main Content -->
+        <div class="dashboard-content">
+            <h2>Upload & Extract Data</h2>
+
+            <!-- Drag and Drop Upload Box -->
+            <div class="upload-box" id="drop-area">
+                <p>Drag & Drop your file here</p>
+                <input type="file" id="fileInput" hidden>
+                <button onclick="document.getElementById('fileInput').click()" class="btn">Choose File</button>
+                <button id="uploadButton" class="btn primary-btn">Upload</button>
+            </div>
+
+            <!-- Extracted Data Display -->
+            <div class="data-container">
+                <h3>Extracted Data</h3>
+                <pre id="extractedData">{% if data %}{{ data | tojson(indent=4) }}{% else %}No data available{% endif %}</pre>
+            </div>
+
+            <!-- Send Data to CRM -->
+            <button id="sendToCRM" class="btn success-btn">Send to CRM</button>
         </div>
-
-        <!-- Send Data to CRM -->
-        <button id="sendToCRM">Send to CRM</button>
-
-        <!-- Logout -->
-        <button onclick="window.location.href='{{ url_for('logout') }}'">Logout</button>
     </div>
 
     <script>
