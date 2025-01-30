@@ -6,6 +6,7 @@ import os
 import re
 from werkzeug.utils import secure_filename
 
+# Initialize Flask App
 app = Flask(__name__, static_folder='static', static_url_path='/static')
 app.secret_key = 'your_secret_key'
 UPLOAD_FOLDER = 'uploads'
