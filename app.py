@@ -25,31 +25,29 @@ def login():
     if request.method == 'POST':
         api_key = request.form['api_key']
         headers = {"Authorization": f"Bearer {api_key}"}
-        
+
         response = requests.get(REALNEX_API_URL, headers=headers)
         if response.status_code == 200:
             user_data = response.json()
             session['user'] = user_data.get("clientName", "Unknown User")
-            session['api_key'] = api_key  
             return redirect(url_for('dashboard'))
         else:
             return render_template('login.html', error='Invalid API Key')
     return render_template('login.html')
 
-@app.route('/dashboard', methods=['GET', 'POST'])
+@app.route('/dashboard')
 def dashboard():
     if 'user' not in session:
         return redirect(url_for('login'))
-    
-    parsed_data = session.get('parsed_data', None)
 
+    parsed_data = session.get('parsed_data', None)
     return render_template('dashboard.html', user=session['user'], data=parsed_data)
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
     if 'file' not in request.files:
         return jsonify({"error": "No file part"}), 400
-    
+
     file = request.files['file']
     if file.filename == '':
         return jsonify({"error": "No selected file"}), 400
@@ -59,77 +57,29 @@ def upload_file():
     file.save(file_path)
 
     parsed_data = parse_file(file_path)
-    session['parsed_data'] = parsed_data  
+    session['parsed_data'] = parsed_data
 
-    return redirect(url_for('dashboard'))
-
-@app.route('/send_data', methods=['POST'])
-def send_data():
-    if 'parsed_data' not in session:
-        return jsonify({"error": "No data to send"}), 400
-
-    api_key = session.get('api_key', None)
-    if not api_key:
-        return jsonify({"error": "API Key missing"}), 403
-
-    url = "https://sync.realnex.com/api/v1/Crm/property"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-
-    try:
-        response = requests.post(url, headers=headers, json=session['parsed_data'])
-        response.raise_for_status()
-        session.pop('parsed_data', None)  
-        return jsonify({"message": "Data successfully sent to RealNex!"}), 200
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": f"Failed to send data: {e}"}), 500
-
-@app.route('/logout')
-def logout():
-    session.clear()
-    return redirect(url_for('home'))
+    return jsonify(parsed_data)
 
 def parse_file(file_path):
     _, ext = os.path.splitext(file_path)
     if ext.lower() == ".pdf":
         return parse_pdf(file_path)
-    elif ext.lower() in [".xls", ".xlsx"]:
-        return parse_excel(file_path)
-    elif ext.lower() in [".png", ".jpg", ".jpeg"]:
-        return parse_image(file_path)
-    else:
-        return {"Error": "Unsupported file format"}
+    return {"Error": "Unsupported file format"}
 
 def parse_pdf(file_path):
     try:
         document = fitz.open(file_path)
-        text = ""
-        for page in document:
-            text += page.get_text()
+        text = "\n".join(page.get_text() for page in document)
         document.close()
-        
-        extracted_data = {
-            "ExtractedText": text
-        }
-        
-        return extracted_data
+        return {"ExtractedText": text}
     except Exception as e:
         return {"Error": str(e)}
 
-def parse_excel(file_path):
-    try:
-        data = pd.read_excel(file_path)
-        return data.to_dict(orient="records")
-    except Exception as e:
-        return {"Error": str(e)}
-
-def parse_image(file_path):
-    try:
-        return {"ExtractedText": "Image processing functionality to be added."}
-    except Exception as e:
-        return {"Error": str(e)}
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('home'))
 
 if __name__ == "__main__":
     app.run(debug=True)
