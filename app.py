@@ -80,16 +80,35 @@ def parse_file(file_path):
 def parse_pdf(file_path):
     try:
         document = fitz.open(file_path)
-        text = "\n".join(page.get_text() for page in document)
+        text = "\n".join(page.get_text("text") for page in document)
         document.close()
-        return {"ExtractedText": text}
+
+        # Smart Extraction
+        extracted_data = {
+            "property_name": extract_field(r"Property Name:\s*(.*)", text),
+            "address": extract_field(r"Address:\s*(.*)", text),
+            "city": extract_field(r"City:\s*(.*)", text),
+            "state": extract_field(r"State:\s*(.*)", text),
+            "price": extract_field(r"Price:\s*\$?([\d,]+)", text),
+            "cap_rate": extract_field(r"Cap Rate:\s*([\d\.]+%)", text),
+            "number_of_units": extract_field(r"Number of Units:\s*(\d+)", text),
+            "agent_name": extract_field(r"Managing Director\s*(\w+\s\w+)", text),
+            "agent_phone": extract_field(r"(\d{3}.\d{3}.\d{4})", text),
+            "agent_email": extract_field(r"([\w\.-]+@[\w\.-]+\.\w+)", text)
+        }
+
+        return extracted_data
     except Exception as e:
         return {"Error": str(e)}
+
+def extract_field(pattern, text):
+    match = re.search(pattern, text, re.IGNORECASE)
+    return match.group(1) if match else "N/A"
 
 def parse_image(file_path):
     try:
         image = Image.open(file_path)
-        text = pytesseract.image_to_string(image)  # OCR extraction
+        text = pytesseract.image_to_string(image)
         return {"ExtractedText": text}
     except Exception as e:
         return {"Error": str(e)}
