@@ -7,23 +7,63 @@ body {
     padding: 20px;
 }
 
-/* Table Styling */
+/* Upload Box */
+.upload-box {
+    border: 2px dashed white;
+    padding: 20px;
+    margin: 20px auto;
+    width: 60%;
+    border-radius: 10px;
+    text-align: center;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.upload-box p {
+    font-size: 16px;
+    color: white;
+}
+
+/* Drag Over Effect */
+.drag-over {
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Data Table */
 table {
     width: 90%;
     margin: auto;
     border-collapse: collapse;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    overflow: hidden;
 }
 
 th, td {
-    padding: 10px;
+    padding: 12px;
     border: 1px solid rgba(255, 255, 255, 0.3);
     text-align: left;
     word-wrap: break-word;
     white-space: normal;
-    max-width: 400px; /* Prevents fields from stretching too wide */
+    max-width: 400px;
 }
 
 th {
     background: rgba(255, 255, 255, 0.2);
     color: white;
+}
+
+/* Buttons */
+button {
+    background: #28a745;
+    color: white;
+    padding: 12px 20px;
+    border: none;
+    border-radius: 5px;
+    margin-top: 10px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+button:hover {
+    background: #1e7e34;
 }
