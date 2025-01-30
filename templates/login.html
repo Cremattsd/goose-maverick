@@ -4,17 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login</title>
-    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
     <div class="container">
-        <h2>Login with Your API Key</h2>
+        <h1>Login</h1>
         <form method="POST">
-            <input type="text" name="api_key" placeholder="Enter API Key" required>
-            <button type="submit" class="btn">Login</button>
+            <label for="api_key">Enter API Key:</label>
+            <input type="text" id="api_key" name="api_key" required>
+            <button type="submit">Login</button>
         </form>
         {% if error %}
-            <p class="error">{{ error }}</p>
+            <p style="color: red; text-align: center;">{{ error }}</p>
         {% endif %}
     </div>
 </body>
