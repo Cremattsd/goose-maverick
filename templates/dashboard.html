@@ -8,26 +8,28 @@
 </head>
 <body>
     <div class="dashboard-container">
-        <h2>Welcome, <span style="color: #FFD700;">{{ user }}</span></h2>
+        <h2>Welcome, {{ user }}</h2>
         
-        <div class="upload-area">
-            <p>Drag & Drop your file here</p>
-            <form action="{{ url_for('upload_file') }}" method="POST" enctype="multipart/form-data">
+        <form action="{{ url_for('upload_file') }}" method="POST" enctype="multipart/form-data">
+            <div class="upload-area">
+                <p>Drag & Drop your file here</p>
                 <input type="file" name="file" id="file-input" hidden>
-                <button type="button" onclick="document.getElementById('file-input').click()" class="btn btn-primary">Choose File</button>
-                <button type="submit" class="btn btn-success">Upload</button>
-            </form>
-        </div>
+                <button type="button" onclick="document.getElementById('file-input').click()">Choose File</button>
+                <button type="submit">Upload</button>
+            </div>
+        </form>
 
         {% if data %}
-            <div class="parsed-data">
-                <h3>Extracted Data</h3>
-                <pre>{{ data }}</pre>
-                <button class="btn btn-success">Send to CRM</button>
-            </div>
+        <div class="output">
+            <h3>Extracted Data</h3>
+            <textarea readonly>{{ data }}</textarea>
+            <form action="{{ url_for('send_data') }}" method="POST">
+                <button type="submit">Send to CRM</button>
+            </form>
+        </div>
         {% endif %}
-        
-        <a href="{{ url_for('logout') }}" class="btn btn-danger">Logout</a>
+
+        <a href="{{ url_for('logout') }}" class="btn logout">Logout</a>
     </div>
 </body>
 </html>
