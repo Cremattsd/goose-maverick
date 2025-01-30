@@ -3,14 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Welcome to Matty's App</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Login | RealNex Uploader</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
-<body class="bg-gray-100 flex items-center justify-center h-screen">
-    <div class="text-center">
-        <h1 class="text-4xl font-bold text-gray-800">Welcome to Matty's Drag & Drop App</h1>
-        <p class="mt-4 text-lg text-gray-600">Easily upload and process your CRM data.</p>
-        <a href="{{ url_for('login') }}" class="mt-6 inline-block px-6 py-3 text-white bg-blue-600 rounded-lg shadow-md hover:bg-blue-700 transition">Login to Continue</a>
+<body>
+    <div class="container">
+        <h1>RealNex Uploader</h1>
+        <form action="{{ url_for('login') }}" method="POST">
+            <label for="api_key">Enter API Key:</label>
+            <input type="text" id="api_key" name="api_key" required>
+            <button type="submit">Login</button>
+        </form>
+        {% if error %}
+            <p class="error">{{ error }}</p>
+        {% endif %}
     </div>
 </body>
 </html>
