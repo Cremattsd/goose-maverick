@@ -1,11 +1,9 @@
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 import requests
 import fitz  # PyMuPDF for PDF parsing
-import pandas as pd
-import pytesseract  # OCR for images
-from PIL import Image
+import json
 import os
-import re
+import openai  # AI for auto-matching fields
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__, static_folder='static', static_url_path='/static')
@@ -16,39 +14,28 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 REALNEX_API_URL = "https://sync.realnex.com/api/client"
 
-# ---------------- Home Route ----------------
-@app.route('/')
-def home():
-    if 'user' in session:
-        return redirect(url_for('dashboard'))
-    return render_template('index.html')
-
-# ---------------- Login Route ----------------
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        api_key = request.form['api_key']
-        headers = {"Authorization": f"Bearer {api_key}"}
-
-        response = requests.get(REALNEX_API_URL, headers=headers)
-        if response.status_code == 200:
-            user_data = response.json()
-            session['user'] = user_data.get("clientName", "Unknown User")
-            return redirect(url_for('dashboard'))
-        else:
-            return render_template('login.html', error='Invalid API Key')
-    return render_template('login.html')
-
-# ---------------- Dashboard Route ----------------
-@app.route('/dashboard')
-def dashboard():
+# 🔥 Fetch CRM Fields from RealNex API & Store Locally
+@app.route('/crm_fields', methods=['GET'])
+def get_crm_fields():
+    """Fetch all available CRM fields from RealNex API and store for AI."""
     if 'user' not in session:
-        return redirect(url_for('login'))
+        return jsonify({"error": "Not logged in"}), 401
 
-    parsed_data = session.get('parsed_data', None)
-    return render_template('dashboard.html', user=session['user'], data=parsed_data)
+    headers = {"Authorization": f"Bearer {session.get('api_key')}"}
+    response = requests.get("https://sync.realnex.com/api/schema", headers=headers)  # Adjust API endpoint
 
-# ---------------- File Upload & Parsing ----------------
+    if response.status_code == 200:
+        crm_fields = response.json().get("fields", [])
+        
+        # 🔥 Store fields for AI auto-matching
+        with open("crm_fields.json", "w") as file:
+            json.dump({"fields": crm_fields}, file, indent=4)
+        
+        return jsonify(crm_fields)  # Send to frontend
+    else:
+        return jsonify({"error": "Failed to fetch CRM fields"}), 500
+
+# 🔥 File Upload & Parsing
 @app.route('/upload', methods=['POST'])
 def upload_file():
     if 'file' not in request.files:
@@ -62,65 +49,108 @@ def upload_file():
     file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     file.save(file_path)
 
-    parsed_data = parse_file(file_path)
-    session['parsed_data'] = parsed_data
+    parsed_data = parse_pdf(file_path)
+    session['parsed_data'] = parsed_data  # Store for UI
 
     return jsonify(parsed_data)
 
-def parse_file(file_path):
-    _, ext = os.path.splitext(file_path)
-    if ext.lower() == ".pdf":
-        return parse_pdf(file_path)
-    elif ext.lower() in [".png", ".jpg", ".jpeg"]:
-        return parse_image(file_path)
-    elif ext.lower() in [".xls", ".xlsx"]:
-        return parse_excel(file_path)
-    return {"Error": "Unsupported file format"}
-
+# 🔥 PDF Parsing & AI Auto-Matching
 def parse_pdf(file_path):
+    """Parses a PDF and extracts multiple property listings."""
     try:
         document = fitz.open(file_path)
-        text = "\n".join(page.get_text("text") for page in document)
+        raw_text = "\n".join(page.get_text("text") for page in document)
         document.close()
-
-        # Smart Extraction
-        extracted_data = {
-            "property_name": extract_field(r"Property Name:\s*(.*)", text),
-            "address": extract_field(r"Address:\s*(.*)", text),
-            "city": extract_field(r"City:\s*(.*)", text),
-            "state": extract_field(r"State:\s*(.*)", text),
-            "price": extract_field(r"Price:\s*\$?([\d,]+)", text),
-            "cap_rate": extract_field(r"Cap Rate:\s*([\d\.]+%)", text),
-            "number_of_units": extract_field(r"Number of Units:\s*(\d+)", text),
-            "agent_name": extract_field(r"Managing Director\s*(\w+\s\w+)", text),
-            "agent_phone": extract_field(r"(\d{3}.\d{3}.\d{4})", text),
-            "agent_email": extract_field(r"([\w\.-]+@[\w\.-]+\.\w+)", text)
-        }
-
-        return extracted_data
+        
+        # AI-based field extraction
+        structured_data = extract_properties_with_ai(raw_text)
+        
+        return structured_data
     except Exception as e:
         return {"Error": str(e)}
 
-def extract_field(pattern, text):
-    match = re.search(pattern, text, re.IGNORECASE)
-    return match.group(1) if match else "N/A"
+def extract_properties_with_ai(raw_text):
+    """Uses AI to extract structured property data & auto-match CRM fields."""
+    
+    # Load CRM fields
+    with open("crm_fields.json", "r") as file:
+        crm_fields = json.load(file)["fields"]
+    
+    prompt = f"""
+    Extract all real estate properties from the following text.
+    Each property should be structured using these CRM fields:
 
-def parse_image(file_path):
-    try:
-        image = Image.open(file_path)
-        text = pytesseract.image_to_string(image)
-        return {"ExtractedText": text}
-    except Exception as e:
-        return {"Error": str(e)}
+    {", ".join(crm_fields)}
 
-def parse_excel(file_path):
-    try:
-        df = pd.read_excel(file_path)
-        return df.to_dict(orient='records')
-    except Exception as e:
-        return {"Error": str(e)}
+    If a field is missing from the text, return "N/A".
+    Also, auto-match extracted values to their correct RealNex CRM fields.
 
-# ---------------- Logout Route ----------------
+    Text:
+    {raw_text}
+
+    Return JSON:
+    """
+
+    response = openai.ChatCompletion.create(
+        model="gpt-4",
+        messages=[{"role": "system", "content": "You are a real estate CRM data extraction expert."},
+                  {"role": "user", "content": prompt}]
+    )
+
+    structured_data = response["choices"][0]["message"]["content"]
+    return json.loads(structured_data)
+
+# 🔥 Send Data to CRM
+@app.route('/send_to_crm', methods=['POST'])
+def send_to_crm():
+    """Send multiple properties to RealNex CRM."""
+    if 'user' not in session:
+        return jsonify({"error": "Not logged in"}), 401
+
+    properties = request.json.get("properties", [])
+    headers = {"Authorization": f"Bearer {session.get('api_key')}", "Content-Type": "application/json"}
+    
+    success_count = 0
+    for property_data in properties:
+        mapped_data = {property_data["crm_mapping"][key]: value for key, value in property_data.items() if key != "crm_mapping"}
+        response = requests.post("https://sync.realnex.com/api/properties", headers=headers, json=mapped_data)
+        
+        if response.status_code == 201:
+            success_count += 1
+
+    return jsonify({"success": True, "message": f"{success_count} properties sent to CRM."})
+
+# 🔥 Authentication Routes
+@app.route('/')
+def home():
+    if 'user' in session:
+        return redirect(url_for('dashboard'))
+    return render_template('index.html')
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        api_key = request.form['api_key']
+        headers = {"Authorization": f"Bearer {api_key}"}
+
+        response = requests.get(REALNEX_API_URL, headers=headers)
+        if response.status_code == 200:
+            user_data = response.json()
+            session['user'] = user_data.get("clientName", "Unknown User")
+            session['api_key'] = api_key  # Store API key for authentication
+            return redirect(url_for('dashboard'))
+        else:
+            return render_template('login.html', error='Invalid API Key')
+    return render_template('login.html')
+
+@app.route('/dashboard')
+def dashboard():
+    if 'user' not in session:
+        return redirect(url_for('login'))
+
+    parsed_data = session.get('parsed_data', None)
+    return render_template('dashboard.html', user=session['user'], data=parsed_data)
+
 @app.route('/logout')
 def logout():
     session.clear()
