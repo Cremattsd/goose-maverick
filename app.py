@@ -6,7 +6,6 @@ import os
 import re
 from werkzeug.utils import secure_filename
 
-# Initialize Flask App
 app = Flask(__name__, static_folder='static', static_url_path='/static')
 app.secret_key = 'your_secret_key'
 UPLOAD_FOLDER = 'uploads'
@@ -43,7 +42,6 @@ def dashboard():
         return redirect(url_for('login'))
     
     parsed_data = session.get('parsed_data', None)
-
     return render_template('dashboard.html', user=session['user'], data=parsed_data)
 
 @app.route('/upload', methods=['POST'])
@@ -63,29 +61,6 @@ def upload_file():
     session['parsed_data'] = parsed_data  # Store parsed data for preview
 
     return redirect(url_for('dashboard'))
-
-@app.route('/send_data', methods=['POST'])
-def send_data():
-    if 'parsed_data' not in session:
-        return jsonify({"error": "No data to send"}), 400
-
-    api_key = session.get('api_key', None)
-    if not api_key:
-        return jsonify({"error": "API Key missing"}), 403
-
-    url = "https://sync.realnex.com/api/v1/Crm/property"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-
-    try:
-        response = requests.post(url, headers=headers, json=session['parsed_data'])
-        response.raise_for_status()
-        session.pop('parsed_data', None)  # Clear session data after sending
-        return jsonify({"message": "Data successfully sent to RealNex!"}), 200
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": f"Failed to send data: {e}"}), 500
 
 @app.route('/logout')
 def logout():
@@ -112,15 +87,7 @@ def parse_pdf(file_path):
         document.close()
         
         extracted_data = {
-            "Property Address": re.search(r"\d{1,5}\s[\w\s]+,\s?[\w\s]+", text).group(0) if re.search(r"\d{1,5}\s[\w\s]+,\s?[\w\s]+", text) else "N/A",
-            "City State": re.search(r"[A-Za-z]+,\s[A-Z]{2}\s\d{5}", text).group(0) if re.search(r"[A-Za-z]+,\s[A-Z]{2}\s\d{5}", text) else "N/A",
-            "Number of Units": re.search(r"Number of Units\s+(\d+)", text).group(1) if re.search(r"Number of Units\s+(\d+)", text) else "N/A",
-            "Rentable SqFt": re.search(r"Rentable SqFt\s+(\d+,?\d*)", text).group(1) if re.search(r"Rentable SqFt\s+(\d+,?\d*)", text) else "N/A",
-            "Contact Name": re.search(r"Managing Director\\n([A-Za-z\s]+)", text).group(1) if re.search(r"Managing Director\\n([A-Za-z\s]+)", text) else "N/A",
-            "Email": re.search(r"[\w.]+@[\w.]+", text).group(0) if re.search(r"[\w.]+@[\w.]+", text) else "N/A",
-            "Cap Rate": re.search(r"Cap Rate\s+(\d+.\d+%)", text).group(1) if re.search(r"Cap Rate\s+(\d+.\d+%)", text) else "N/A",
-            "Pro Forma Cap Rate": re.search(r"Pro Forma Cap Rate\s+(\d+.\d+%)", text).group(1) if re.search(r"Pro Forma Cap Rate\s+(\d+.\d+%)", text) else "N/A",
-            "Net Operating Income": re.search(r"Net Operating Income\s+\$(\d+,?\d*)", text).group(1) if re.search(r"Net Operating Income\s+\$(\d+,?\d*)", text) else "N/A"
+            "ExtractedText": text
         }
         
         return extracted_data
@@ -135,10 +102,7 @@ def parse_excel(file_path):
         return {"Error": str(e)}
 
 def parse_image(file_path):
-    try:
-        return {"ExtractedText": "Image processing functionality to be added."}
-    except Exception as e:
-        return {"Error": str(e)}
+    return {"ExtractedText": "Image processing functionality to be added."}
 
 if __name__ == "__main__":
     app.run(debug=True)
