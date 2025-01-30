@@ -4,19 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body class="bg-gray-100 flex items-center justify-center h-screen">
-    <div class="bg-white p-8 rounded-lg shadow-md w-96">
-        <h2 class="text-2xl font-semibold text-center text-gray-800">Login</h2>
-        <p class="text-center text-gray-600 mb-4">Enter your RealNex API Key</p>
-        {% if error %}
-            <p class="text-red-500 text-sm text-center mb-2">{{ error }}</p>
-        {% endif %}
-        <form action="{{ url_for('login') }}" method="POST" class="space-y-4">
-            <input type="text" name="api_key" placeholder="Enter API Key" class="w-full px-4 py-2 border rounded-lg focus:ring focus:ring-blue-300">
-            <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition">Login</button>
+<body>
+    <div class="container">
+        <h2>Login with Your API Key</h2>
+        <form method="POST">
+            <input type="text" name="api_key" placeholder="Enter API Key" required>
+            <button type="submit" class="btn">Login</button>
         </form>
+        {% if error %}
+            <p class="error">{{ error }}</p>
+        {% endif %}
     </div>
 </body>
 </html>
