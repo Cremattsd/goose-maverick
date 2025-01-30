@@ -21,6 +21,8 @@ body {
 .upload-box p {
     font-size: 16px;
     color: white;
+    margin-top: 10px;
+    text-align: center;
 }
 
 /* Drag Over Effect */
@@ -45,6 +47,8 @@ th, td {
     word-wrap: break-word;
     white-space: normal;
     max-width: 400px;
+    overflow-wrap: break-word; /* Ensures long words break properly */
+    line-height: 1.5;
 }
 
 th {
@@ -62,8 +66,33 @@ button {
     margin-top: 10px;
     cursor: pointer;
     font-size: 16px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+    transition: all 0.3s ease-in-out;
 }
 
 button:hover {
     background: #1e7e34;
+    box-shadow: 0 6px 10px rgba(0, 0, 0, 0.3);
+    transform: scale(1.05);
+}
+
+/* Hover Effect for Table Rows */
+tr:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .upload-box, table {
+        width: 90%;
+    }
+
+    button {
+        width: 100%;
+    }
+}
+
+/* Smooth Transitions */
+button, tr:hover {
+    transition: background-color 0.3s ease, transform 0.3s ease;
 }
