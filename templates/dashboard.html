@@ -3,41 +3,39 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard</title>
+    <title>Dashboard | Data Extractor</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
+
     <div class="container">
         <h1>Welcome, {{ user }}</h1>
-        
-        <!-- Logout Button -->
-        <a href="{{ url_for('logout') }}" class="btn">Logout</a>
 
-        <!-- Drag & Drop File Upload -->
-        <div class="dropzone" onclick="document.getElementById('fileInput').click();">
-            <p>Drag & Drop or Click to Upload Files</p>
-            <input type="file" id="fileInput" class="file-input" name="file" accept=".pdf,.xls,.xlsx,.png,.jpg">
-        </div>
+        <form action="{{ url_for('upload_file') }}" method="POST" enctype="multipart/form-data">
+            <label class="upload-area" for="file-upload">
+                Drag & Drop or Click to Upload
+                <input type="file" id="file-upload" name="file">
+            </label>
+            <button type="submit">Upload File</button>
+        </form>
 
-        <!-- Preview Uploaded Data -->
         {% if data %}
-        <h2>Extracted Data:</h2>
-        <div id="parsed-data">
-            <pre>{{ data }}</pre>
+        <div class="data-card">
+            <h2>Extracted Data</h2>
+            <pre>{{ data | tojson(indent=2) }}</pre>
         </div>
+
         <form action="{{ url_for('send_data') }}" method="POST">
-            <button type="submit">Send Data to CRM</button>
+            <button type="submit">Send to RealNex</button>
         </form>
         {% endif %}
+
+        <form action="{{ url_for('logout') }}" method="GET">
+            <button type="submit" style="background: #d9534f;">Logout</button>
+        </form>
+
+        <p class="footer">Built with ❤️ for RealNex Users</p>
     </div>
 
-    <script>
-        document.getElementById("fileInput").addEventListener("change", function(event) {
-            const file = event.target.files[0];
-            if (file) {
-                alert("File selected: " + file.name);
-            }
-        });
-    </script>
 </body>
 </html>
