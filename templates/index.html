@@ -3,13 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RealNex Data Parser</title>
+    <title>Login | Data Extractor</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
+
     <div class="container">
-        <h1>Welcome to RealNex Data Parser</h1>
-        <p>Please <a href="{{ url_for('login') }}">Login</a> to continue.</p>
+        <h1>Login to RealNex</h1>
+        <form action="{{ url_for('login') }}" method="POST">
+            <input type="text" name="api_key" placeholder="Enter API Key" required>
+            <button type="submit">Login</button>
+        </form>
+
+        {% if error %}
+        <p style="color: red; text-align: center;">{{ error }}</p>
+        {% endif %}
+
+        <p class="footer">Need help? Contact support.</p>
     </div>
+
 </body>
 </html>
