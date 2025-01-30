@@ -1,104 +1,29 @@
-/* General Reset */
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-    font-family: Arial, sans-serif;
-}
-
-/* Full-page gradient background */
+/* General Styles */
 body {
-    display: flex;
-    height: 100vh;
+    font-family: Arial, sans-serif;
     background: linear-gradient(135deg, #1e3c72, #2a5298);
-}
-
-/* Centered Wrapper */
-.index-wrapper, .login-wrapper {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    height: 100%;
-    text-align: center;
-}
-
-/* Box Styling */
-.index-box, .login-box {
-    background: white;
-    padding: 2.5rem;
-    border-radius: 12px;
-    box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.2);
-    max-width: 500px;
-    width: 90%;
-}
-
-h1, h2 {
-    font-size: 24px;
-    color: #333;
-    margin-bottom: 10px;
-}
-
-.subtitle {
-    font-size: 16px;
-    color: #666;
-    margin-bottom: 20px;
-}
-
-/* Sidebar */
-.sidebar {
-    width: 250px;
-    background: #1e3c72;
     color: white;
-    padding: 2rem;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-}
-
-/* Upload Box */
-.upload-box {
-    border: 2px dashed #2a5298;
+    text-align: center;
     padding: 20px;
-    margin: 20px auto;
-    width: 60%;
-    border-radius: 10px;
-    text-align: center;
-    background: white;
 }
 
-.upload-box p {
-    font-size: 16px;
-    margin-bottom: 10px;
+/* Table Styling */
+table {
+    width: 90%;
+    margin: auto;
+    border-collapse: collapse;
 }
 
-/* Buttons */
-.btn {
-    padding: 12px 20px;
-    font-size: 16px;
+th, td {
+    padding: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    text-align: left;
+    word-wrap: break-word;
+    white-space: normal;
+    max-width: 400px; /* Prevents fields from stretching too wide */
+}
+
+th {
+    background: rgba(255, 255, 255, 0.2);
     color: white;
-    background: #2a5298;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    transition: background 0.3s ease;
-}
-
-.btn:hover {
-    background: #1e3c72;
-}
-
-.primary-btn {
-    background: #007bff;
-}
-
-.primary-btn:hover {
-    background: #0056b3;
-}
-
-.success-btn {
-    background: #28a745;
-}
-
-.success-btn:hover {
-    background: #1e7e34;
 }
