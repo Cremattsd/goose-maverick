@@ -1,35 +1,36 @@
-<div class="data-container">
-    <h3>Extracted Data</h3>
-    <table id="dataTable">
-        <thead>
-            <tr>
-                <th>Extracted Field</th>
-                <th>Extracted Value</th>
-                <th>CRM Field Mapping</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% if data %}
-                {% for key, value in data.items() %}
-                    <tr>
-                        <td>{{ key }}</td>
-                        <td>{{ value }}</td>
-                        <td>
-                            <select class="crm-field-dropdown">
-                                <option value="none">Select CRM Field</option>
-                                <option value="property_name">Property Name</option>
-                                <option value="address">Address</option>
-                                <option value="city">City</option>
-                                <option value="state">State</option>
-                                <option value="price">Price</option>
-                                <option value="contact">Contact</option>
-                            </select>
-                        </td>
-                    </tr>
-                {% endfor %}
-            {% else %}
-                <tr><td colspan="3">No data available</td></tr>
-            {% endif %}
-        </tbody>
-    </table>
-</div>
+<table>
+    <thead>
+        <tr>
+            <th>Extracted Field</th>
+            <th>Extracted Value</th>
+            <th>CRM Field Mapping</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% if data %}
+            {% for key, value in data.items() %}
+                <tr>
+                    <td>{{ key }}</td>
+                    <td style="max-width: 400px; overflow-wrap: break-word;">{{ value }}</td>
+                    <td>
+                        <select class="crm-field-dropdown">
+                            <option value="none">Select CRM Field</option>
+                            <option value="property_name">Property Name</option>
+                            <option value="address">Address</option>
+                            <option value="city">City</option>
+                            <option value="state">State</option>
+                            <option value="price">Price</option>
+                            <option value="cap_rate">Cap Rate</option>
+                            <option value="units">Number of Units</option>
+                            <option value="agent_name">Agent Name</option>
+                            <option value="agent_phone">Agent Phone</option>
+                            <option value="agent_email">Agent Email</option>
+                        </select>
+                    </td>
+                </tr>
+            {% endfor %}
+        {% else %}
+            <tr><td colspan="3">No data available</td></tr>
+        {% endif %}
+    </tbody>
+</table>
