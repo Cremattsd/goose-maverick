@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 import requests
 import fitz  # PyMuPDF for PDF parsing
 import pandas as pd
@@ -30,6 +30,7 @@ def login():
         if response.status_code == 200:
             user_data = response.json()
             session['user'] = user_data.get("clientName", "Unknown User")
+            session['api_key'] = api_key  # Store API Key for future requests
             return redirect(url_for('dashboard'))
         else:
             return render_template('login.html', error='Invalid API Key')
@@ -40,20 +41,54 @@ def dashboard():
     if 'user' not in session:
         return redirect(url_for('login'))
     
-    if request.method == 'POST':
-        file = request.files['file']
-        if file:
-            filename = secure_filename(file.filename)
-            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            file.save(file_path)
-            parsed_data = parse_file(file_path)
-            return render_template('dashboard.html', user=session['user'], data=parsed_data)
+    parsed_data = session.get('parsed_data', None)
 
-    return render_template('dashboard.html', user=session['user'])
+    return render_template('dashboard.html', user=session['user'], data=parsed_data)
+
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part"}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+
+    filename = secure_filename(file.filename)
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    file.save(file_path)
+
+    parsed_data = parse_file(file_path)
+    session['parsed_data'] = parsed_data  # Store parsed data for preview
+
+    return redirect(url_for('dashboard'))
+
+@app.route('/send_data', methods=['POST'])
+def send_data():
+    if 'parsed_data' not in session:
+        return jsonify({"error": "No data to send"}), 400
+
+    api_key = session.get('api_key', None)
+    if not api_key:
+        return jsonify({"error": "API Key missing"}), 403
+
+    url = "https://sync.realnex.com/api/v1/Crm/property"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+
+    try:
+        response = requests.post(url, headers=headers, json=session['parsed_data'])
+        response.raise_for_status()
+        session.pop('parsed_data', None)  # Clear session data after sending
+        return jsonify({"message": "Data successfully sent to RealNex!"}), 200
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": f"Failed to send data: {e}"}), 500
 
 @app.route('/logout')
 def logout():
-    session.pop('user', None)
+    session.clear()
     return redirect(url_for('home'))
 
 def parse_file(file_path):
@@ -75,7 +110,6 @@ def parse_pdf(file_path):
             text += page.get_text()
         document.close()
         
-        # Extract key information using regex
         extracted_data = {
             "Property Address": re.search(r"\d{1,5}\s[\w\s]+,\s?[\w\s]+", text).group(0) if re.search(r"\d{1,5}\s[\w\s]+,\s?[\w\s]+", text) else "N/A",
             "City State": re.search(r"[A-Za-z]+,\s[A-Z]{2}\s\d{5}", text).group(0) if re.search(r"[A-Za-z]+,\s[A-Z]{2}\s\d{5}", text) else "N/A",
