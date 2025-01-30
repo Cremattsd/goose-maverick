@@ -1,91 +1,98 @@
-/* === Global Styles === */
+/* General Styles */
 body {
     font-family: 'Poppins', sans-serif;
-    background-color: #f5f7fa;
     margin: 0;
     padding: 0;
-    color: #333;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    background: linear-gradient(to right, #4B00FF, #9C00FF);
 }
 
-.container {
-    max-width: 900px;
-    margin: 50px auto;
-    padding: 20px;
-    background: #fff;
-    border-radius: 12px;
-    box-shadow: 0px 4px 20px rgba(0, 0, 0, 0.1);
-}
-
-/* === Header Styles === */
-h1 {
-    font-size: 26px;
-    font-weight: 600;
-    text-align: center;
-    margin-bottom: 20px;
-    color: #333;
-}
-
-/* === Form and Buttons === */
-input[type="file"] {
-    display: none;
-}
-
-.upload-area {
-    border: 2px dashed #4a90e2;
-    border-radius: 8px;
-    padding: 30px;
-    text-align: center;
-    font-size: 18px;
-    color: #4a90e2;
-    cursor: pointer;
-    transition: all 0.3s ease-in-out;
-}
-
-.upload-area:hover {
-    background-color: #e3efff;
-}
-
-button {
-    display: block;
+/* Centered Login Box */
+.login-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
     width: 100%;
-    padding: 12px;
-    margin-top: 20px;
-    font-size: 18px;
-    font-weight: 500;
-    border: none;
-    border-radius: 8px;
-    background: #4a90e2;
-    color: white;
-    cursor: pointer;
-    transition: background 0.3s ease;
+    height: 100vh;
 }
 
-button:hover {
-    background: #3579b3;
+.login-box {
+    background: white;
+    padding: 30px;
+    border-radius: 12px;
+    box-shadow: 0px 10px 30px rgba(0, 0, 0, 0.2);
+    width: 350px;
+    text-align: center;
 }
 
-/* === Extracted Data Section === */
-.data-card {
-    background: #fff;
-    padding: 15px;
-    border-radius: 10px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-    margin-top: 20px;
-}
-
-.data-card h2 {
-    font-size: 20px;
-    color: #333;
-    border-bottom: 2px solid #ddd;
-    padding-bottom: 10px;
+h1 {
+    color: #6200EA;
+    font-size: 28px;
     margin-bottom: 10px;
 }
 
-/* === Footer === */
-.footer {
-    text-align: center;
-    margin-top: 30px;
+p {
     font-size: 14px;
     color: #666;
 }
 
+/* Input Field */
+input[type="text"] {
+    width: 100%;
+    padding: 12px;
+    margin: 10px 0;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 16px;
+    transition: 0.3s ease;
+}
+
+input[type="text"]:focus {
+    border-color: #6200EA;
+    outline: none;
+    box-shadow: 0px 0px 10px rgba(98, 0, 234, 0.3);
+}
+
+/* Button */
+button {
+    width: 100%;
+    padding: 12px;
+    background: #6200EA;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+button:hover {
+    background: #4500CC;
+}
+
+/* Support Text */
+.support-text {
+    margin-top: 15px;
+    font-size: 13px;
+}
+
+.support-text a {
+    color: #6200EA;
+    text-decoration: none;
+    font-weight: bold;
+}
+
+.support-text a:hover {
+    text-decoration: underline;
+}
+
+/* Error Message */
+.error {
+    color: red;
+    font-size: 14px;
+    margin-bottom: 10px;
+}
