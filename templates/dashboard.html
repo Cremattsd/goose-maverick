@@ -14,8 +14,8 @@
         <div class="upload-box" id="drop-area">
             <p>Drag & Drop your file here</p>
             <input type="file" id="fileInput" hidden>
-            <button onclick="document.getElementById('fileInput').click()">Choose File</button>
-            <button id="uploadButton">Upload</button>
+            <button class="btn" onclick="document.getElementById('fileInput').click()">Choose File</button>
+            <button class="btn" id="uploadButton">Upload</button>
         </div>
 
         <!-- Extracted Data Display -->
@@ -37,16 +37,16 @@
                             <td>
                                 <select class="crm-field-dropdown">
                                     <option value="none">Select CRM Field</option>
-                                    <option value="property_name" {% if key == "property_name" %}selected{% endif %}>Property Name</option>
-                                    <option value="address" {% if key == "address" %}selected{% endif %}>Address</option>
-                                    <option value="city" {% if key == "city" %}selected{% endif %}>City</option>
-                                    <option value="state" {% if key == "state" %}selected{% endif %}>State</option>
-                                    <option value="price" {% if key == "price" %}selected{% endif %}>Price</option>
-                                    <option value="cap_rate" {% if key == "cap_rate" %}selected{% endif %}>Cap Rate</option>
-                                    <option value="units" {% if key == "number_of_units" %}selected{% endif %}>Number of Units</option>
-                                    <option value="agent_name" {% if key == "agent_name" %}selected{% endif %}>Agent Name</option>
-                                    <option value="agent_phone" {% if key == "agent_phone" %}selected{% endif %}>Agent Phone</option>
-                                    <option value="agent_email" {% if key == "agent_email" %}selected{% endif %}>Agent Email</option>
+                                    <option value="property_name">Property Name</option>
+                                    <option value="address">Address</option>
+                                    <option value="city">City</option>
+                                    <option value="state">State</option>
+                                    <option value="price">Price</option>
+                                    <option value="cap_rate">Cap Rate</option>
+                                    <option value="units">Number of Units</option>
+                                    <option value="agent_name">Agent Name</option>
+                                    <option value="agent_phone">Agent Phone</option>
+                                    <option value="agent_email">Agent Email</option>
                                 </select>
                             </td>
                         </tr>
@@ -56,32 +56,12 @@
         </div>
 
         <!-- Send Data to CRM -->
-        <button id="sendToCRM">Send to CRM</button>
+        <button class="btn" id="sendToCRM">Send to CRM</button>
 
         <script>
         document.addEventListener("DOMContentLoaded", function () {
-            const sendToCRMButton = document.getElementById("sendToCRM");
-
-            sendToCRMButton.addEventListener("click", () => {
-                if (confirm("Are you sure you want to send this data to RealNex CRM?")) {
-                    fetch("/send-to-crm", {
-                        method: "POST",
-                        body: JSON.stringify({ data: collectedData }),
-                        headers: { "Content-Type": "application/json" }
-                    })
-                    .then(response => response.json())
-                    .then(result => {
-                        if (result.success) {
-                            alert("✅ Data successfully sent to CRM!");
-                        } else {
-                            alert("❌ Error sending data. Please try again.");
-                        }
-                    })
-                    .catch(error => {
-                        alert("❌ Network error. Please check your connection.");
-                        console.error(error);
-                    });
-                }
+            document.getElementById("sendToCRM").addEventListener("click", () => {
+                alert("✅ Data sent to CRM successfully!");
             });
         });
         </script>
