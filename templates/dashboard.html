@@ -1,70 +1,31 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-</head>
-<body>
-    <div class="container">
-        <h2>Welcome, <span class="user-email">{{ user }}</span></h2>
-
-        <!-- Drag and Drop Upload Box -->
-        <div class="upload-box" id="drop-area">
-            <p>Drag & Drop your file here</p>
-            <input type="file" id="fileInput" hidden>
-            <button class="btn" onclick="document.getElementById('fileInput').click()">Choose File</button>
-            <button class="btn" id="uploadButton">Upload</button>
-        </div>
-
-        <!-- Extracted Data Display -->
-        <div class="data-container">
-            <h3>Extracted Data</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Extracted Field</th>
-                        <th>Extracted Value</th>
-                        <th>CRM Field Mapping</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for key, value in data.items() %}
+<h3>Extracted Properties</h3>
+<div class="data-container">
+    <table class="scrollable-table">
+        <thead>
+            <tr>
+                <th>Extracted Field</th>
+                <th>Extracted Value</th>
+                <th>Mapped CRM Field</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for property in data %}
+                {% for key, value in property.items() %}
+                    {% if key != "crm_mapping" %}
                         <tr>
-                            <td>{{ key }}</td>
-                            <td>{{ value }}</td>
+                            <td>{{ key.replace('_', ' ').title() }}</td>
+                            <td><input type="text" value="{{ value }}"></td>
                             <td>
                                 <select class="crm-field-dropdown">
-                                    <option value="none">Select CRM Field</option>
-                                    <option value="property_name">Property Name</option>
-                                    <option value="address">Address</option>
-                                    <option value="city">City</option>
-                                    <option value="state">State</option>
-                                    <option value="price">Price</option>
-                                    <option value="cap_rate">Cap Rate</option>
-                                    <option value="units">Number of Units</option>
-                                    <option value="agent_name">Agent Name</option>
-                                    <option value="agent_phone">Agent Phone</option>
-                                    <option value="agent_email">Agent Email</option>
+                                    <option value="{{ property.crm_mapping[key] }}" selected>
+                                        {{ property.crm_mapping[key].replace('_', ' ').title() }}
+                                    </option>
                                 </select>
                             </td>
                         </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-
-        <!-- Send Data to CRM -->
-        <button class="btn" id="sendToCRM">Send to CRM</button>
-
-        <script>
-        document.addEventListener("DOMContentLoaded", function () {
-            document.getElementById("sendToCRM").addEventListener("click", () => {
-                alert("✅ Data sent to CRM successfully!");
-            });
-        });
-        </script>
-    </div>
-</body>
-</html>
+                    {% endif %}
+                {% endfor %}
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
