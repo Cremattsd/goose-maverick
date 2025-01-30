@@ -3,27 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard | RealNex Uploader</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <title>Dashboard</title>
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
     <div class="container">
-        <h1>Welcome, {{ user }}!</h1>
-        <a href="{{ url_for('logout') }}" class="logout-button">Logout</a>
-
+        <h1>Welcome, {{ user }}</h1>
+        <a href="{{ url_for('logout') }}" class="btn">Logout</a>
+        
         <h2>Upload a File</h2>
-        <form action="{{ url_for('upload_file') }}" method="POST" enctype="multipart/form-data" class="upload-form">
-            <input type="file" name="file" id="fileInput" required>
-            <button type="submit">Upload</button>
-        </form>
+        <div id="drop-area">
+            <p>Drag & Drop your file here</p>
+            <form action="{{ url_for('dashboard') }}" method="POST" enctype="multipart/form-data">
+                <input type="file" name="file" id="fileElem">
+                <button type="submit" class="btn">Upload</button>
+            </form>
+        </div>
 
         {% if data %}
-            <h2>Parsed Data</h2>
+            <h2>Extracted Data</h2>
             <pre>{{ data | tojson(indent=2) }}</pre>
-
-            <form action="{{ url_for('send_data') }}" method="POST">
-                <button type="submit">Send Data to RealNex</button>
-            </form>
         {% endif %}
     </div>
 </body>
