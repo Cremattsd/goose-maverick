@@ -1,95 +1,35 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-</head>
-<body>
-    <div class="dashboard-wrapper">
-        <!-- Sidebar -->
-        <div class="sidebar">
-            <h2>RealNex Sync</h2>
-            <p>Welcome, <span class="user-email">{{ user }}</span></p>
-            <button onclick="window.location.href='{{ url_for('logout') }}'" class="btn logout-btn">Logout</button>
-        </div>
-
-        <!-- Main Content -->
-        <div class="dashboard-content">
-            <h2>Upload & Extract Data</h2>
-
-            <!-- Drag and Drop Upload Box -->
-            <div class="upload-box" id="drop-area">
-                <p>Drag & Drop your file here</p>
-                <input type="file" id="fileInput" hidden>
-                <button onclick="document.getElementById('fileInput').click()" class="btn">Choose File</button>
-                <button id="uploadButton" class="btn primary-btn">Upload</button>
-            </div>
-
-            <!-- Extracted Data Display -->
-            <div class="data-container">
-                <h3>Extracted Data</h3>
-                <pre id="extractedData">{% if data %}{{ data | tojson(indent=4) }}{% else %}No data available{% endif %}</pre>
-            </div>
-
-            <!-- Send Data to CRM -->
-            <button id="sendToCRM" class="btn success-btn">Send to CRM</button>
-        </div>
-    </div>
-
-    <script>
-        document.addEventListener("DOMContentLoaded", function () {
-            const dropArea = document.getElementById("drop-area");
-            const fileInput = document.getElementById("fileInput");
-            const uploadButton = document.getElementById("uploadButton");
-
-            dropArea.addEventListener("dragover", (event) => {
-                event.preventDefault();
-                dropArea.classList.add("drag-over");
-            });
-
-            dropArea.addEventListener("dragleave", () => {
-                dropArea.classList.remove("drag-over");
-            });
-
-            dropArea.addEventListener("drop", (event) => {
-                event.preventDefault();
-                dropArea.classList.remove("drag-over");
-
-                if (event.dataTransfer.files.length > 0) {
-                    fileInput.files = event.dataTransfer.files;
-                    uploadFile(fileInput.files[0]);
-                }
-            });
-
-            uploadButton.addEventListener("click", () => {
-                if (fileInput.files.length > 0) {
-                    uploadFile(fileInput.files[0]);
-                } else {
-                    alert("Please select a file first!");
-                }
-            });
-
-            function uploadFile(file) {
-                let formData = new FormData();
-                formData.append("file", file);
-
-                fetch("/upload", {
-                    method: "POST",
-                    body: formData
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.error) {
-                        alert("Error: " + data.error);
-                    } else {
-                        document.getElementById("extractedData").textContent = JSON.stringify(data, null, 4);
-                    }
-                })
-                .catch(error => console.error("Upload Error:", error));
-            }
-        });
-    </script>
-</body>
-</html>
+<div class="data-container">
+    <h3>Extracted Data</h3>
+    <table id="dataTable">
+        <thead>
+            <tr>
+                <th>Extracted Field</th>
+                <th>Extracted Value</th>
+                <th>CRM Field Mapping</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% if data %}
+                {% for key, value in data.items() %}
+                    <tr>
+                        <td>{{ key }}</td>
+                        <td>{{ value }}</td>
+                        <td>
+                            <select class="crm-field-dropdown">
+                                <option value="none">Select CRM Field</option>
+                                <option value="property_name">Property Name</option>
+                                <option value="address">Address</option>
+                                <option value="city">City</option>
+                                <option value="state">State</option>
+                                <option value="price">Price</option>
+                                <option value="contact">Contact</option>
+                            </select>
+                        </td>
+                    </tr>
+                {% endfor %}
+            {% else %}
+                <tr><td colspan="3">No data available</td></tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
