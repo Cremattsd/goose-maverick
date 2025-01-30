@@ -3,16 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login</title>
+    <title>Login | RealNex Sync</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
-    <div class="login-container">
-        <h2>Login</h2>
-        <form method="POST">
-            <input type="text" name="api_key" placeholder="Enter your API Key" required>
-            <button type="submit" class="btn">Login</button>
-        </form>
+    <div class="login-wrapper">
+        <div class="login-box">
+            <h2>Welcome Back</h2>
+            <p class="subtitle">Enter your API Key to access your account</p>
+            <form method="POST">
+                <input type="text" name="api_key" placeholder="Enter API Key" required>
+                {% if error %}
+                    <p class="error-message">{{ error }}</p>
+                {% endif %}
+                <button type="submit" class="btn">Login</button>
+            </form>
+        </div>
     </div>
 </body>
 </html>
