@@ -1,14 +1,14 @@
 /* Global Styles */
 body {
     font-family: 'Arial', sans-serif;
-    background: linear-gradient(to right, #6a11cb, #2575fc);
+    background: linear-gradient(to right, #1e3c72, #2a5298);
     color: white;
     text-align: center;
     margin: 0;
     padding: 0;
 }
 
-/* Containers */
+/* Main Containers */
 .container, .login-container, .dashboard-container {
     max-width: 450px;
     margin: 10vh auto;
@@ -17,6 +17,12 @@ body {
     border-radius: 15px;
     box-shadow: 0px 8px 20px rgba(0, 0, 0, 0.2);
     backdrop-filter: blur(10px);
+}
+
+/* Headers */
+h1, h2, h3 {
+    color: white;
+    font-weight: bold;
 }
 
 /* Buttons */
@@ -30,20 +36,11 @@ body {
     transition: all 0.3s ease;
     cursor: pointer;
     margin-top: 15px;
+    border: none;
+    font-weight: bold;
 }
 
-/* Button Styles */
-.btn-glow {
-    background: #ff00ff;
-    color: white;
-    box-shadow: 0px 0px 15px rgba(255, 0, 255, 0.8);
-}
-
-.btn-glow:hover {
-    background: #d400d4;
-    box-shadow: 0px 0px 30px rgba(255, 0, 255, 1);
-}
-
+/* Button Colors */
 .btn-primary {
     background: #007bff;
     color: white;
@@ -84,7 +81,7 @@ body {
     background: rgba(255, 255, 255, 0.2);
 }
 
-/* Input */
+/* File Input */
 input {
     width: 100%;
     padding: 10px;
@@ -97,8 +94,14 @@ input {
 
 /* Extracted Data */
 .parsed-data {
-    background: rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.1);
     padding: 20px;
     border-radius: 10px;
     margin-top: 20px;
+    color: white;
+    text-align: left;
+    overflow: auto;
+    max-height: 200px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
 }
