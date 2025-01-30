@@ -1,98 +1,91 @@
-/* General Styles */
+/* Global Styles */
 body {
-    font-family: Arial, sans-serif;
-    background: linear-gradient(135deg, #1e3c72, #2a5298);
+    font-family: 'Arial', sans-serif;
+    background: linear-gradient(135deg, #3B2FE3, #6D48E5);
     color: white;
     text-align: center;
     padding: 20px;
 }
 
-/* Upload Box */
-.upload-box {
-    border: 2px dashed white;
-    padding: 20px;
-    margin: 20px auto;
-    width: 60%;
-    border-radius: 10px;
-    text-align: center;
-    background: rgba(255, 255, 255, 0.1);
-}
-
-.upload-box p {
-    font-size: 16px;
-    color: white;
-    margin-top: 10px;
-    text-align: center;
-}
-
-/* Drag Over Effect */
-.drag-over {
-    background-color: rgba(255, 255, 255, 0.2);
-}
-
-/* Data Table */
-table {
-    width: 90%;
+/* Centered Box */
+.centered-box {
+    background: white;
+    padding: 30px;
+    width: 400px;
     margin: auto;
-    border-collapse: collapse;
-    background: rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.2);
+}
+
+/* Form Fields */
+.input-field {
+    width: 100%;
+    padding: 12px;
+    margin: 10px 0;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 16px;
+    color: black;
+}
+
+/* Buttons */
+.btn {
+    width: 100%;
+    padding: 12px;
+    font-size: 16px;
+    background: #6900D1;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: 0.3s;
+}
+
+.btn:hover {
+    background: #5200A8;
+    transform: scale(1.02);
+}
+
+/* Scrollable Table */
+.data-container {
+    max-height: 500px; /* Restricts the height */
+    overflow-y: auto; /* Enables scroll */
+    padding: 10px;
+    background: white;
     border-radius: 10px;
-    overflow: hidden;
+    box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
+}
+
+/* Improved Table Look */
+table {
+    width: 100%;
+    border-collapse: collapse;
 }
 
 th, td {
     padding: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.3);
+    border: 1px solid #ddd;
     text-align: left;
-    word-wrap: break-word;
-    white-space: normal;
-    max-width: 400px;
-    overflow-wrap: break-word; /* Ensures long words break properly */
-    line-height: 1.5;
 }
 
 th {
-    background: rgba(255, 255, 255, 0.2);
+    background: #6900D1;
     color: white;
+    font-weight: bold;
 }
 
-/* Buttons */
-button {
-    background: #28a745;
-    color: white;
-    padding: 12px 20px;
-    border: none;
+/* CRM Field Dropdown */
+.crm-field-dropdown {
+    padding: 8px;
     border-radius: 5px;
-    margin-top: 10px;
-    cursor: pointer;
-    font-size: 16px;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
-    transition: all 0.3s ease-in-out;
+    background-color: #fff;
+    color: #333;
+    border: 1px solid #ccc;
+    font-size: 14px;
 }
 
-button:hover {
-    background: #1e7e34;
-    box-shadow: 0 6px 10px rgba(0, 0, 0, 0.3);
-    transform: scale(1.05);
-}
-
-/* Hover Effect for Table Rows */
-tr:hover {
-    background-color: rgba(255, 255, 255, 0.2);
-}
-
-/* Responsive Design */
-@media (max-width: 768px) {
-    .upload-box, table {
-        width: 90%;
-    }
-
-    button {
-        width: 100%;
-    }
-}
-
-/* Smooth Transitions */
-button, tr:hover {
-    transition: background-color 0.3s ease, transform 0.3s ease;
+.crm-field-dropdown:focus {
+    border-color: #007bff;
+    outline: none;
+    box-shadow: 0 0 5px rgba(0, 123, 255, 0.5);
 }
