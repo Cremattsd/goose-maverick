@@ -2,7 +2,7 @@ from flask import Flask, render_template, request, redirect, url_for, session, j
 import requests
 import fitz  # PyMuPDF for PDF parsing
 import pandas as pd
-import pytesseract  # OCR for images
+import tesserocr  # OCR for images
 from PIL import Image
 import os
 import re
@@ -89,7 +89,7 @@ def parse_pdf(file_path):
 def parse_image(file_path):
     try:
         image = Image.open(file_path)
-        text = pytesseract.image_to_string(image)
+        text = tesserocr.image_to_text(image)
         return {"ExtractedText": text}
     except Exception as e:
         return {"Error": str(e)}
