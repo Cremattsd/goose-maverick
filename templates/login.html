@@ -7,16 +7,19 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
-    <div class="container">
-        <h1>Login</h1>
-        <form method="POST">
-            <label for="api_key">Enter API Key:</label>
-            <input type="text" id="api_key" name="api_key" required>
-            <button type="submit">Login</button>
-        </form>
-        {% if error %}
-            <p style="color: red; text-align: center;">{{ error }}</p>
-        {% endif %}
+    <div class="login-container">
+        <div class="login-box">
+            <h1>Login</h1>
+            <p>Enter your API Key</p>
+            {% if error %}
+                <p class="error">{{ error }}</p>
+            {% endif %}
+            <form action="{{ url_for('login') }}" method="POST">
+                <input type="text" name="api_key" placeholder="Enter API Key" required>
+                <button type="submit">Login</button>
+            </form>
+            <p class="support-text">Need help? <a href="#">Contact support</a></p>
+        </div>
     </div>
 </body>
 </html>
