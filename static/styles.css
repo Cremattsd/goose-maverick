@@ -2,37 +2,77 @@ body {
     font-family: Arial, sans-serif;
     background-color: #f4f4f4;
     text-align: center;
+    margin: 0;
+    padding: 0;
 }
 
 .container {
     width: 50%;
-    margin: auto;
+    margin: 50px auto;
     background: white;
     padding: 20px;
-    box-shadow: 0px 0px 10px 0px rgba(0, 0, 0, 0.1);
-    margin-top: 50px;
     border-radius: 10px;
+    box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
 }
 
 h1 {
     color: #333;
 }
 
-input, button {
+p {
+    font-size: 18px;
+    color: #666;
+}
+
+form {
+    margin-top: 20px;
+}
+
+input[type="file"] {
+    margin: 10px 0;
+}
+
+button {
+    background-color: #007bff;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    margin: 10px;
+    cursor: pointer;
+    border-radius: 5px;
+    font-size: 16px;
+}
+
+button:hover {
+    background-color: #0056b3;
+}
+
+.chatbot {
+    margin-top: 30px;
+    padding: 20px;
+    background-color: #f9f9f9;
+    border-radius: 10px;
+    box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+}
+
+input[type="text"] {
+    width: 80%;
     padding: 10px;
-    margin: 5px;
+    margin-top: 10px;
+    border-radius: 5px;
+    border: 1px solid #ccc;
 }
 
 .btn {
-    display: inline-block;
-    padding: 10px 20px;
-    margin-top: 10px;
-    color: white;
-    background-color: blue;
+    display: block;
+    margin-top: 20px;
     text-decoration: none;
+    background-color: #28a745;
+    color: white;
+    padding: 10px;
     border-radius: 5px;
 }
 
 .btn:hover {
-    background-color: darkblue;
+    background-color: #218838;
 }
