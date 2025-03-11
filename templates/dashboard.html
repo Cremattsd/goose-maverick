@@ -4,15 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
     <div class="container">
-        <h1>📂 Upload Your Real Estate Data</h1>
-        <input type="file" id="fileInput">
-        <button onclick="uploadFile()">Upload</button>
-        <div id="output"></div>
+        <h1>Dashboard</h1>
+        <p>Manage your uploaded files and AI queries here.</p>
+        <a href="{{ url_for('home') }}" class="btn">Back to Home</a>
     </div>
-    <script src="{{ url_for('static', filename='scripts.js') }}"></script>
 </body>
 </html>
