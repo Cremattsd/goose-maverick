@@ -8,9 +8,8 @@
 </head>
 <body>
     <div class="container">
-        <h2>Welcome, <span class="user-email">{{ user }}</span></h2>
+        <h2>Welcome, {{ user }}</h2>
 
-        <!-- Upload Box -->
         <div class="upload-box" id="drop-area">
             <p>Drag & Drop your file here</p>
             <input type="file" id="fileInput" hidden>
@@ -18,40 +17,14 @@
             <button id="uploadButton">Upload</button>
         </div>
 
-        <!-- Extracted Data -->
         <div class="data-container">
             <h3>Extracted Data</h3>
-
-            {% if data %}
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Extracted Field</th>
-                            <th>Extracted Value</th>
-                            <th>CRM Field Mapping</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for key, value in data.items() %}
-                            <tr>
-                                <td style="color: black;">{{ key.replace('_', ' ').title() }}</td>
-                                <td style="color: black;">{{ value }}</td>
-                                <td>
-                                    <select class="crm-field-dropdown">
-                                        <option value="{{ key }}" selected>{{ key.replace('_', ' ').title() }}</option>
-                                    </select>
-                                </td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            {% else %}
-                <p>No data available. Upload a file to extract information.</p>
-            {% endif %}
+            <div id="extractedData"></div>
         </div>
 
-        <button id="sendToCRM">Send to CRM</button>
         <button onclick="window.location.href='{{ url_for('logout') }}'">Logout</button>
     </div>
+
+    <script src="{{ url_for('static', filename='scripts.js') }}"></script>
 </body>
 </html>
