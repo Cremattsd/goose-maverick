@@ -1,110 +1,90 @@
 import os
+import logging
+from flask import Flask, render_template, request, jsonify, session
+from werkzeug.utils import secure_filename
 import requests
-from flask import Flask, request, render_template, session, redirect, url_for, jsonify
 from realnex_api import RealNexAPI
-from openai import OpenAI
+from openai import OpenAI  # Ensure OpenAI API Key is configured in .env
+import pytesseract
+from PIL import Image
+import pandas as pd
 
 app = Flask(__name__)
-app.secret_key = os.getenv("FLASK_SECRET_KEY", "super_secret_key")
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "supersecretkey")
 
-REALNEX_API_URL = "https://sync.realnex.com/api"
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+UPLOAD_FOLDER = 'uploads'
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'pdf', 'xls', 'xlsx'}
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-ai_client = OpenAI(api_key=OPENAI_API_KEY)
+logging.basicConfig(level=logging.INFO)
 
-# Home route
-@app.route("/")
-def home():
-    return render_template("index.html")
+realnex = RealNexAPI(api_key=os.getenv("REALNEX_API_KEY"))
 
-# Login route
-@app.route("/login", methods=["POST"])
-def login():
-    data = request.json
-    email = data.get("email")
-    password = data.get("password")
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-    auth_url = f"{REALNEX_API_URL}/auth/token"
-    auth_payload = {"email": email, "password": password}
+@app.route('/')
+def index():
+    return render_template('index.html')
 
-    try:
-        response = requests.post(auth_url, json=auth_payload, timeout=10)
-
-        if response.status_code == 200:
-            user_data = response.json()
-            session["user"] = {
-                "id": user_data["id"],
-                "token": user_data["token"]
-            }
-            return jsonify({"message": "Login successful", "user_id": user_data["id"]})
-        else:
-            return jsonify({"error": "Invalid credentials"}), 401
-
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": f"Request failed: {str(e)}"}), 500
-
-# Dashboard
-@app.route("/dashboard")
+@app.route('/dashboard')
 def dashboard():
-    if "user" not in session:
-        return redirect(url_for("home"))
-    return render_template("dashboard.html")
+    if 'user' not in session:
+        return "Unauthorized", 401
+    return render_template('dashboard.html', user=session['user'])
 
-# File upload
-@app.route("/upload", methods=["POST"])
-def upload():
-    if "user" not in session:
-        return jsonify({"error": "Unauthorized"}), 401
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file provided"}), 400
 
-    user_id = session["user"]["id"]
-    token = session["user"]["token"]
-    uploaded_file = request.files.get("file")
+    file = request.files['file']
+    if file and allowed_file(file.filename):
+        filename = secure_filename(file.filename)
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(file_path)
+        
+        if filename.endswith(('.png', '.jpg', '.jpeg')):
+            extracted_text = extract_text_from_image(file_path)
+            return jsonify({"message": "File uploaded successfully", "extracted_text": extracted_text})
+        
+        elif filename.endswith(('.xls', '.xlsx')):
+            extracted_data = extract_data_from_excel(file_path)
+            return jsonify({"message": "File uploaded successfully", "extracted_data": extracted_data})
+        
+        return jsonify({"message": "File uploaded successfully"}), 200
+    else:
+        return jsonify({"error": "Invalid file format"}), 400
 
-    if uploaded_file:
-        file_path = f"./uploads/{uploaded_file.filename}"
-        uploaded_file.save(file_path)
+def extract_text_from_image(image_path):
+    image = Image.open(image_path)
+    text = pytesseract.image_to_string(image)
+    return text.strip()
 
-        headers = {"Authorization": f"Bearer {token}"}
-        files = {"file": open(file_path, "rb")}
-        data = {"user_id": user_id}
+def extract_data_from_excel(file_path):
+    df = pd.read_excel(file_path)
+    return df.to_dict(orient='records')
 
-        response = requests.post(f"{REALNEX_API_URL}/upload", headers=headers, files=files, data=data)
-
-        if response.status_code == 200:
-            return jsonify({"message": "File uploaded successfully", "data": response.json()})
-        else:
-            return jsonify({"error": response.text}), response.status_code
-
-    return jsonify({"error": "No file uploaded"}), 400
-
-# AI Chatbot
-@app.route("/chat", methods=["POST"])
+@app.route('/chat', methods=['POST'])
 def chat():
-    if "user" not in session:
-        return jsonify({"error": "Unauthorized"}), 401
+    user_message = request.json.get("message", "")
+    if not user_message:
+        return jsonify({"error": "No message provided"}), 400
 
-    data = request.json
-    user_question = data.get("question", "")
+    ai_response = chat_with_openai(user_message)
+    return jsonify({"response": ai_response})
 
-    token = session["user"]["token"]
-    headers = {"Authorization": f"Bearer {token}"}
-
-    crm_response = requests.get(f"{REALNEX_API_URL}/contacts", headers=headers)
-    crm_data = crm_response.json() if crm_response.status_code == 200 else {}
-
-    prompt = f"""
-    User Question: {user_question}
-    RealNex Data: {crm_data}
-    AI, please provide a useful response based on this data.
-    """
-
-    ai_response = ai_client.Completion.create(
+def chat_with_openai(message):
+    openai_api_key = os.getenv("OPENAI_API_KEY")
+    if not openai_api_key:
+        return "OpenAI API Key missing"
+    
+    response = OpenAI(api_key=openai_api_key).chat.completions.create(
         model="gpt-4",
-        prompt=prompt,
-        max_tokens=150
+        messages=[{"role": "user", "content": message}]
     )
+    
+    return response.choices[0].message['content']
 
-    return jsonify({"response": ai_response["choices"][0]["text"].strip()})
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     app.run(debug=True)
