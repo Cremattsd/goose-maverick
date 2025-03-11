@@ -22,7 +22,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Deploy to Render
+      - name: Install Render CLI
         run: |
           curl -fsSL https://cli.render.com/install.sh | bash
-          render deploy
+          echo "$HOME/.render/bin" >> $GITHUB_PATH
+          echo "Render CLI installed successfully"
+
+      - name: Deploy to Render
+        env:
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          render deploy --service-id $RENDER_SERVICE_ID --api-key $RENDER_API_KEY
