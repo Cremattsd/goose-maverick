@@ -8,23 +8,11 @@
 </head>
 <body>
     <div class="container">
-        <h2>Welcome, {{ user }}</h2>
-
-        <div class="upload-box" id="drop-area">
-            <p>Drag & Drop your file here</p>
-            <input type="file" id="fileInput" hidden>
-            <button onclick="document.getElementById('fileInput').click()">Choose File</button>
-            <button id="uploadButton">Upload</button>
-        </div>
-
-        <div class="data-container">
-            <h3>Extracted Data</h3>
-            <div id="extractedData"></div>
-        </div>
-
-        <button onclick="window.location.href='{{ url_for('logout') }}'">Logout</button>
+        <h1>📂 Upload Your Real Estate Data</h1>
+        <input type="file" id="fileInput">
+        <button onclick="uploadFile()">Upload</button>
+        <div id="output"></div>
     </div>
-
     <script src="{{ url_for('static', filename='scripts.js') }}"></script>
 </body>
 </html>
