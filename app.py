@@ -1,81 +1,110 @@
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 import os
 import requests
-import logging
-from werkzeug.utils import secure_filename
-
-# Configure Logging
-logging.basicConfig(level=logging.INFO)
+from flask import Flask, request, render_template, session, redirect, url_for, jsonify
+from realnex_api import RealNexAPI
+from openai import OpenAI
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "super_secret_key")
 
-UPLOAD_FOLDER = "uploads"
-ALLOWED_EXTENSIONS = {'pdf', 'xlsx', 'xls', 'png', 'jpg', 'jpeg'}
-app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
-
+REALNEX_API_URL = "https://sync.realnex.com/api"
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# Ensure uploads folder exists
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
+ai_client = OpenAI(api_key=OPENAI_API_KEY)
 
-# Helper function: Check file type
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-# 🏠 Home Page
+# Home route
 @app.route("/")
 def home():
     return render_template("index.html")
 
-# 📂 File Upload
-@app.route("/upload", methods=["POST"])
-def upload_file():
-    if "file" not in request.files:
-        return jsonify({"error": "No file uploaded"}), 400
-    
-    file = request.files["file"]
-    
-    if file.filename == "":
-        return jsonify({"error": "No selected file"}), 400
-    
-    if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename)
-        filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-        file.save(filepath)
-        return jsonify({"message": "File uploaded successfully", "filename": filename}), 200
-    
-    return jsonify({"error": "Invalid file type"}), 400
+# Login route
+@app.route("/login", methods=["POST"])
+def login():
+    data = request.json
+    email = data.get("email")
+    password = data.get("password")
 
-# 🖥️ Dashboard Route
+    auth_url = f"{REALNEX_API_URL}/auth/token"
+    auth_payload = {"email": email, "password": password}
+
+    try:
+        response = requests.post(auth_url, json=auth_payload, timeout=10)
+
+        if response.status_code == 200:
+            user_data = response.json()
+            session["user"] = {
+                "id": user_data["id"],
+                "token": user_data["token"]
+            }
+            return jsonify({"message": "Login successful", "user_id": user_data["id"]})
+        else:
+            return jsonify({"error": "Invalid credentials"}), 401
+
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": f"Request failed: {str(e)}"}), 500
+
+# Dashboard
 @app.route("/dashboard")
 def dashboard():
+    if "user" not in session:
+        return redirect(url_for("home"))
     return render_template("dashboard.html")
 
-# 💬 AI Chatbot
+# File upload
+@app.route("/upload", methods=["POST"])
+def upload():
+    if "user" not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    user_id = session["user"]["id"]
+    token = session["user"]["token"]
+    uploaded_file = request.files.get("file")
+
+    if uploaded_file:
+        file_path = f"./uploads/{uploaded_file.filename}"
+        uploaded_file.save(file_path)
+
+        headers = {"Authorization": f"Bearer {token}"}
+        files = {"file": open(file_path, "rb")}
+        data = {"user_id": user_id}
+
+        response = requests.post(f"{REALNEX_API_URL}/upload", headers=headers, files=files, data=data)
+
+        if response.status_code == 200:
+            return jsonify({"message": "File uploaded successfully", "data": response.json()})
+        else:
+            return jsonify({"error": response.text}), response.status_code
+
+    return jsonify({"error": "No file uploaded"}), 400
+
+# AI Chatbot
 @app.route("/chat", methods=["POST"])
 def chat():
+    if "user" not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
     data = request.json
-    user_input = data.get("message", "")
+    user_question = data.get("question", "")
 
-    if not user_input:
-        return jsonify({"error": "Empty message"}), 400
+    token = session["user"]["token"]
+    headers = {"Authorization": f"Bearer {token}"}
 
-    # AI Response
-    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
-    payload = {
-        "model": "gpt-4",
-        "messages": [{"role": "user", "content": user_input}]
-    }
-    
-    response = requests.post("https://api.openai.com/v1/chat/completions", json=payload, headers=headers)
-    
-    if response.status_code == 200:
-        ai_response = response.json()["choices"][0]["message"]["content"]
-        return jsonify({"response": ai_response})
-    
-    return jsonify({"error": "Failed to get AI response"}), 500
+    crm_response = requests.get(f"{REALNEX_API_URL}/contacts", headers=headers)
+    crm_data = crm_response.json() if crm_response.status_code == 200 else {}
+
+    prompt = f"""
+    User Question: {user_question}
+    RealNex Data: {crm_data}
+    AI, please provide a useful response based on this data.
+    """
+
+    ai_response = ai_client.Completion.create(
+        model="gpt-4",
+        prompt=prompt,
+        max_tokens=150
+    )
+
+    return jsonify({"response": ai_response["choices"][0]["text"].strip()})
 
 if __name__ == "__main__":
     app.run(debug=True)
