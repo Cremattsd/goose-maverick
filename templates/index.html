@@ -3,14 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Matty's Drag & Drop App</title>
+    <title>AI-Powered Data Extraction</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
-    <div class="centered-box">
-        <h1>Welcome to Matty's Drag & Drop App</h1>
-        <p class="subtitle">Effortlessly upload and process your files.</p>
-        <a href="{{ url_for('login') }}" class="btn">Get Started</a>
+    <div class="container">
+        <h2>Welcome to AI-Powered Data Extraction</h2>
+        <button onclick="window.location.href='{{ url_for('dashboard') }}'">Go to Dashboard</button>
     </div>
 </body>
 </html>
