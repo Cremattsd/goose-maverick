@@ -1,43 +1,60 @@
 from flask import Flask, request, jsonify, render_template, session
+import openai
 import os
-from config import RealNexAPI
+import requests
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = "your_secret_key_here"
+app.secret_key = os.urandom(24)  # Secure session storage
 
-# Initialize RealNexAPI
-realnex_api = RealNexAPI()
+# Set OpenAI API key from environment variable
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 @app.route("/")
-def home():
-    """Render the homepage with API status"""
-    api_enabled = realnex_api.is_api_enabled() or "REALNEX_API_TOKEN" in session
-    return render_template("index.html", api_enabled=api_enabled)
+def index():
+    return render_template("index.html", api_enabled="realnex_api_key" in session)
 
+# ✅ Save RealNex API Key from User
 @app.route("/set_api_key", methods=["POST"])
 def set_api_key():
-    """Save API key when user enters it"""
     data = request.json
-    api_key = data.get("api_key")
-    
-    if api_key:
-        session["REALNEX_API_TOKEN"] = api_key  # Store token in session
-        os.environ["REALNEX_API_TOKEN"] = api_key  # Set for session
-        return jsonify({"message": "✅ API key saved successfully! Advanced features enabled."})
-    else:
-        return jsonify({"error": "⚠️ No API key provided."}), 400
+    session["realnex_api_key"] = data.get("api_key")
+    return jsonify({"message": "API Key saved successfully!"})
 
+# ✅ AI Chatbot Route
 @app.route("/chat", methods=["POST"])
 def chat():
-    """Handle AI chatbot messages"""
-    user_message = request.json.get("message")
+    data = request.json
+    user_message = data.get("message", "").strip()
+
     if not user_message:
-        return jsonify({"error": "Message cannot be empty"}), 400
+        return jsonify({"error": "Message cannot be empty!"})
 
-    # Example AI Response (Replace with OpenAI API call)
-    response = f"AI Response: {user_message} (This is a placeholder response.)"
+    # Check if user added their RealNex API Key
+    realnex_api_key = session.get("realnex_api_key")
+    if realnex_api_key:
+        realnex_url = "https://sync.realnex.com/api/chat"
+        headers = {"Authorization": f"Bearer {realnex_api_key}"}
+        response = requests.post(realnex_url, headers=headers, json={"query": user_message})
 
-    return jsonify({"response": response})
+        if response.status_code == 200:
+            return jsonify({"response": response.json().get("data", "No response from RealNex API.")})
+    
+    # Default to OpenAI if RealNex API is not enabled
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[{"role": "system", "content": "You are a real estate AI assistant."},
+                      {"role": "user", "content": user_message}]
+        )
+        ai_response = response["choices"][0]["message"]["content"]
+    except Exception as e:
+        ai_response = f"Error: {str(e)}"
+
+    return jsonify({"response": ai_response})
 
 if __name__ == "__main__":
     app.run(debug=True)
