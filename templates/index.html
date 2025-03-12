@@ -8,25 +8,32 @@
 </head>
 <body>
     <div class="container">
-        <h1>Welcome to Matty's AI-Powered Assistant</h1>
-        <p>Chat with AI, upload files, and manage contacts.</p>
+        <header>
+            <h1>Welcome to Matty's AI Assistant</h1>
+            <p>Your smart assistant for commercial real estate</p>
+        </header>
 
-        <div class="chatbot">
+        <!-- AI Chatbot Section -->
+        <div class="chat-container">
             <div id="chat-box">
-                <p class="bot-message">Hello! How can I assist you today?</p>
+                <div class="message bot">Hi! How can I assist you today?</div>
             </div>
-            <input type="text" id="user-message" placeholder="Ask AI something...">
-            <button id="send-btn">Ask</button>
+            <div class="chat-input">
+                <input type="text" id="user-message" placeholder="Type a question...">
+                <button id="send-btn">Ask</button>
+            </div>
         </div>
 
-        <div class="feature-section">
-            <h2>Additional Features</h2>
-            <ul>
-                <li>📂 Drag & drop file uploads</li>
-                <li>📇 Business card scanning</li>
-                <li>🔍 AI-assisted CRM data matching</li>
-            </ul>
+        <!-- File Upload Section -->
+        <div class="upload-container">
+            <h2>Upload Files</h2>
+            <p>Drag & drop your files for instant data extraction.</p>
+            <input type="file" id="file-input">
+            <button id="upload-btn">Upload</button>
         </div>
+
+        <!-- Navigation -->
+        <a href="{{ url_for('dashboard') }}" class="btn">Go to Dashboard</a>
     </div>
 
     <script src="{{ url_for('static', filename='scripts.js') }}"></script>
