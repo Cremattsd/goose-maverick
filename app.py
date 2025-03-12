@@ -1,90 +1,63 @@
+from flask import Flask, request, jsonify, render_template
+import openai
 import os
-import logging
-from flask import Flask, render_template, request, jsonify, session
-from werkzeug.utils import secure_filename
-import requests
-from realnex_api import RealNexAPI
-from openai import OpenAI  # Ensure OpenAI API Key is configured in .env
-import pytesseract
-from PIL import Image
-import pandas as pd
+from config import RealNexAPI
 
 app = Flask(__name__)
-app.secret_key = os.getenv("FLASK_SECRET_KEY", "supersecretkey")
 
-UPLOAD_FOLDER = 'uploads'
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'pdf', 'xls', 'xlsx'}
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+# Set up OpenAI API Key
+openai.api_key = os.getenv("OPENAI_API_KEY")
+realnex_api = RealNexAPI()
 
-logging.basicConfig(level=logging.INFO)
-
-realnex = RealNexAPI(api_key=os.getenv("REALNEX_API_KEY"))
-
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-@app.route('/')
+@app.route("/")
 def index():
-    return render_template('index.html')
+    return render_template("index.html")
 
-@app.route('/dashboard')
-def dashboard():
-    if 'user' not in session:
-        return "Unauthorized", 401
-    return render_template('dashboard.html', user=session['user'])
-
-@app.route('/upload', methods=['POST'])
-def upload_file():
-    if 'file' not in request.files:
-        return jsonify({"error": "No file provided"}), 400
-
-    file = request.files['file']
-    if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename)
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(file_path)
-        
-        if filename.endswith(('.png', '.jpg', '.jpeg')):
-            extracted_text = extract_text_from_image(file_path)
-            return jsonify({"message": "File uploaded successfully", "extracted_text": extracted_text})
-        
-        elif filename.endswith(('.xls', '.xlsx')):
-            extracted_data = extract_data_from_excel(file_path)
-            return jsonify({"message": "File uploaded successfully", "extracted_data": extracted_data})
-        
-        return jsonify({"message": "File uploaded successfully"}), 200
-    else:
-        return jsonify({"error": "Invalid file format"}), 400
-
-def extract_text_from_image(image_path):
-    image = Image.open(image_path)
-    text = pytesseract.image_to_string(image)
-    return text.strip()
-
-def extract_data_from_excel(file_path):
-    df = pd.read_excel(file_path)
-    return df.to_dict(orient='records')
-
-@app.route('/chat', methods=['POST'])
+@app.route("/chat", methods=["POST"])
 def chat():
-    user_message = request.json.get("message", "")
+    data = request.json
+    user_message = data.get("message", "").strip().lower()
+
     if not user_message:
-        return jsonify({"error": "No message provided"}), 400
+        return jsonify({"error": "Message cannot be empty"}), 400
 
-    ai_response = chat_with_openai(user_message)
-    return jsonify({"response": ai_response})
+    # Check if API token exists, if not ask the user to provide it
+    if not realnex_api.api_token:
+        return jsonify({"response": 
+            "Welcome! I can assist you with RealNex. To unlock all features, "
+            "please provide your RealNex API token. Don't have one? "
+            "Click here to get it: https://realnex.com/api-tokens"
+        })
 
-def chat_with_openai(message):
-    openai_api_key = os.getenv("OPENAI_API_KEY")
-    if not openai_api_key:
-        return "OpenAI API Key missing"
-    
-    response = OpenAI(api_key=openai_api_key).chat.completions.create(
+    # Handle user input for common queries
+    if "features" in user_message or "help" in user_message:
+        return jsonify({"response":
+            "I can do the following:\n"
+            "✔️ Answer your commercial real estate questions\n"
+            "✔️ Upload & parse property documents\n"
+            "✔️ Scan business cards into contacts\n"
+            "✔️ Auto-match data to CRM fields\n"
+            "To start, just type what you need help with!"
+        })
+
+    # AI Response from OpenAI
+    response = openai.ChatCompletion.create(
         model="gpt-4",
-        messages=[{"role": "user", "content": message}]
+        messages=[{"role": "user", "content": user_message}]
     )
-    
-    return response.choices[0].message['content']
 
-if __name__ == '__main__':
+    return jsonify({"response": response["choices"][0]["message"]["content"]})
+
+@app.route("/set_token", methods=["POST"])
+def set_token():
+    data = request.json
+    new_token = data.get("token", "").strip()
+
+    if not new_token:
+        return jsonify({"error": "Please provide a valid token"}), 400
+
+    result = realnex_api.store_token(new_token)
+    return jsonify(result)
+
+if __name__ == "__main__":
     app.run(debug=True)
