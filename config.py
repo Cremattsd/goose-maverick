@@ -1,21 +1,24 @@
 import os
+from dotenv import load_dotenv
 
-class RealNexAPI:
-    def __init__(self):
-        self.base_url = "https://sync.realnex.com/api"
-        self.api_token = os.getenv("REALNEX_API_TOKEN")
+# Load environment variables from a .env file (optional for local testing)
+load_dotenv()
 
-    def authenticate_user(self):
-        if not self.api_token:
-            return {"error": "No API token found. Please enter your RealNex API token."}
+# OpenAI API Key (for ChatGPT AI Bot)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "your-fallback-key-if-needed")
 
-        headers = {
-            "Authorization": f"Bearer {self.api_token}",
-            "Content-Type": "application/json"
-        }
-        response = requests.get(f"{self.base_url}/Client", headers=headers)
-        return response.json() if response.status_code == 200 else {"error": "Authentication failed"}
+# RealNex User Authentication Token
+REALNEX_USER_TOKEN = os.getenv("REALNEX_USER_TOKEN", "")
 
-    def store_token(self, new_token):
-        os.environ["REALNEX_API_TOKEN"] = new_token
-        return {"message": "Token saved successfully!"}
+# Base URL for RealNex API
+REALNEX_API_BASE_URL = "https://sync.realnex.com/api"
+
+# Function to check if API keys are available
+def check_config():
+    if not OPENAI_API_KEY or OPENAI_API_KEY == "your-fallback-key-if-needed":
+        print("⚠️ WARNING: OpenAI API key is missing. Set OPENAI_API_KEY in Render environment variables.")
+    if not REALNEX_USER_TOKEN:
+        print("⚠️ WARNING: RealNex User Token is missing. Users must enter their token to enable full functionality.")
+
+# Run check when module is imported
+check_config()
