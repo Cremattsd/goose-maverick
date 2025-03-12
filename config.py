@@ -1,14 +1,17 @@
 import os
 from dotenv import load_dotenv
 
+# Load environment variables
 load_dotenv()
 
 class RealNexAPI:
     def __init__(self):
-        self.api_key = os.getenv("REALNEX_API_TOKEN")  # Load from environment variable
-        if not self.api_key:
-            print("⚠️ WARNING: No RealNex API token provided. Basic chat features will work, but data import & business card scanning require a token.")
+        self.api_key = os.getenv("REALNEX_API_TOKEN")  # Load API key from environment variables
 
     def is_api_enabled(self):
         """Check if API key is available"""
         return bool(self.api_key)
+
+    def get_api_key(self):
+        """Return the API key"""
+        return self.api_key
