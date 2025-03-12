@@ -4,38 +4,55 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Matty's AI Assistant</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1>Welcome to Matty's AI Assistant</h1>
-            <p>Your smart assistant for commercial real estate</p>
-        </header>
+        <h1>Welcome to Matty's AI Assistant</h1>
+        <p>Ask AI questions, or enter your RealNex API token for advanced features!</p>
 
-        <!-- AI Chatbot Section -->
-        <div class="chat-container">
-            <div id="chat-box">
-                <div class="message bot">Hi! How can I assist you today?</div>
-            </div>
-            <div class="chat-input">
-                <input type="text" id="user-message" placeholder="Type a question...">
-                <button id="send-btn">Ask</button>
-            </div>
+        <!-- API Key Input (Only if API is NOT enabled) -->
+        {% if not api_enabled %}
+        <div id="api-key-section">
+            <p>To enable business card scanning & data import, enter your RealNex API key:</p>
+            <input type="text" id="api-key-input" placeholder="Enter API Key">
+            <button onclick="setApiKey()">Submit</button>
         </div>
+        {% endif %}
 
-        <!-- File Upload Section -->
-        <div class="upload-container">
-            <h2>Upload Files</h2>
-            <p>Drag & drop your files for instant data extraction.</p>
-            <input type="file" id="file-input">
-            <button id="upload-btn">Upload</button>
+        <!-- AI Chatbot -->
+        <div class="chatbot">
+            <h2>Ask AI Anything</h2>
+            <input type="text" id="user-message" placeholder="Type a question...">
+            <button id="send-btn">Ask</button>
+            <div id="chat-response"></div>
         </div>
-
-        <!-- Navigation -->
-        <a href="{{ url_for('dashboard') }}" class="btn">Go to Dashboard</a>
     </div>
 
-    <script src="{{ url_for('static', filename='scripts.js') }}"></script>
+    <script>
+        // Handle API Key Submission
+        function setApiKey() {
+            let apiKey = document.getElementById("api-key-input").value;
+            fetch("/set_api_key", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ api_key: apiKey })
+            })
+            .then(response => response.json())
+            .then(data => alert(data.message || data.error));
+        }
+
+        // AI Chatbot Interaction
+        document.getElementById("send-btn").onclick = async function() {
+            let message = document.getElementById("user-message").value;
+            let response = await fetch("/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message: message })
+            });
+            let result = await response.json();
+            document.getElementById("chat-response").innerText = result.response || result.error;
+        };
+    </script>
 </body>
 </html>
