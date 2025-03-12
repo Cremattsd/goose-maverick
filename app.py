@@ -1,63 +1,43 @@
-from flask import Flask, request, jsonify, render_template
-import openai
+from flask import Flask, request, jsonify, render_template, session
 import os
 from config import RealNexAPI
 
 app = Flask(__name__)
+app.secret_key = "your_secret_key_here"
 
-# Set up OpenAI API Key
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Initialize RealNexAPI
 realnex_api = RealNexAPI()
 
 @app.route("/")
-def index():
-    return render_template("index.html")
+def home():
+    """Render the homepage with API status"""
+    api_enabled = realnex_api.is_api_enabled() or "REALNEX_API_TOKEN" in session
+    return render_template("index.html", api_enabled=api_enabled)
+
+@app.route("/set_api_key", methods=["POST"])
+def set_api_key():
+    """Save API key when user enters it"""
+    data = request.json
+    api_key = data.get("api_key")
+    
+    if api_key:
+        session["REALNEX_API_TOKEN"] = api_key  # Store token in session
+        os.environ["REALNEX_API_TOKEN"] = api_key  # Set for session
+        return jsonify({"message": "✅ API key saved successfully! Advanced features enabled."})
+    else:
+        return jsonify({"error": "⚠️ No API key provided."}), 400
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    data = request.json
-    user_message = data.get("message", "").strip().lower()
-
+    """Handle AI chatbot messages"""
+    user_message = request.json.get("message")
     if not user_message:
         return jsonify({"error": "Message cannot be empty"}), 400
 
-    # Check if API token exists, if not ask the user to provide it
-    if not realnex_api.api_token:
-        return jsonify({"response": 
-            "Welcome! I can assist you with RealNex. To unlock all features, "
-            "please provide your RealNex API token. Don't have one? "
-            "Click here to get it: https://realnex.com/api-tokens"
-        })
+    # Example AI Response (Replace with OpenAI API call)
+    response = f"AI Response: {user_message} (This is a placeholder response.)"
 
-    # Handle user input for common queries
-    if "features" in user_message or "help" in user_message:
-        return jsonify({"response":
-            "I can do the following:\n"
-            "✔️ Answer your commercial real estate questions\n"
-            "✔️ Upload & parse property documents\n"
-            "✔️ Scan business cards into contacts\n"
-            "✔️ Auto-match data to CRM fields\n"
-            "To start, just type what you need help with!"
-        })
-
-    # AI Response from OpenAI
-    response = openai.ChatCompletion.create(
-        model="gpt-4",
-        messages=[{"role": "user", "content": user_message}]
-    )
-
-    return jsonify({"response": response["choices"][0]["message"]["content"]})
-
-@app.route("/set_token", methods=["POST"])
-def set_token():
-    data = request.json
-    new_token = data.get("token", "").strip()
-
-    if not new_token:
-        return jsonify({"error": "Please provide a valid token"}), 400
-
-    result = realnex_api.store_token(new_token)
-    return jsonify(result)
+    return jsonify({"response": response})
 
 if __name__ == "__main__":
     app.run(debug=True)
