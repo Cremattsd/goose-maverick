@@ -1,60 +1,65 @@
-from flask import Flask, request, jsonify, render_template, session
-import openai
-import os
+from flask import Flask, render_template, request, jsonify, session
 import requests
+import os
+import openai
+import json
+from werkzeug.utils import secure_filename
+from realnex_api import RealNexAPI
 from dotenv import load_dotenv
 
-# Load environment variables
 load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)  # Secure session storage
+app.secret_key = "supersecretkey"
+UPLOAD_FOLDER = "uploads"
+app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
-# Set OpenAI API key from environment variable
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
+# Home Page
 @app.route("/")
-def index():
-    return render_template("index.html", api_enabled="realnex_api_key" in session)
+def home():
+    return render_template("index.html")
 
-# ✅ Save RealNex API Key from User
-@app.route("/set_api_key", methods=["POST"])
-def set_api_key():
-    data = request.json
-    session["realnex_api_key"] = data.get("api_key")
-    return jsonify({"message": "API Key saved successfully!"})
-
-# ✅ AI Chatbot Route
+# Handle AI Chat Requests
 @app.route("/chat", methods=["POST"])
 def chat():
     data = request.json
-    user_message = data.get("message", "").strip()
+    message = data.get("message")
 
-    if not user_message:
-        return jsonify({"error": "Message cannot be empty!"})
+    if not message:
+        return jsonify({"error": "No message provided"}), 400
 
-    # Check if user added their RealNex API Key
-    realnex_api_key = session.get("realnex_api_key")
-    if realnex_api_key:
-        realnex_url = "https://sync.realnex.com/api/chat"
-        headers = {"Authorization": f"Bearer {realnex_api_key}"}
-        response = requests.post(realnex_url, headers=headers, json={"query": user_message})
-
-        if response.status_code == 200:
-            return jsonify({"response": response.json().get("data", "No response from RealNex API.")})
-    
-    # Default to OpenAI if RealNex API is not enabled
     try:
         response = openai.ChatCompletion.create(
             model="gpt-4",
-            messages=[{"role": "system", "content": "You are a real estate AI assistant."},
-                      {"role": "user", "content": user_message}]
+            messages=[{"role": "user", "content": message}]
         )
-        ai_response = response["choices"][0]["message"]["content"]
+        return jsonify({"response": response["choices"][0]["message"]["content"]})
     except Exception as e:
-        ai_response = f"Error: {str(e)}"
+        return jsonify({"error": str(e)}), 500
 
-    return jsonify({"response": ai_response})
+# Handle API Key Submission
+@app.route("/submit_token", methods=["POST"])
+def submit_token():
+    token = request.form.get("token")
+    if token:
+        session["realnex_token"] = token
+        return jsonify({"message": "Token saved successfully!"})
+    return jsonify({"error": "No token provided"}), 400
+
+# Handle File Uploads
+@app.route("/upload", methods=["POST"])
+def upload_file():
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    file = request.files["file"]
+    filename = secure_filename(file.filename)
+    file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    file.save(file_path)
+
+    return jsonify({"message": "File uploaded successfully", "file_path": file_path})
 
 if __name__ == "__main__":
     app.run(debug=True)
