@@ -1,22 +1,35 @@
-function uploadFile() {
-    let fileInput = document.getElementById("fileInput");
-    let file = fileInput.files[0];
+document.getElementById("send-btn").onclick = async function() {
+    let message = document.getElementById("user-message").value;
+    if (!message) return;
 
-    if (!file) {
-        alert("Please select a file first!");
-        return;
-    }
+    let chatBox = document.getElementById("chat-box");
+    let userMessage = document.createElement("p");
+    userMessage.className = "user-message";
+    userMessage.innerText = message;
+    chatBox.appendChild(userMessage);
 
-    let formData = new FormData();
-    formData.append("file", file);
-
-    fetch("/upload", {
+    let response = await fetch("/chat", {
         method: "POST",
-        body: formData
-    })
-    .then(response => response.json())
-    .then(data => {
-        document.getElementById("output").innerHTML = JSON.stringify(data, null, 2);
-    })
-    .catch(error => console.error("Error:", error));
-}
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: message })
+    });
+
+    let result = await response.json();
+    let botMessage = document.createElement("p");
+    botMessage.className = "bot-message";
+    botMessage.innerText = result.response || "Error processing request.";
+    chatBox.appendChild(botMessage);
+
+    // If bot asks for an API Token
+    if (result.response.includes("please provide your RealNex API token")) {
+        let token = prompt("Enter your RealNex API Token:");
+        if (token) {
+            await fetch("/set_token", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ token: token })
+            });
+            alert("Token saved! You can now use all features.");
+        }
+    }
+};
