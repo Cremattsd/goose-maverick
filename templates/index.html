@@ -4,54 +4,31 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Matty's AI Assistant</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
     <div class="container">
         <h1>Welcome to Matty's AI-Powered Assistant</h1>
-        <p>Drag & drop your files for instant data extraction.</p>
-        
-        <!-- File Upload Form -->
-        <form id="upload-form" enctype="multipart/form-data">
-            <input type="file" id="file-input" name="file">
-            <button type="submit">Upload</button>
-        </form>
-        
-        <!-- AI Chatbot -->
+        <p>Chat with AI, upload files, and manage contacts.</p>
+
         <div class="chatbot">
-            <h2>Ask AI Anything</h2>
-            <input type="text" id="user-message" placeholder="Type a question...">
+            <div id="chat-box">
+                <p class="bot-message">Hello! How can I assist you today?</p>
+            </div>
+            <input type="text" id="user-message" placeholder="Ask AI something...">
             <button id="send-btn">Ask</button>
-            <div id="chat-response"></div>
         </div>
 
-        <!-- Navigation -->
-        <a href="{{ url_for('dashboard') }}" class="btn">Go to Dashboard</a>
+        <div class="feature-section">
+            <h2>Additional Features</h2>
+            <ul>
+                <li>📂 Drag & drop file uploads</li>
+                <li>📇 Business card scanning</li>
+                <li>🔍 AI-assisted CRM data matching</li>
+            </ul>
+        </div>
     </div>
 
-    <script>
-        // File Upload
-        document.getElementById("upload-form").onsubmit = async function(event) {
-            event.preventDefault();
-            let formData = new FormData();
-            formData.append("file", document.getElementById("file-input").files[0]);
-
-            let response = await fetch("/upload", { method: "POST", body: formData });
-            let result = await response.json();
-            alert(result.message || result.error);
-        };
-
-        // AI Chatbot
-        document.getElementById("send-btn").onclick = async function() {
-            let message = document.getElementById("user-message").value;
-            let response = await fetch("/chat", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ message: message })
-            });
-            let result = await response.json();
-            document.getElementById("chat-response").innerText = result.response || result.error;
-        };
-    </script>
+    <script src="{{ url_for('static', filename='scripts.js') }}"></script>
 </body>
 </html>
