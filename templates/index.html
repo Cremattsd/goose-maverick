@@ -9,23 +9,53 @@
 <body>
     <div class="container">
         <h1>Welcome to Matty's AI Assistant</h1>
-        <p>Ask AI questions, or enter your RealNex API token for advanced features!</p>
+        <p>Ask AI questions, or enter your RealNex token for advanced features!</p>
 
-        <!-- API Key Input -->
+        <!-- Token Input -->
         <div class="api-key">
-            <input type="text" id="api-key" placeholder="Enter API Key">
-            <button onclick="saveApiKey()">Submit</button>
+            <input type="text" id="user-token" placeholder="Enter RealNex Token">
+            <button id="submit-token">Submit</button>
         </div>
 
-        <!-- AI Chatbot -->
+        <!-- AI Chat -->
+        <h2>Ask AI Anything</h2>
         <div class="chatbox">
-            <h2>Ask AI Anything</h2>
             <input type="text" id="user-message" placeholder="Type a question...">
-            <button onclick="sendMessage()">Ask</button>
-            <div id="chat-response"></div>
+            <button id="send-btn">Ask</button>
         </div>
+
+        <div id="chat-response"></div>
     </div>
 
-    <script src="{{ url_for('static', filename='scripts.js') }}"></script>
+    <script>
+        let userToken = '';
+
+        // Handle Token Submission
+        document.getElementById("submit-token").onclick = function() {
+            userToken = document.getElementById("user-token").value;
+            if (userToken.trim() !== "") {
+                alert("Token saved! Advanced features enabled.");
+            } else {
+                alert("Please enter a valid token.");
+            }
+        };
+
+        // Handle AI Chat
+        document.getElementById("send-btn").onclick = async function() {
+            let message = document.getElementById("user-message").value;
+            if (!message.trim()) return alert("Please type a question!");
+
+            let response = await fetch("/chat", {
+                method: "POST",
+                headers: { 
+                    "Content-Type": "application/json" 
+                },
+                body: JSON.stringify({ message: message, token: userToken })
+            });
+
+            let result = await response.json();
+            document.getElementById("chat-response").innerText = result.response || "Error getting response.";
+        };
+    </script>
 </body>
 </html>
