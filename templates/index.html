@@ -8,54 +8,32 @@
 </head>
 <body>
     <div class="container">
-        <h1>Welcome to Matty's AI Assistant</h1>
-        <p>Ask AI questions, or enter your RealNex token for advanced features!</p>
+        <div class="card">
+            <h1>Welcome to Matty's AI Assistant</h1>
+            <p>Ask AI questions or enter your RealNex token for advanced features!</p>
+            
+            <!-- Token Input -->
+            <div class="token-box">
+                <input type="text" id="token" placeholder="Enter RealNex Token">
+                <button id="submit-token">Submit</button>
+            </div>
 
-        <!-- Token Input -->
-        <div class="api-key">
-            <input type="text" id="user-token" placeholder="Enter RealNex Token">
-            <button id="submit-token">Submit</button>
+            <!-- AI Chat -->
+            <h2>Ask AI Anything</h2>
+            <div class="chatbox">
+                <input type="text" id="user-message" placeholder="Type a question...">
+                <button id="send-btn">Ask</button>
+                <div id="chat-response"></div>
+            </div>
+
+            <!-- File Upload -->
+            <h2>Upload a File</h2>
+            <input type="file" id="file-input">
+            <button id="upload-btn">Upload</button>
+            <p id="upload-status"></p>
         </div>
-
-        <!-- AI Chat -->
-        <h2>Ask AI Anything</h2>
-        <div class="chatbox">
-            <input type="text" id="user-message" placeholder="Type a question...">
-            <button id="send-btn">Ask</button>
-        </div>
-
-        <div id="chat-response"></div>
     </div>
 
-    <script>
-        let userToken = '';
-
-        // Handle Token Submission
-        document.getElementById("submit-token").onclick = function() {
-            userToken = document.getElementById("user-token").value;
-            if (userToken.trim() !== "") {
-                alert("Token saved! Advanced features enabled.");
-            } else {
-                alert("Please enter a valid token.");
-            }
-        };
-
-        // Handle AI Chat
-        document.getElementById("send-btn").onclick = async function() {
-            let message = document.getElementById("user-message").value;
-            if (!message.trim()) return alert("Please type a question!");
-
-            let response = await fetch("/chat", {
-                method: "POST",
-                headers: { 
-                    "Content-Type": "application/json" 
-                },
-                body: JSON.stringify({ message: message, token: userToken })
-            });
-
-            let result = await response.json();
-            document.getElementById("chat-response").innerText = result.response || "Error getting response.";
-        };
-    </script>
+    <script src="{{ url_for('static', filename='scripts.js') }}"></script>
 </body>
 </html>
