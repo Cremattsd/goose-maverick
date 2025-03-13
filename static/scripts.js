@@ -1,15 +1,17 @@
-document.getElementById("send-btn").onclick = async function() {
+document.getElementById("submit-token").onclick = async function() {
+    let token = document.getElementById("token").value;
+    let response = await fetch("/set_token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: "token=" + encodeURIComponent(token)
+    });
+
+    let result = await response.json();
+    alert(result.success || result.error);
+};
+
+document.getElementById("send-message").onclick = async function() {
     let message = document.getElementById("user-message").value;
-
-    if (!message) {
-        alert("Please enter a question!");
-        return;
-    }
-
-    let responseBox = document.getElementById("chat-response");
-    responseBox.style.display = "block";
-    responseBox.innerHTML = "<strong>Loading...</strong>";
-
     let response = await fetch("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -17,5 +19,5 @@ document.getElementById("send-btn").onclick = async function() {
     });
 
     let result = await response.json();
-    responseBox.innerHTML = result.response || `<span class="text-danger">${result.error}</span>`;
+    document.getElementById("chat-response").innerText = result.response || result.error;
 };
