@@ -1,27 +1,25 @@
-from flask import Flask, render_template, request, jsonify, session
-import requests
 import os
+from flask import Flask, render_template, request, jsonify, session
 import openai
-import json
-from werkzeug.utils import secure_filename
-from realnex_api import RealNexAPI
 from dotenv import load_dotenv
 
+# Load environment variables
 load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = "supersecretkey"
-UPLOAD_FOLDER = "uploads"
-app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+app.secret_key = os.getenv("SECRET_KEY", "supersecretkey")  # Change to a real secret key
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# OpenAI API Key from environment variable
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# Home Page
-@app.route("/")
-def home():
-    return render_template("index.html")
+# Store user token in session
+@app.route("/", methods=["GET", "POST"])
+def index():
+    if request.method == "POST":
+        session["realnex_token"] = request.form.get("realnex_token")
+    return render_template("index.html", token=session.get("realnex_token"))
 
-# Handle AI Chat Requests
+# AI Chat Route
 @app.route("/chat", methods=["POST"])
 def chat():
     data = request.json
@@ -31,35 +29,17 @@ def chat():
         return jsonify({"error": "No message provided"}), 400
 
     try:
-        response = openai.ChatCompletion.create(
+        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+
+        response = client.chat.completions.create(
             model="gpt-4",
             messages=[{"role": "user", "content": message}]
         )
-        return jsonify({"response": response["choices"][0]["message"]["content"]})
+
+        return jsonify({"response": response.choices[0].message.content})
+    
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-# Handle API Key Submission
-@app.route("/submit_token", methods=["POST"])
-def submit_token():
-    token = request.form.get("token")
-    if token:
-        session["realnex_token"] = token
-        return jsonify({"message": "Token saved successfully!"})
-    return jsonify({"error": "No token provided"}), 400
-
-# Handle File Uploads
-@app.route("/upload", methods=["POST"])
-def upload_file():
-    if "file" not in request.files:
-        return jsonify({"error": "No file uploaded"}), 400
-
-    file = request.files["file"]
-    filename = secure_filename(file.filename)
-    file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-    file.save(file_path)
-
-    return jsonify({"message": "File uploaded successfully", "file_path": file_path})
 
 if __name__ == "__main__":
     app.run(debug=True)
