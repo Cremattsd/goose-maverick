@@ -7,7 +7,7 @@ load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # Initialize OpenAI client
-client = openai.OpenAI(api_key=OPENAI_API_KEY)
+openai.api_key = OPENAI_API_KEY
 
 def auto_match_fields(extracted_text):
     prompt = f"""
@@ -30,12 +30,16 @@ def auto_match_fields(extracted_text):
     """
 
     try:
-        response = client.chat.completions.create(
+        response = openai.ChatCompletion.create(
             model="gpt-4",
             messages=[{"role": "system", "content": prompt}]
         )
 
-        return response.choices[0].message.content  # Get the text response
+        return response.choices[0].message['content']  # Get the text response
 
-    except openai.OpenAIError as e:
+    except openai.error.OpenAIError as e:
         return f"Error with OpenAI API: {str(e)}"
+
+# Example usage
+extracted_text = "Sample text with property details..."
+print(auto_match_fields(extracted_text))
