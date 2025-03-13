@@ -1,45 +1,45 @@
-import os
 from flask import Flask, render_template, request, jsonify, session
 import openai
+import os
 from dotenv import load_dotenv
+from realnex_api import RealNexAPI
 
 # Load environment variables
 load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "supersecretkey")  # Change to a real secret key
+app.secret_key = os.getenv("SECRET_KEY", "supersecretkey")
 
-# OpenAI API Key from environment variable
+# OpenAI API Key
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+openai.api_key = OPENAI_API_KEY
 
-# Store user token in session
-@app.route("/", methods=["GET", "POST"])
-def index():
-    if request.method == "POST":
-        session["realnex_token"] = request.form.get("realnex_token")
-    return render_template("index.html", token=session.get("realnex_token"))
+@app.route('/')
+def home():
+    return render_template('index.html')
 
-# AI Chat Route
-@app.route("/chat", methods=["POST"])
+@app.route('/set_token', methods=['POST'])
+def set_token():
+    token = request.form.get("token")
+    if token:
+        session['realnex_token'] = token
+        return jsonify({"success": "Token saved!"})
+    return jsonify({"error": "No token provided."})
+
+@app.route('/chat', methods=['POST'])
 def chat():
-    data = request.json
-    message = data.get("message")
-
-    if not message:
-        return jsonify({"error": "No message provided"}), 400
+    user_message = request.json.get("message", "")
+    if not user_message:
+        return jsonify({"error": "Message is empty!"})
 
     try:
-        client = openai.OpenAI(api_key=OPENAI_API_KEY)
-
-        response = client.chat.completions.create(
+        response = openai.ChatCompletion.create(
             model="gpt-4",
-            messages=[{"role": "user", "content": message}]
+            messages=[{"role": "user", "content": user_message}]
         )
-
-        return jsonify({"response": response.choices[0].message.content})
-    
+        return jsonify({"response": response["choices"][0]["message"]["content"]})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": str(e)})
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     app.run(debug=True)
