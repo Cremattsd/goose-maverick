@@ -4,33 +4,30 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Matty's AI Assistant</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
-    <div class="container">
-        <div class="card">
-            <h1>Welcome to Matty's AI Assistant</h1>
-            <p>Ask AI questions or enter your RealNex token for advanced features!</p>
-            
+    <div class="container mt-5">
+        <div class="card shadow-lg p-4">
+            <h2 class="text-center">Welcome to Matty's AI Assistant</h2>
+            <p class="text-center">Ask AI questions, or enter your RealNex token for advanced features!</p>
+
             <!-- Token Input -->
-            <div class="token-box">
-                <input type="text" id="token" placeholder="Enter RealNex Token">
-                <button id="submit-token">Submit</button>
-            </div>
+            <form method="POST">
+                <div class="input-group mb-3">
+                    <input type="text" class="form-control" name="realnex_token" placeholder="Enter RealNex Token" required>
+                    <button class="btn btn-primary" type="submit">Submit</button>
+                </div>
+            </form>
 
-            <!-- AI Chat -->
-            <h2>Ask AI Anything</h2>
-            <div class="chatbox">
-                <input type="text" id="user-message" placeholder="Type a question...">
-                <button id="send-btn">Ask</button>
-                <div id="chat-response"></div>
+            <!-- Chatbot -->
+            <h3 class="text-center mt-4">Ask AI Anything</h3>
+            <div class="input-group">
+                <input type="text" id="user-message" class="form-control" placeholder="Type a question...">
+                <button id="send-btn" class="btn btn-success">Ask</button>
             </div>
-
-            <!-- File Upload -->
-            <h2>Upload a File</h2>
-            <input type="file" id="file-input">
-            <button id="upload-btn">Upload</button>
-            <p id="upload-status"></p>
+            <div id="chat-response" class="alert alert-light mt-3" style="display: none;"></div>
         </div>
     </div>
 
