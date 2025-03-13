@@ -35,11 +35,16 @@ def chat():
     try:
         response = openai.ChatCompletion.create(
             model="gpt-4",
-            messages=[{"role": "user", "content": user_message}]
+            messages=[
+                {"role": "system", "content": "You are an AI assistant for commercial real estate professionals."},
+                {"role": "user", "content": user_message}
+            ]
         )
         return jsonify({"response": response["choices"][0]["message"]["content"]})
+    except openai.OpenAIError as e:
+        return jsonify({"error": f"OpenAI API error: {str(e)}"})
     except Exception as e:
-        return jsonify({"error": str(e)})
+        return jsonify({"error": f"Unexpected error: {str(e)}"})
 
 if __name__ == '__main__':
     app.run(debug=True)
