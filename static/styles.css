@@ -1,44 +1,42 @@
 body {
-    font-family: Arial, sans-serif;
-    background: linear-gradient(135deg, #1e1e2f, #2a2a3b);
-    color: white;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    height: 100vh;
+    background: #f8f9fa;
 }
 
 .container {
-    text-align: center;
-    width: 400px;
+    max-width: 600px;
 }
 
 .card {
-    background: #29293d;
+    border-radius: 12px;
+    background: white;
     padding: 20px;
-    border-radius: 10px;
-    box-shadow: 0 0 15px rgba(255, 255, 255, 0.1);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
 }
 
-input, button {
-    width: 100%;
-    padding: 10px;
-    margin: 10px 0;
+.input-group input {
+    border-radius: 6px;
+}
+
+.btn-primary {
+    background: #007bff;
     border: none;
-    border-radius: 5px;
-    font-size: 16px;
 }
 
-button {
-    background: #4CAF50;
-    color: white;
-    cursor: pointer;
+.btn-primary:hover {
+    background: #0056b3;
 }
 
-button:hover {
-    background: #45a049;
+.btn-success {
+    background: #28a745;
+    border: none;
 }
 
-.chatbox, .token-box {
-    margin-top: 20px;
+.btn-success:hover {
+    background: #1e7e34;
+}
+
+.alert-light {
+    font-size: 18px;
+    padding: 10px;
+    text-align: center;
 }
