@@ -1,14 +1,17 @@
 import os
-import openai
 from flask import Flask, request, jsonify
+import openai
+from dotenv import load_dotenv
+
+load_dotenv()  # Load environment variables from .env (if running locally)
 
 app = Flask(__name__)
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-if not OPENAI_API_KEY:
-    raise ValueError("Missing OPENAI_API_KEY. Set this key in Render secrets.")
+# Load your OpenAI API key from Render secrets or local .env
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
-openai.api_key = OPENAI_API_KEY
+if not openai.api_key:
+    raise ValueError("Missing OPENAI_API_KEY. Ensure it's set in Render secrets.")
 
 @app.route("/")
 def home():
@@ -24,7 +27,7 @@ def chat():
 
     try:
         response = openai.ChatCompletion.create(
-            model="gpt-4",
+            model="gpt-4-turbo",
             messages=[{"role": "user", "content": user_message}]
         )
         return jsonify({"response": response["choices"][0]["message"]["content"]})
