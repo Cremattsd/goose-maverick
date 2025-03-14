@@ -1,17 +1,19 @@
 from flask import Flask, render_template, request, jsonify, session
+import openai
 import os
 from dotenv import load_dotenv
-from openai import OpenAI  # ✅ Correct OpenAI import
 
 # Load environment variables
 load_dotenv()
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
-# ✅ Initialize OpenAI Client (NEW API Format)
-client = OpenAI(api_key=OPENAI_API_KEY)
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "supersecretkey")
+
+# OpenAI API Key
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+# Initialize OpenAI client
+client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 @app.route('/')
 def home():
@@ -32,7 +34,7 @@ def chat():
         return jsonify({"error": "Message is empty!"})
 
     try:
-        response = client.chat.completions.create(  # ✅ Correct OpenAI API Call
+        response = client.chat.completions.create(
             model="gpt-4",
             messages=[
                 {"role": "system", "content": "You are an AI assistant for commercial real estate professionals."},
@@ -40,8 +42,10 @@ def chat():
             ]
         )
         return jsonify({"response": response.choices[0].message.content})
-    except Exception as e:
+    except openai.OpenAIError as e:
         return jsonify({"error": f"OpenAI API error: {str(e)}"})
+    except Exception as e:
+        return jsonify({"error": f"Unexpected error: {str(e)}"})
 
 if __name__ == '__main__':
     app.run(debug=True)
