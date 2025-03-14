@@ -10,11 +10,11 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "supersecretkey")
 
-# OpenAI API Key
+# ✅ Correct OpenAI API Initialization
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# ✅ Fix: Initialize OpenAI client correctly (NEW SYNTAX)
-openai.api_key = OPENAI_API_KEY  # ✅ Instead of `client = openai.OpenAI(api_key=OPENAI_API_KEY)`
+# ✅ Use new OpenAI Client (Fix for `openai>=1.0.0`)
+client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 @app.route('/')
 def home():
@@ -35,14 +35,14 @@ def chat():
         return jsonify({"error": "Message is empty!"})
 
     try:
-        response = openai.ChatCompletion.create(  # ✅ Use the correct method
+        response = client.chat.completions.create(  # ✅ Corrected OpenAI method
             model="gpt-4",
             messages=[
                 {"role": "system", "content": "You are an AI assistant for commercial real estate professionals."},
                 {"role": "user", "content": user_message}
             ]
         )
-        return jsonify({"response": response["choices"][0]["message"]["content"]})
+        return jsonify({"response": response.choices[0].message.content})
 
     except openai.OpenAIError as e:
         return jsonify({"error": f"OpenAI API error: {str(e)}"})
