@@ -10,7 +10,7 @@ load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # Initialize OpenAI client
-client = openai.OpenAI(api_key=OPENAI_API_KEY)
+client = openai.Client(api_key=OPENAI_API_KEY)
 
 def auto_match_fields(extracted_text, user_fields):
     """
@@ -34,7 +34,7 @@ def auto_match_fields(extracted_text, user_fields):
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4-turbo",
             messages=[{"role": "system", "content": prompt}]
         )
 
