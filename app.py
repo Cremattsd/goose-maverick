@@ -12,7 +12,9 @@ app.secret_key = os.getenv("SECRET_KEY", "supersecretkey")
 
 # OpenAI API Key
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-openai.api_key = OPENAI_API_KEY
+
+# Initialize OpenAI client (NEW FORMAT)
+client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 @app.route('/')
 def home():
@@ -33,14 +35,15 @@ def chat():
         return jsonify({"error": "Message is empty!"})
 
     try:
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(  # ✅ UPDATED OpenAI format
             model="gpt-4",
             messages=[
                 {"role": "system", "content": "You are an AI assistant for commercial real estate professionals."},
                 {"role": "user", "content": user_message}
             ]
         )
-        return jsonify({"response": response["choices"][0]["message"]["content"]})
+        return jsonify({"response": response.choices[0].message.content})  # ✅ Updated response handling
+
     except openai.OpenAIError as e:
         return jsonify({"error": f"OpenAI API error: {str(e)}"})
     except Exception as e:
