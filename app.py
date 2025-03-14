@@ -2,19 +2,16 @@ from flask import Flask, render_template, request, jsonify, session
 import openai
 import os
 from dotenv import load_dotenv
-from realnex_api import RealNexAPI
 
 # Load environment variables
 load_dotenv()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+# Set OpenAI API Key Correctly
+openai.api_key = OPENAI_API_KEY  # ✅ This is the correct way
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "supersecretkey")
-
-# ✅ Correct OpenAI API Initialization
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
-# ✅ New OpenAI Client Initialization
-client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 @app.route('/')
 def home():
@@ -35,19 +32,16 @@ def chat():
         return jsonify({"error": "Message is empty!"})
 
     try:
-        response = client.chat.completions.create(
+        response = openai.ChatCompletion.create(
             model="gpt-4",
             messages=[
                 {"role": "system", "content": "You are an AI assistant for commercial real estate professionals."},
                 {"role": "user", "content": user_message}
             ]
         )
-        return jsonify({"response": response.choices[0].message.content})
-
-    except openai.OpenAIError as e:
-        return jsonify({"error": f"OpenAI API error: {str(e)}"})
+        return jsonify({"response": response["choices"][0]["message"]["content"]})
     except Exception as e:
-        return jsonify({"error": f"Unexpected error: {str(e)}"})
+        return jsonify({"error": f"OpenAI API error: {str(e)}"})
 
 if __name__ == '__main__':
     app.run(debug=True)
