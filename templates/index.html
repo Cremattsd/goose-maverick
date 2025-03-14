@@ -1,31 +1,21 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Matty's AI Assistant</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <title>RealNex Data Importer</title>
+    <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-    <div class="container">
-        <h1>Welcome to Matty's AI Assistant</h1>
-        <p>Ask AI questions, or enter your RealNex token for advanced features!</p>
-
-        <!-- Token Input -->
-        <div class="token-section">
-            <input type="text" id="token" placeholder="Enter RealNex Token">
-            <button id="submit-token">Submit</button>
-        </div>
-
-        <!-- AI Chat -->
-        <div class="chat-section">
-            <h2>Ask AI Anything</h2>
-            <input type="text" id="user-message" placeholder="Type a question...">
-            <button id="send-message">Ask</button>
-            <div id="chat-response"></div>
-        </div>
+    <div id="upload-area">
+        <input type="text" id="company_id" placeholder="Enter Company ID">
+        <input type="file" id="file-upload">
+        <button id="upload-btn">Upload</button>
     </div>
 
-    <script src="{{ url_for('static', filename='scripts.js') }}"></script>
+    <div id="chat-area">
+        <div id="chat-history"></div>
+        <input type="text" id="chat-input" placeholder="Ask the chatbot...">
+        <button id="chat-send">Send</button>
+    </div>
+    <script src="/static/scripts.js"></script>
 </body>
 </html>
