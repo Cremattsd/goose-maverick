@@ -1,5 +1,5 @@
 import os
-import openai
+from openai import OpenAI
 from flask import Flask, request, jsonify
 
 # Initialize Flask app
@@ -10,8 +10,8 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     raise ValueError("Missing OPENAI_API_KEY. Make sure it's set in Render secrets.")
 
-# Use the correct OpenAI client initialization
-openai.api_key = OPENAI_API_KEY  # ✅ Correct way to set API key
+# Initialize the OpenAI client
+client = OpenAI(api_key=OPENAI_API_KEY)  # ✅ Correct client initialization
 
 @app.route("/")
 def home():
@@ -26,11 +26,11 @@ def chat():
         return jsonify({"error": "No message provided"}), 400
 
     try:
-        response = openai.ChatCompletion.create(  # ✅ Correct API usage
+        response = client.chat.completions.create(  # ✅ Updated OpenAI API syntax
             model="gpt-4",
             messages=[{"role": "user", "content": user_message}]
         )
-        return jsonify({"response": response["choices"][0]["message"]["content"]})
+        return jsonify({"response": response.choices[0].message.content})
     except Exception as e:
         return jsonify({"error": str(e)})
 
