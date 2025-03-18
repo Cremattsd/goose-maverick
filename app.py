@@ -27,22 +27,20 @@ def chat():
 @app.route("/upload", methods=["POST"])
 def upload():
     file = request.files.get('file')
-    if not file:
-        return jsonify({"error": "No file provided"}), 400
+    token = request.form.get("token")
+
+    if not file or not token:
+        return jsonify({"error": "File and token required"}), 400
 
     filepath = f"./uploads/{file.filename}"
     file.save(filepath)
 
     extracted_data = parse_uploaded_file(filepath)
-    user_token = request.form.get("token")
 
-    if not user_token:
-        return jsonify({"error": "Missing user token"}), 400
+    # Initialize RealNex SDK
+    realnex_client = RealNexSyncApiDataFacade(environment="production", token=token)
 
-    # Initialize RealNexSyncApiDataFacade SDK client
-    realnex_client = RealNexSyncApiDataFacade(environment="production", token=user_token)
-
-    # Upload extracted data using your SDK
+    # Upload extracted data
     upload_response = realnex_client.upload_data(extracted_data)
 
     return jsonify({"status": "success", "uploaded": upload_response})
