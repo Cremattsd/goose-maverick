@@ -1,21 +1,24 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>RealNex Data Importer</title>
+    <meta charset="UTF-8">
+    <title>RealNex Chatbot</title>
     <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-    <div id="upload-area">
-        <input type="text" id="company_id" placeholder="Enter Company ID">
-        <input type="file" id="file-upload">
-        <button id="upload-btn">Upload</button>
+    <div class="chat-container">
+        <div class="chat-messages" id="chatMessages"></div>
+        <input type="text" id="chatInput" placeholder="Type your message...">
+        <button onclick="sendMessage()">Send</button>
+
+        <hr class="divider"/>
+
+        <h4 style="color:#FFF">Upload Data (optional)</h4>
+        <input type="file" id="fileInput">
+        <input type="text" id="tokenInput" placeholder="RealNex Token (optional)">
+        <button onclick="uploadFile()">Upload to RealNex</button>
     </div>
 
-    <div id="chat-area">
-        <div id="chat-history"></div>
-        <input type="text" id="chat-input" placeholder="Ask the chatbot...">
-        <button id="chat-send">Send</button>
-    </div>
     <script src="/static/scripts.js"></script>
 </body>
 </html>
