@@ -38,21 +38,22 @@ def chat():
 @app.route("/upload", methods=["POST"])
 def upload():
     file = request.files.get("file")
-    company_id = request.form.get("company_id")
+    user_token = request.form.get("user_token")  # User provides their unique token
 
     if not file:
         return jsonify({"error": "No file provided"}), 400
+    if not user_token:
+        return jsonify({"error": "No user token provided"}), 400  # Ensure token is provided
 
     filepath = f"./uploads/{file.filename}"
     file.save(filepath)
 
     extracted_data = parse_uploaded_file(filepath)
-
-    if company_id:
-        result = upload_data_to_realnex(extracted_data, company_id)
-        return jsonify({"status": "success", "uploaded": result})
-
-    return jsonify({"status": "success", "extracted_data": extracted_data})
+    
+    # Verify data and upload to RealNex using the user's token
+    result = upload_data_to_realnex(extracted_data, user_token)
+    
+    return jsonify({"status": "success", "uploaded": result})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080, debug=False)
