@@ -1,16 +1,9 @@
-import requests
-import os
+from real_nex_sync_api_data_facade.sdk import RealNexSyncApiDataFacade
 
-class RealNexAPI:
-    def __init__(self, token):
-        self.base_url = "https://sync.realnex.com/api"
-        self.token = token
-        self.headers = {
-            "Authorization": f"Bearer {self.token}",
-            "Content-Type": "application/json"
-        }
-
-    def get_user_data(self):
-        url = f"{self.base_url}/Client"
-        response = requests.get(url, headers=self.headers)
-        return response.json() if response.status_code == 200 else {"error": response.text}
+def upload_data_to_realnex(data, company_id):
+    try:
+        client = RealNexSyncApiDataFacade(api_key="your-api-key")  # Replace with actual token
+        response = client.upload_data(data, company_id)
+        return response
+    except Exception as e:
+        return {"error": str(e)}
