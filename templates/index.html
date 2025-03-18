@@ -36,8 +36,8 @@
     <input type="text" id="userInput" placeholder="Type a message...">
     <button onclick="sendMessage()">Send</button>
 
-    <h2>Upload File</h2>
-    <input type="text" id="company_id" placeholder="Enter Company ID (Optional)">
+    <h2>Upload File to RealNex</h2>
+    <input type="text" id="user_token" placeholder="Enter Your API Token">
     <input type="file" id="fileInput">
     <button onclick="uploadFile()">Upload</button>
 
@@ -65,16 +65,20 @@
 
         function uploadFile() {
             let fileInput = $("#fileInput")[0].files[0];
-            let companyId = $("#company_id").val();
+            let userToken = $("#user_token").val();
 
             if (!fileInput) {
                 alert("Please select a file to upload.");
                 return;
             }
+            if (!userToken) {
+                alert("Please enter your API token.");
+                return;
+            }
 
             let formData = new FormData();
             formData.append("file", fileInput);
-            if (companyId) formData.append("company_id", companyId);
+            formData.append("user_token", userToken);
 
             $.ajax({
                 url: "/upload",
