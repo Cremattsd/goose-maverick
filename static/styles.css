@@ -1,46 +1,56 @@
 body {
-    font-family: 'Arial', sans-serif;
-    background-color: #121212;
+    font-family: Arial, sans-serif;
+    background-color: #181818;
     color: white;
-    text-align: center;
 }
 
-.container {
-    background: #1E1E1E;
+.chat-container {
+    width: 80%;
+    max-width: 900px;
+    margin: 0 auto;
     padding: 20px;
-    border-radius: 10px;
-    width: 50%;
-    margin: auto;
-    box-shadow: 0px 0px 10px rgba(255, 255, 255, 0.1);
 }
 
-.token-section, .chat-section {
-    margin-top: 20px;
-}
-
-input {
+input[type="text"], input[type="file"], button {
     padding: 10px;
-    width: 60%;
-    border-radius: 5px;
+    margin: 10px 0;
+    width: 100%;
+    border-radius: 4px;
     border: none;
 }
 
 button {
-    padding: 10px 15px;
-    background-color: #007bff;
+    background-color: #008cff;
     color: white;
-    border: none;
-    border-radius: 5px;
     cursor: pointer;
 }
 
 button:hover {
-    background-color: #0056b3;
+    background-color: #006bb3;
 }
 
-#chat-response {
-    margin-top: 20px;
-    background: #333;
-    padding: 10px;
-    border-radius: 5px;
+.chat-messages {
+    min-height: 200px;
+    max-height: 400px;
+    overflow-y: auto;
+    margin-bottom: 10px;
+}
+
+.user-message, .bot-message {
+    margin: 5px 0;
+}
+
+.user-message {
+    text-align: right;
+    color: #aaa;
+}
+
+.bot-message {
+    text-align: left;
+    color: #00eaff;
+}
+
+.divider {
+    margin: 20px 0;
+    border-top: 1px solid #333;
 }
