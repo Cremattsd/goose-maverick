@@ -1,15 +1,22 @@
 import os
 import openai
 from flask import Flask, request, jsonify, render_template
+import sys
+
+# Ensure local modules can be found
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from ai.ocr_parser import parse_uploaded_file
+from realnex_api import upload_data_to_realnex
 
 app = Flask(__name__)
 
-# Ensure API key is set
+# Load OpenAI API key
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
-    raise ValueError("Missing OPENAI_API_KEY. Make sure it's set in Render secrets.")
+    raise ValueError("Missing OPENAI_API_KEY. Set it in Render secrets.")
 
-openai.api_key = OPENAI_API_KEY  # ✅ Correct way to set API key
+openai.api_key = OPENAI_API_KEY
 
 @app.route("/")
 def index():
@@ -37,7 +44,7 @@ def chat():
         return jsonify({"error": "OpenAI API rate limit exceeded. Try again later."}), 500
     
     except Exception as e:
-        print(f"Chatbot Error: {e}")  # Logs the exact error to your Render logs
+        print(f"Chatbot Error: {e}")  # Logs the exact error to Render
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 if __name__ == "__main__":
