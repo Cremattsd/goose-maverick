@@ -16,7 +16,8 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     raise ValueError("Missing OPENAI_API_KEY. Set it in Render secrets.")
 
-openai.api_key = OPENAI_API_KEY
+openai.api_key = OPENAI_API_KEY 
+
 
 @app.route("/")
 def index():
@@ -32,7 +33,7 @@ def chat():
     
     try:
         response = openai.ChatCompletion.create(
-            model="gpt-4",
+            model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": user_message}]
         )
         return jsonify({"response": response["choices"][0]["message"]["content"]})
