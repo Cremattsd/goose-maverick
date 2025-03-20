@@ -3,98 +3,94 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chat & File Upload</title>
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <title>🔥 RealNex AI 🔥</title>
     <style>
         body {
-            font-family: Arial, sans-serif;
-            background-color: #1e1e1e;
-            color: #fff;
+            font-family: 'Arial', sans-serif;
+            background: #0f0f0f;
+            color: white;
             text-align: center;
             padding: 20px;
         }
-        input, button {
-            margin: 10px;
-            padding: 10px;
-            font-size: 16px;
-        }
-        #chatbox {
+        .chat-container {
             width: 60%;
+            margin: auto;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0px 0px 15px cyan;
+            animation: glow 2s infinite alternate;
+        }
+        @keyframes glow {
+            from { box-shadow: 0px 0px 15px cyan; }
+            to { box-shadow: 0px 0px 25px magenta; }
+        }
+        .chat-box {
             height: 300px;
-            border: 1px solid #fff;
             overflow-y: scroll;
-            margin: 20px auto;
+            border: 1px solid cyan;
             padding: 10px;
-            background: #2a2a2a;
+            background: black;
+            border-radius: 5px;
+        }
+        .user-message { text-align: right; color: cyan; }
+        .bot-message { text-align: left; color: magenta; }
+        .input-box {
+            display: flex;
+            margin-top: 10px;
+        }
+        input {
+            flex: 1;
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid cyan;
+            background: black;
+            color: white;
+        }
+        button {
+            padding: 10px;
+            background: magenta;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: cyan;
         }
     </style>
 </head>
 <body>
-
-    <h2>Chat with AI</h2>
-    <div id="chatbox"></div>
-    <input type="text" id="userInput" placeholder="Type a message...">
-    <button onclick="sendMessage()">Send</button>
-
-    <h2>Upload File to RealNex</h2>
-    <input type="text" id="user_token" placeholder="Enter Your API Token">
-    <input type="file" id="fileInput">
-    <button onclick="uploadFile()">Upload</button>
+    <div class="chat-container">
+        <h2>🔥 RealNex AI 🔥</h2>
+        <div class="chat-box" id="chat-box"></div>
+        <div class="input-box">
+            <input type="text" id="user-input" placeholder="Ask anything...">
+            <button onclick="sendMessage()">Send</button>
+        </div>
+    </div>
 
     <script>
         function sendMessage() {
-            let userMessage = $("#userInput").val();
-            if (!userMessage.trim()) return;
+            let input = document.getElementById("user-input").value;
+            let chatBox = document.getElementById("chat-box");
 
-            $("#chatbox").append("<p><b>You:</b> " + userMessage + "</p>");
-            $("#userInput").val("");
+            chatBox.innerHTML += "<p class='user-message'><strong>You:</strong> " + input + "</p>";
 
-            $.ajax({
-                url: "/chat",
-                type: "POST",
-                contentType: "application/json",
-                data: JSON.stringify({ message: userMessage }),
-                success: function(response) {
-                    $("#chatbox").append("<p><b>Bot:</b> " + response.response + "</p>");
-                },
-                error: function(err) {
-                    $("#chatbox").append("<p><b>Bot:</b> Error occurred.</p>");
-                }
-            });
-        }
-
-        function uploadFile() {
-            let fileInput = $("#fileInput")[0].files[0];
-            let userToken = $("#user_token").val();
-
-            if (!fileInput) {
-                alert("Please select a file to upload.");
-                return;
-            }
-            if (!userToken) {
-                alert("Please enter your API token.");
-                return;
-            }
-
-            let formData = new FormData();
-            formData.append("file", fileInput);
-            formData.append("user_token", userToken);
-
-            $.ajax({
-                url: "/upload",
-                type: "POST",
-                data: formData,
-                processData: false,
-                contentType: false,
-                success: function(response) {
-                    alert("Upload successful!");
-                },
-                error: function(err) {
-                    alert("Upload failed.");
-                }
+            fetch("/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message: input })
+            })
+            .then(response => response.json())
+            .then(data => {
+                chatBox.innerHTML += "<p class='bot-message'><strong>Bot:</strong> " + data.response + "</p>";
+                document.getElementById("user-input").value = "";
+            })
+            .catch(error => {
+                chatBox.innerHTML += "<p class='bot-message'><strong>Bot:</strong> Error occurred.</p>";
             });
         }
     </script>
-
 </body>
 </html>
