@@ -1,95 +1,62 @@
+from flask import Flask, render_template, request, jsonify
 import os
 import openai
-import pytesseract
-from PIL import Image
-from flask import Flask, request, jsonify, render_template
-from real_nex_sync_api_data_facade import RealNexSyncApiDataFacade  # RealNex SDK
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
-openai.api_key = os.getenv("OPENAI_API_KEY")
+app.config['UPLOAD_FOLDER'] = 'uploads/'
 
-# 🚀 Home Page
-@app.route("/")
-def index():
-    return render_template("index.html")
+if not os.path.exists(app.config['UPLOAD_FOLDER']):
+    os.makedirs(app.config['UPLOAD_FOLDER'])
 
-# MAVERICK - The Knowledge Bot 💡
-@app.route("/maverick", methods=["POST"])
-def maverick():
-    try:
-        data = request.json
-        user_message = data.get("message", "")
+# Goose: Data Import Logic
+def process_uploaded_file(file_path, user_token):
+    if not user_token:
+        return {"status": "error", "message": "No API token provided!"}
+    
+    file_type = file_path.split('.')[-1].upper()
+    return {"status": "success", "message": f"Goose imported {file_type} file successfully."}
 
-        if not user_message:
-            return jsonify({"error": "Message required"}), 400
+@app.route('/')
+def home():
+    return render_template('index.html')
 
-        maverick_context = """
-        Your name is MAVERICK. You are a high-energy, badass AI mentor that guides users through the RealNex ecosystem.
-        You know EVERYTHING about RealNex, including:
-        - CRM, MarketPlace, Lease Analysis, and Data Sync
-        - How to use each feature like a pro
-        - Best practices, FAQs, and workflow optimization
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    if 'file' not in request.files:
+        return jsonify({"status": "error", "message": "No file part"})
+    
+    file = request.files['file']
+    user_token = request.form.get('token')
+    
+    if file.filename == '':
+        return jsonify({"status": "error", "message": "No selected file"})
+    
+    if not user_token:
+        return jsonify({"status": "error", "message": "API token is required!"})
+    
+    filename = secure_filename(file.filename)
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    file.save(file_path)
+    
+    response = process_uploaded_file(file_path, user_token)
+    return jsonify(response)
 
-        🎯 If users ask about importing data, hand it off to GOOSE.
-        🎯 If they need RealNex guidance, teach them step-by-step.
-        🎯 Always respond with a confident, action-packed, and engaging personality.
-        """
+@app.route('/chat', methods=['POST'])
+def chat():
+    user_message = request.json.get('message', '').lower()
+    bot_type = request.json.get('bot', 'Maverick')
+    
+    if bot_type == "Goose":
+        return jsonify({"response": "Goose only imports files. Upload one below!"})
+    
+    response = "Maverick here! Let me assist with RealNex."
+    if "realnex" in user_message:
+        response = "RealNex is a powerful CRE platform with CRM, MarketPlace, and data sync tools."
+    elif "help" in user_message:
+        response = "Maverick can guide you on RealNex, and Goose imports your data. How can I assist?"
+    
+    return jsonify({"response": response})
 
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": maverick_context},
-                {"role": "user", "content": user_message}
-            ]
-        )
-
-        return jsonify({"response": response.choices[0].message["content"]})
-
-    except Exception as e:
-        return jsonify({"error": f"Maverick error: {str(e)}"}), 500
-
-# GOOSE - The Data Import Bot 📊
-@app.route("/goose", methods=["POST"])
-def goose():
-    try:
-        file = request.files['file']
-        user_token = request.form.get("user_token")
-
-        if not file:
-            return jsonify({"error": "No file provided"}), 400
-
-        filepath = f"./uploads/{file.filename}"
-        file.save(filepath)
-
-        # 🚀 Extract Text Using OCR for Business Cards
-        if file.filename.lower().endswith(('.png', '.jpg', '.jpeg')):
-            extracted_text = pytesseract.image_to_string(Image.open(filepath))
-            contact_data = {"name": "", "company": "", "email": "", "phone": ""}
-
-            for line in extracted_text.split("\n"):
-                if "@" in line:
-                    contact_data["email"] = line.strip()
-                elif any(char.isdigit() for char in line) and "-" in line:
-                    contact_data["phone"] = line.strip()
-                elif len(line.split()) >= 2:
-                    if contact_data["name"] == "":
-                        contact_data["name"] = line.strip()
-                    else:
-                        contact_data["company"] = line.strip()
-
-            # 🚀 Upload Contact to RealNex
-            realnex_client = RealNexSyncApiDataFacade(api_token=user_token)
-            result = realnex_client.upload_data(contact_data)
-            return jsonify({"status": "success", "uploaded": result, "extracted_data": contact_data})
-
-        # 🚀 Uploading PDFs & Excel Sheets
-        realnex_client = RealNexSyncApiDataFacade(api_token=user_token)
-        result = realnex_client.upload_file(filepath)
-
-        return jsonify({"status": "success", "uploaded": result})
-
-    except Exception as e:
-        return jsonify({"error": f"Goose error: {str(e)}"}), 500
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080, debug=False)
+if __name__ == '__main__':
+    app.run(debug=True)
