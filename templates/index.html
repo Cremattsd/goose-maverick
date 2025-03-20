@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🔥 RealNex AI 🔥</title>
+    <title>⚡ SkyNet CRE ⚡</title>
     <style>
         body {
             font-family: 'Arial', sans-serif;
@@ -61,35 +61,53 @@
     </style>
 </head>
 <body>
+    <h1>🔥 MAVERICK & GOOSE 🔥</h1>
+
+    <h3>MAVERICK (Knowledge Bot)</h3>
     <div class="chat-container">
-        <h2>🔥 RealNex AI 🔥</h2>
-        <div class="chat-box" id="chat-box"></div>
-        <div class="input-box">
-            <input type="text" id="user-input" placeholder="Ask anything...">
-            <button onclick="sendMessage()">Send</button>
-        </div>
+        <div class="chat-box" id="maverick-box"></div>
+        <input type="text" id="maverick-input" placeholder="Ask anything about RealNex...">
+        <button onclick="sendMaverick()">Ask Maverick</button>
     </div>
 
+    <h3>GOOSE (Data Import Bot)</h3>
+    <input type="file" id="goose-upload">
+    <button onclick="uploadToGoose()">Upload to Goose</button>
+
     <script>
-        function sendMessage() {
-            let input = document.getElementById("user-input").value;
-            let chatBox = document.getElementById("chat-box");
+        function sendMaverick() {
+            let input = document.getElementById("maverick-input").value;
+            let chatBox = document.getElementById("maverick-box");
 
             chatBox.innerHTML += "<p class='user-message'><strong>You:</strong> " + input + "</p>";
 
-            fetch("/chat", {
+            fetch("/maverick", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ message: input })
             })
             .then(response => response.json())
             .then(data => {
-                chatBox.innerHTML += "<p class='bot-message'><strong>Bot:</strong> " + data.response + "</p>";
-                document.getElementById("user-input").value = "";
+                chatBox.innerHTML += "<p class='bot-message'><strong>Maverick:</strong> " + data.response + "</p>";
+                document.getElementById("maverick-input").value = "";
             })
             .catch(error => {
-                chatBox.innerHTML += "<p class='bot-message'><strong>Bot:</strong> Error occurred.</p>";
+                chatBox.innerHTML += "<p class='bot-message'><strong>Maverick:</strong> Error occurred.</p>";
             });
+        }
+
+        function uploadToGoose() {
+            let fileInput = document.getElementById("goose-upload").files[0];
+            let formData = new FormData();
+            formData.append("file", fileInput);
+
+            fetch("/goose", {
+                method: "POST",
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => alert("Goose uploaded your file!"))
+            .catch(error => alert("Error uploading to Goose!"));
         }
     </script>
 </body>
