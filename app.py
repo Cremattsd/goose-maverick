@@ -1,21 +1,10 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, request, jsonify, render_template
 import os
-import openai
-from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'uploads/'
 
-if not os.path.exists(app.config['UPLOAD_FOLDER']):
-    os.makedirs(app.config['UPLOAD_FOLDER'])
-
-# Goose: Data Import Logic
-def process_uploaded_file(file_path, user_token):
-    if not user_token:
-        return {"status": "error", "message": "No API token provided!"}
-    
-    file_type = file_path.split('.')[-1].upper()
-    return {"status": "success", "message": f"Goose imported {file_type} file successfully."}
+# Store user tokens temporarily
+user_tokens = {}
 
 @app.route('/')
 def home():
@@ -23,40 +12,56 @@ def home():
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    if 'file' not in request.files:
-        return jsonify({"status": "error", "message": "No file part"})
+    user_token = request.form.get('api_token')
+    uploaded_file = request.files.get('file')
+
+    if not user_token:
+        return jsonify({'status': 'error', 'message': 'No API token provided. Please enter your token before uploading.'})
+
+    if not uploaded_file:
+        return jsonify({'status': 'error', 'message': 'No file uploaded. Please select a file.'})
+
+    # Store user token
+    user_tokens['current_user'] = user_token
+
+    # Save the file temporarily
+    file_path = os.path.join('uploads', uploaded_file.filename)
+    uploaded_file.save(file_path)
+
+    # Provide summary and confirmation prompt
+    file_size = os.path.getsize(file_path)
+    file_summary = {
+        'status': 'success',
+        'message': f'File "{uploaded_file.filename}" ({file_size / 1024:.2f} KB) uploaded successfully.',
+        'confirm_message': 'Do you want Goose to import this data into RealNex?',
+        'file_name': uploaded_file.filename,
+        'file_size': f'{file_size / 1024:.2f} KB'
+    }
     
-    file = request.files['file']
-    user_token = request.form.get('token')
-    
-    if file.filename == '':
-        return jsonify({"status": "error", "message": "No selected file"})
+    return jsonify(file_summary)
+
+@app.route('/confirm-import', methods=['POST'])
+def confirm_import():
+    user_token = user_tokens.get('current_user')
     
     if not user_token:
-        return jsonify({"status": "error", "message": "API token is required!"})
-    
-    filename = secure_filename(file.filename)
-    file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    file.save(file_path)
-    
-    response = process_uploaded_file(file_path, user_token)
-    return jsonify(response)
+        return jsonify({'status': 'error', 'message': 'No API token found. Please enter your token before proceeding.'})
 
-@app.route('/chat', methods=['POST'])
-def chat():
-    user_message = request.json.get('message', '').lower()
-    bot_type = request.json.get('bot', 'Maverick')
+    file_name = request.json.get('file_name')
+
+    if not file_name:
+        return jsonify({'status': 'error', 'message': 'No file specified for import.'})
+
+    # Simulate data import to RealNex
+    import_status = {
+        'status': 'success',
+        'message': f'Goose successfully imported "{file_name}" into RealNex!',
+        'token_used': user_token  # Display token usage for transparency
+    }
     
-    if bot_type == "Goose":
-        return jsonify({"response": "Goose only imports files. Upload one below!"})
-    
-    response = "Maverick here! Let me assist with RealNex."
-    if "realnex" in user_message:
-        response = "RealNex is a powerful CRE platform with CRM, MarketPlace, and data sync tools."
-    elif "help" in user_message:
-        response = "Maverick can guide you on RealNex, and Goose imports your data. How can I assist?"
-    
-    return jsonify({"response": response})
+    return jsonify(import_status)
 
 if __name__ == '__main__':
+    if not os.path.exists('uploads'):
+        os.makedirs('uploads')
     app.run(debug=True)
