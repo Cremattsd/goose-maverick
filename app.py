@@ -1,93 +1,114 @@
 import os
 import openai
+import pytesseract
+from PIL import Image
 from flask import Flask, request, jsonify, render_template
-from werkzeug.utils import secure_filename
-import base64
-from ai.ocr_parser import parse_uploaded_file
-from realnex_api import upload_data_to_realnex
+from real_nex_sync_api_data_facade import RealNexSyncApiDataFacade  # RealNex SDK
 
 app = Flask(__name__)
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# Allowed file types
-ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "pdf"}
-
-def allowed_file(filename):
-    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
-
+# 🚀 Home Page
 @app.route("/")
 def index():
     return render_template("index.html")
 
+# 💬 Chat Route
 @app.route("/chat", methods=["POST"])
 def chat():
-    data = request.json
-    user_message = data.get("message", "").strip()
-    if not user_message:
-        return jsonify({"error": "Message required"}), 400
-
     try:
+        data = request.json
+        user_message = data.get("message", "")
+
+        if not user_message:
+            return jsonify({"error": "Message required"}), 400
+
+        # 🚀 Smart RealNex AI Assistant Context
+        realnex_context = """
+        You are a high-energy, expert AI assistant for RealNex! 
+        You help commercial real estate professionals with:
+        - RealNex CRM, MarketPlace, Lease Analysis, and Data Sync
+        - Auto-importing data from business cards, PDFs, and Excel files
+        - Generating professional emails instantly
+        - Predictive analytics & market trends
+
+        🔥 If users ask about importing data, explain they can drag & drop files.
+        🔥 If they ask about emails, help them write professional responses.
+        🔥 If unsure, provide fun, futuristic AI vibes while being helpful.
+        """
+
         response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",  # Using GPT-3.5 Turbo
+            model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "You are Maverick, a powerful AI assistant for RealNex. You answer RealNex-related questions, assist with commercial real estate tasks, and help process business cards and files."},
+                {"role": "system", "content": realnex_context},
                 {"role": "user", "content": user_message}
             ]
         )
-        bot_response = response["choices"][0]["message"]["content"]
+
+        return jsonify({"response": response.choices[0].message["content"]})
+
     except Exception as e:
-        bot_response = "Maverick is having trouble retrieving information right now. Try again later."
+        return jsonify({"error": f"Chatbot error: {str(e)}"}), 500
 
-    return jsonify({"response": bot_response})
+# 📇 Business Card OCR Upload
+@app.route("/upload_business_card", methods=["POST"])
+def upload_business_card():
+    try:
+        file = request.files['file']
+        if not file:
+            return jsonify({"error": "No file provided"}), 400
 
-@app.route("/upload", methods=["POST"])
-def upload():
-    if "file" not in request.files:
-        return jsonify({"error": "No file provided"}), 400
-
-    file = request.files["file"]
-    if file.filename == "":
-        return jsonify({"error": "No file selected"}), 400
-
-    if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename)
-        filepath = os.path.join("uploads", filename)
+        filepath = f"./uploads/{file.filename}"
         file.save(filepath)
 
-        # Process file using OCR & upload data
-        extracted_data = parse_uploaded_file(filepath)
-        api_token = request.form.get("api_token")
+        # 🚀 Extract Text Using OCR
+        extracted_text = pytesseract.image_to_string(Image.open(filepath))
 
-        if not api_token:
-            return jsonify({"error": "API token required for upload"}), 400
+        contact_data = {"name": "", "company": "", "email": "", "phone": ""}
+        for line in extracted_text.split("\n"):
+            if "@" in line:
+                contact_data["email"] = line.strip()
+            elif any(char.isdigit() for char in line) and "-" in line:
+                contact_data["phone"] = line.strip()
+            elif len(line.split()) >= 2:
+                if contact_data["name"] == "":
+                    contact_data["name"] = line.strip()
+                else:
+                    contact_data["company"] = line.strip()
 
-        result = upload_data_to_realnex(extracted_data, api_token)
-        return jsonify({"status": "success", "uploaded": result})
-    
-    return jsonify({"error": "Invalid file type"}), 400
+        user_token = request.form.get("user_token")
 
-@app.route("/upload-business-card", methods=["POST"])
-def upload_business_card():
-    data = request.json
-    image_data = data.get("image_data", "")
+        # 🚀 Upload Contact to RealNex
+        realnex_client = RealNexSyncApiDataFacade(api_token=user_token)
+        result = realnex_client.upload_data(contact_data)
 
-    if not image_data:
-        return jsonify({"error": "No image data provided"}), 400
+        return jsonify({"status": "success", "uploaded": result, "extracted_data": contact_data})
 
-    image_bytes = base64.b64decode(image_data)
-    filepath = "uploads/business_card.png"
-    
-    with open(filepath, "wb") as file:
-        file.write(image_bytes)
+    except Exception as e:
+        return jsonify({"error": f"Business card upload failed: {str(e)}"}), 500
 
-    extracted_data = parse_uploaded_file(filepath)
-    api_token = data.get("api_token")
+# 📧 AI Email Generator
+@app.route("/generate_email", methods=["POST"])
+def generate_email():
+    try:
+        data = request.json
+        email_purpose = data.get("purpose", "")
 
-    if not api_token:
-        return jsonify({"error": "API token required for processing"}), 400
+        if not email_purpose:
+            return jsonify({"error": "Email purpose required"}), 400
 
-    result = upload_data_to_realnex(extracted_data, api_token)
-    return jsonify({"status": "success", "uploaded": result})
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are an AI helping users write professional commercial real estate emails."},
+                {"role": "user", "content": f"Write an email for: {email_purpose}"}
+            ]
+        )
+
+        return jsonify({"email": response.choices[0].message["content"]})
+
+    except Exception as e:
+        return jsonify({"error": f"Email generation failed: {str(e)}"}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080, debug=False)
