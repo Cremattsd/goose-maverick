@@ -1,158 +1,117 @@
-from flask import Flask, render_template, request, jsonify
-import os
-import openai
-import pytesseract
-import fitz  # PyMuPDF for PDF text extraction
-import pandas as pd
-from werkzeug.utils import secure_filename
-import re
+<!-- This is the full frontend HTML for the Maverick & Goose chatbot with polished UI and working business card/photo upload -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Maverick & Goose</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="chatbox">
+    <div class="chat-header">
+      <img id="avatar" src="/static/maverick-avatar.png" alt="Avatar" />
+      <div>
+        <div id="chat-name">Chat with Maverick</div>
+        <div id="status">We’re online</div>
+      </div>
+      <button id="switch-bot">Switch to Goose</button>
+    </div>
 
-app = Flask(__name__)
+    <div class="messages" id="messages"></div>
 
-# Set OpenAI API key
-openai.api_key = os.getenv("OPENAI_API_KEY")
+    <div class="input-area">
+      <div class="attachment">
+        <button onclick="triggerAttachment()">📎</button>
+        <input type="file" id="file-input" accept="image/*,application/pdf" style="display:none" onchange="uploadBusinessCard(event)" />
+      </div>
+      <input type="text" id="message-input" placeholder="Type your message..." />
+      <button id="send-btn">Send</button>
+    </div>
+  </div>
 
-# Allowed file types
-ALLOWED_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg', 'csv', 'xlsx', 'vcard'}
+  <script>
+    let role = "maverick"; // default
 
-# Upload folder
-UPLOAD_FOLDER = "uploads"
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
+    const avatar = document.getElementById("avatar");
+    const chatName = document.getElementById("chat-name");
+    const status = document.getElementById("status");
+    const messagesDiv = document.getElementById("messages");
+    const messageInput = document.getElementById("message-input");
+    const sendBtn = document.getElementById("send-btn");
+    const switchBtn = document.getElementById("switch-bot");
 
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+    switchBtn.addEventListener("click", () => {
+      if (role === "maverick") {
+        role = "goose";
+        avatar.src = "/static/goose-avatar.png";
+        chatName.textContent = "Chat with Goose";
+        status.textContent = "Ready to process your data.";
+        switchBtn.textContent = "Switch to Maverick";
+      } else {
+        role = "maverick";
+        avatar.src = "/static/maverick-avatar.png";
+        chatName.textContent = "Chat with Maverick";
+        status.textContent = "We’re online";
+        switchBtn.textContent = "Switch to Goose";
+      }
+    });
 
-# Check file type
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    sendBtn.addEventListener("click", sendMessage);
+    messageInput.addEventListener("keypress", (e) => {
+      if (e.key === "Enter") sendMessage();
+    });
 
-# Extract text from PDF
-def extract_text_from_pdf(pdf_path):
-    doc = fitz.open(pdf_path)
-    text = ""
-    for page in doc:
-        text += page.get_text("text") + "\n"
-    return text.strip()
+    async function sendMessage() {
+      const message = messageInput.value.trim();
+      if (!message) return;
 
-# Extract text from image
-def extract_text_from_image(image_path):
-    return pytesseract.image_to_string(image_path)
+      appendMessage("user", message);
+      messageInput.value = "";
 
-# Extract contact details from business card
-def extract_contact_from_image(image_path):
-    text = pytesseract.image_to_string(image_path)
+      const res = await fetch("/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message, role })
+      });
 
-    # Regex patterns for extracting phone numbers and emails
-    phone_pattern = r'\+?[\d\s\-\(\)]{10,15}'  # Matches phone numbers
-    email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
-    name_pattern = r'([A-Z][a-z]+(?:\s[A-Z][a-z]+)*)'  # Matches names like 'John Doe'
+      const data = await res.json();
+      appendMessage("ai", data.response);
+    }
 
-    contact_info = {}
+    function appendMessage(sender, text) {
+      const msg = document.createElement("div");
+      msg.className = `message ${sender}-message`;
+      msg.innerHTML = text;
+      messagesDiv.appendChild(msg);
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
 
-    phone_matches = re.findall(phone_pattern, text)
-    email_matches = re.findall(email_pattern, text)
-    name_matches = re.findall(name_pattern, text)
+    function triggerAttachment() {
+      document.getElementById("file-input").click();
+    }
 
-    if phone_matches:
-        contact_info['phone'] = phone_matches[0]
-    if email_matches:
-        contact_info['email'] = email_matches[0]
-    if name_matches:
-        contact_info['name'] = name_matches[0]
+    async function uploadBusinessCard(event) {
+      const file = event.target.files[0];
+      if (!file) return;
 
-    return contact_info
+      const formData = new FormData();
+      formData.append("file", file);
 
-# Process uploaded file
-def process_file(file_path, file_type):
-    if file_type in {'png', 'jpg', 'jpeg'}:
-        # If it's a business card, extract contact info
-        contact_info = extract_contact_from_image(file_path)
-        if contact_info:
-            return f"Business Card Detected! Name: {contact_info.get('name', 'N/A')}, Email: {contact_info.get('email', 'N/A')}, Phone: {contact_info.get('phone', 'N/A')}"
-        else:
-            return extract_text_from_image(file_path)
-    elif file_type == 'pdf':
-        return extract_text_from_pdf(file_path)
-    elif file_type == 'csv':
-        df = pd.read_csv(file_path)
-        return df.to_string()
-    elif file_type == 'xlsx':
-        df = pd.read_excel(file_path)
-        return df.to_string()
-    elif file_type == 'vcard':
-        return "Business card detected. Please upload the card image for processing."
-    else:
-        return "Unsupported file type"
+      appendMessage("user", `Uploading business card: <strong>${file.name}</strong>...`);
 
-# Handle token storage for Goose
-USER_TOKEN = None
+      const response = await fetch("/upload", {
+        method: "POST",
+        body: formData
+      });
 
-@app.route("/")
-def index():
-    return render_template("index.html")
-
-@app.route("/chat", methods=["POST"])
-def chat():
-    user_input = request.json.get("message")
-    role = request.json.get("role")
-
-    # Dynamic responses based on user input related to importing data
-    if "import data" in user_input.lower():
-        return jsonify({"response": "Sure! Please upload your file, and I’ll help you import the data."})
-
-    # Default behavior for Maverick or Goose
-    if role == "maverick":
-        prompt = f"You are Maverick, a RealNex AI assistant. Answer all RealNex-related questions professionally. User: {user_input}"
-    elif role == "goose":
-        prompt = f"You are Goose, a data import AI bot. Assist with importing and managing files. User: {user_input}"
-    else:
-        prompt = f"User: {user_input}"
-
-    response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=[{"role": "system", "content": prompt}]
-    )
-
-    return jsonify({"response": response["choices"][0]["message"]["content"]})
-
-@app.route("/upload", methods=["POST"])
-def upload_file():
-    global USER_TOKEN
-
-    if 'file' not in request.files:
-        return jsonify({"error": "No file uploaded."}), 400
-
-    file = request.files['file']
-    user_token = request.form.get("token")
-
-    # If no token is provided, prompt for it
-    if not user_token:
-        if USER_TOKEN:
-            user_token = USER_TOKEN
-        else:
-            return jsonify({"error": "Please insert your RealNex API token."}), 401
-
-    # Store the token if not already stored
-    if USER_TOKEN is None and user_token:
-        USER_TOKEN = user_token
-
-    if file.filename == '':
-        return jsonify({"error": "No selected file."}), 400
-
-    if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename)
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(file_path)
-
-        file_type = filename.rsplit('.', 1)[1].lower()
-        extracted_data = process_file(file_path, file_type)
-
-        return jsonify({
-            "message": f"Goose uploaded and processed your file: {filename}",
-            "extracted_data": extracted_data[:500]  # Show preview of data
-        })
-
-    return jsonify({"error": "Invalid file type."}), 400
-
-if __name__ == "__main__":
-    app.run(debug=True)
+      const data = await response.json();
+      if (data.extracted_data) {
+        appendMessage("ai", data.extracted_data);
+      } else {
+        appendMessage("ai", "Sorry, I couldn’t process that file.");
+      }
+    }
+  </script>
+</body>
+</html>
