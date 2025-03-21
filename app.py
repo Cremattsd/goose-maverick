@@ -148,11 +148,4 @@ def upload_file():
         extracted_data = process_file(file_path, file_type)
 
         return jsonify({
-            "message": f"Goose uploaded and processed your file: {filename}",
-            "extracted_data": extracted_data[:500]  # Show preview of data
-        })
-
-    return jsonify({"error": "Invalid file type."}), 400
-
-if __name__ == "__main__":
-    app.run(debug=True)
+            "message":
