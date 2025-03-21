@@ -15,7 +15,7 @@
             <button id="minimize-btn" onclick="toggleChatbox()">-</button>
         </div>
         <div class="messages" id="messages"></div>
-        
+
         <!-- Quick Response Buttons -->
         <div id="response-buttons"></div>
 
@@ -27,7 +27,8 @@
         <!-- Emoji and Attachment Buttons -->
         <div class="emoji-attachment">
             <button id="emoji-btn">😊</button>
-            <button id="attachment-btn">📎</button>
+            <button id="attachment-btn" onclick="triggerAttachment()">📎</button>
+            <input type="file" id="file-input" accept="image/*" style="display:none" onchange="uploadBusinessCard(event)">
         </div>
     </div>
 
@@ -82,9 +83,8 @@
             messagesDiv.innerHTML += `<div class="message ai-message">${data.response}</div>`;
 
             // Display quick response buttons
-            if (data.response.includes("Shipping rates") || data.response.includes("importing data")) {
+            if (data.response.includes("Import data")) {
                 responseButtonsDiv.innerHTML = `
-                    <button onclick="handleQuickResponse('Shipping rates to USA')">Shipping rates to USA</button>
                     <button onclick="handleQuickResponse('Import data')">Import data</button>
                 `;
             }
@@ -103,6 +103,35 @@
                 sendMessage();
             }
         });
+
+        // Function to trigger file input for attachments
+        const triggerAttachment = () => {
+            document.getElementById("file-input").click();
+        };
+
+        // Function to handle business card uploads
+        const uploadBusinessCard = async (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append("file", file);
+
+            // Display user message
+            messagesDiv.innerHTML += `<div class="message user-message">Uploading business card...</div>`;
+
+            // Call backend to process the uploaded file
+            const response = await fetch("/upload", {
+                method: "POST",
+                body: formData
+            });
+            const data = await response.json();
+
+            // Display AI response
+            messagesDiv.innerHTML += `<div class="message ai-message">${data.extracted_data}</div>`;
+
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        };
     </script>
 </body>
 </html>
