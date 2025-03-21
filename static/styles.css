@@ -1,56 +1,120 @@
 body {
     font-family: Arial, sans-serif;
-    background-color: #181818;
-    color: white;
+    background-color: #f4f7fc;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    margin: 0;
 }
 
-.chat-container {
-    width: 80%;
-    max-width: 900px;
-    margin: 0 auto;
+.chatbox {
+    background-color: #fff;
+    border-radius: 10px;
+    width: 400px;
     padding: 20px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 }
 
-input[type="text"], input[type="file"], button {
+.chat-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+#avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    margin-right: 10px;
+}
+
+#chat-name {
+    font-weight: bold;
+    font-size: 16px;
+}
+
+#status {
+    font-size: 12px;
+    color: #777;
+}
+
+#minimize-btn {
+    background-color: transparent;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+}
+
+.messages {
+    margin: 20px 0;
+    height: 300px;
+    overflow-y: scroll;
+}
+
+.message {
+    padding: 10px;
+    margin-bottom: 10px;
+    border-radius: 5px;
+}
+
+.user-message {
+    background-color: #e0f7fa;
+    text-align: right;
+}
+
+.ai-message {
+    background-color: #f1f1f1;
+}
+
+.input-container {
+    display: flex;
+    justify-content: space-between;
+}
+
+input, button {
+    width: 100%;
     padding: 10px;
     margin: 10px 0;
-    width: 100%;
-    border-radius: 4px;
-    border: none;
+    border-radius: 5px;
+    border: 1px solid #ccc;
 }
 
 button {
-    background-color: #008cff;
+    background-color: #00796b;
     color: white;
     cursor: pointer;
 }
 
 button:hover {
-    background-color: #006bb3;
+    background-color: #004d40;
 }
 
-.chat-messages {
-    min-height: 200px;
-    max-height: 400px;
-    overflow-y: auto;
-    margin-bottom: 10px;
+#response-buttons button {
+    margin: 5px;
+    padding: 8px 12px;
+    background-color: #0288d1;
+    color: white;
+    border: none;
+    border-radius: 5px;
 }
 
-.user-message, .bot-message {
-    margin: 5px 0;
+#response-buttons button:hover {
+    background-color: #01579b;
 }
 
-.user-message {
-    text-align: right;
-    color: #aaa;
+.emoji-attachment {
+    display: flex;
+    justify-content: space-between;
 }
 
-.bot-message {
-    text-align: left;
-    color: #00eaff;
+#emoji-btn, #attachment-btn {
+    background-color: transparent;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
 }
 
-.divider {
-    margin: 20px 0;
-    border-top: 1px solid #333;
+#emoji-btn:hover, #attachment-btn:hover {
+    color: #0288d1;
 }
