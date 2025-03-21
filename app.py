@@ -1,117 +1,122 @@
-<!-- This is the full frontend HTML for the Maverick & Goose chatbot with polished UI and working business card/photo upload -->
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Maverick & Goose</title>
-  <link rel="stylesheet" href="/static/styles.css" />
-</head>
-<body>
-  <div class="chatbox">
-    <div class="chat-header">
-      <img id="avatar" src="/static/maverick-avatar.png" alt="Avatar" />
-      <div>
-        <div id="chat-name">Chat with Maverick</div>
-        <div id="status">We’re online</div>
-      </div>
-      <button id="switch-bot">Switch to Goose</button>
-    </div>
+from flask import Flask, render_template, request, jsonify
+import os
+import openai
+import pytesseract
+import fitz  # PyMuPDF for PDF text extraction
+import pandas as pd
+from werkzeug.utils import secure_filename
+import re
 
-    <div class="messages" id="messages"></div>
+app = Flask(__name__)
 
-    <div class="input-area">
-      <div class="attachment">
-        <button onclick="triggerAttachment()">📎</button>
-        <input type="file" id="file-input" accept="image/*,application/pdf" style="display:none" onchange="uploadBusinessCard(event)" />
-      </div>
-      <input type="text" id="message-input" placeholder="Type your message..." />
-      <button id="send-btn">Send</button>
-    </div>
-  </div>
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
-  <script>
-    let role = "maverick"; // default
+ALLOWED_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg', 'csv', 'xlsx'}
+UPLOAD_FOLDER = "uploads"
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-    const avatar = document.getElementById("avatar");
-    const chatName = document.getElementById("chat-name");
-    const status = document.getElementById("status");
-    const messagesDiv = document.getElementById("messages");
-    const messageInput = document.getElementById("message-input");
-    const sendBtn = document.getElementById("send-btn");
-    const switchBtn = document.getElementById("switch-bot");
+USER_TOKEN = None  # Stores user's API token after first Goose upload
 
-    switchBtn.addEventListener("click", () => {
-      if (role === "maverick") {
-        role = "goose";
-        avatar.src = "/static/goose-avatar.png";
-        chatName.textContent = "Chat with Goose";
-        status.textContent = "Ready to process your data.";
-        switchBtn.textContent = "Switch to Maverick";
-      } else {
-        role = "maverick";
-        avatar.src = "/static/maverick-avatar.png";
-        chatName.textContent = "Chat with Maverick";
-        status.textContent = "We’re online";
-        switchBtn.textContent = "Switch to Goose";
-      }
-    });
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-    sendBtn.addEventListener("click", sendMessage);
-    messageInput.addEventListener("keypress", (e) => {
-      if (e.key === "Enter") sendMessage();
-    });
+def extract_text_from_pdf(pdf_path):
+    doc = fitz.open(pdf_path)
+    return "\n".join([page.get_text("text") for page in doc]).strip()
 
-    async function sendMessage() {
-      const message = messageInput.value.trim();
-      if (!message) return;
+def extract_text_from_image(image_path):
+    return pytesseract.image_to_string(image_path)
 
-      appendMessage("user", message);
-      messageInput.value = "";
-
-      const res = await fetch("/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, role })
-      });
-
-      const data = await res.json();
-      appendMessage("ai", data.response);
+def extract_contact_from_image(image_path):
+    text = extract_text_from_image(image_path)
+    contact_info = {
+        'name': next(iter(re.findall(r'([A-Z][a-z]+\s[A-Z][a-z]+)', text)), None),
+        'email': next(iter(re.findall(r'[\w\.-]+@[\w\.-]+', text)), None),
+        'phone': next(iter(re.findall(r'\+?[\d\s\-\(\)]{10,15}', text)), None)
     }
+    return contact_info
 
-    function appendMessage(sender, text) {
-      const msg = document.createElement("div");
-      msg.className = `message ${sender}-message`;
-      msg.innerHTML = text;
-      messagesDiv.appendChild(msg);
-      messagesDiv.scrollTop = messagesDiv.scrollHeight;
-    }
+def process_file(file_path, file_type):
+    if file_type in {'png', 'jpg', 'jpeg'}:
+        contact = extract_contact_from_image(file_path)
+        if any(contact.values()):
+            return f"Business Card Found:\nName: {contact['name']}\nEmail: {contact['email']}\nPhone: {contact['phone']}"
+        else:
+            return extract_text_from_image(file_path)
+    elif file_type == 'pdf':
+        return extract_text_from_pdf(file_path)
+    elif file_type == 'csv':
+        df = pd.read_csv(file_path)
+        return df.to_string()
+    elif file_type == 'xlsx':
+        df = pd.read_excel(file_path)
+        return df.to_string()
+    else:
+        return "Unsupported file type."
 
-    function triggerAttachment() {
-      document.getElementById("file-input").click();
-    }
+@app.route("/")
+def index():
+    return render_template("index.html")
 
-    async function uploadBusinessCard(event) {
-      const file = event.target.files[0];
-      if (!file) return;
+@app.route("/chat", methods=["POST"])
+def chat():
+    data = request.json
+    user_input = data.get("message", "")
+    role = data.get("role", "maverick")
 
-      const formData = new FormData();
-      formData.append("file", file);
+    # Hardcoded smart responses for now
+    if "import data" in user_input.lower():
+        return jsonify({"response": "Sure, I’ll grab Goose. Please upload your file and provide your API token if prompted."})
 
-      appendMessage("user", `Uploading business card: <strong>${file.name}</strong>...`);
+    if role == "maverick":
+        prompt = f"You are Maverick, a RealNex AI assistant. Answer user questions about commercial real estate tools and workflows.\nUser: {user_input}"
+    else:
+        prompt = f"You are Goose, an AI assistant helping users upload and process files into RealNex.\nUser: {user_input}"
 
-      const response = await fetch("/upload", {
-        method: "POST",
-        body: formData
-      });
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "system", "content": prompt}]
+        )
+        return jsonify({"response": response.choices[0].message["content"]})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-      const data = await response.json();
-      if (data.extracted_data) {
-        appendMessage("ai", data.extracted_data);
-      } else {
-        appendMessage("ai", "Sorry, I couldn’t process that file.");
-      }
-    }
-  </script>
-</body>
-</html>
+@app.route("/upload", methods=["POST"])
+def upload_file():
+    global USER_TOKEN
+
+    if 'file' not in request.files:
+        return jsonify({"error": "No file uploaded."}), 400
+
+    file = request.files['file']
+    token = request.form.get("token")
+
+    if not token:
+        if USER_TOKEN:
+            token = USER_TOKEN
+        else:
+            return jsonify({"error": "Please provide your RealNex API token."}), 401
+
+    if not USER_TOKEN:
+        USER_TOKEN = token  # store it for this session
+
+    if file.filename == '' or not allowed_file(file.filename):
+        return jsonify({"error": "Invalid file or file type."}), 400
+
+    filename = secure_filename(file.filename)
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    file.save(filepath)
+
+    file_type = filename.rsplit('.', 1)[1].lower()
+    extracted = process_file(filepath, file_type)
+
+    return jsonify({
+        "message": f"Goose processed your file: {filename}",
+        "extracted_data": extracted[:1000]  # preview
+    })
+
+if __name__ == "__main__":
+    app.run(debug=True)
