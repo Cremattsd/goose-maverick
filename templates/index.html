@@ -1,137 +1,117 @@
+<!-- This is the full frontend HTML for the Maverick & Goose chatbot with polished UI and working business card/photo upload -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Maverick & Goose Chat</title>
-    <link rel="stylesheet" href="static/styles.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Maverick & Goose</title>
+  <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
-    <div class="chatbox">
-        <div class="chat-header">
-            <img id="avatar" src="static/maverick-avatar.png" alt="Maverick" />
-            <span id="chat-name">Chat with Maverick</span>
-            <span id="status">We’re online</span>
-            <button id="minimize-btn" onclick="toggleChatbox()">-</button>
-        </div>
-        <div class="messages" id="messages"></div>
-
-        <!-- Quick Response Buttons -->
-        <div id="response-buttons"></div>
-
-        <div class="input-container">
-            <input type="text" id="message-input" placeholder="Enter your message..." />
-            <button id="send-btn">Send</button>
-        </div>
-
-        <!-- Emoji and Attachment Buttons -->
-        <div class="emoji-attachment">
-            <button id="emoji-btn">😊</button>
-            <button id="attachment-btn" onclick="triggerAttachment()">📎</button>
-            <input type="file" id="file-input" accept="image/*" style="display:none" onchange="uploadBusinessCard(event)">
-        </div>
+  <div class="chatbox">
+    <div class="chat-header">
+      <img id="avatar" src="/static/maverick-avatar.png" alt="Avatar" />
+      <div>
+        <div id="chat-name">Chat with Maverick</div>
+        <div id="status">We’re online</div>
+      </div>
+      <button id="switch-bot">Switch to Goose</button>
     </div>
 
-    <script>
-        let role = "maverick";  // Default role
-        const messagesDiv = document.getElementById("messages");
-        const messageInput = document.getElementById("message-input");
-        const sendBtn = document.getElementById("send-btn");
-        const responseButtonsDiv = document.getElementById("response-buttons");
-        const minimizeBtn = document.getElementById("minimize-btn");
+    <div class="messages" id="messages"></div>
 
-        // Toggle chatbox visibility
-        const toggleChatbox = () => {
-            const chatbox = document.querySelector('.chatbox');
-            chatbox.style.display = chatbox.style.display === 'none' ? 'block' : 'none';
-        };
+    <div class="input-area">
+      <div class="attachment">
+        <button onclick="triggerAttachment()">📎</button>
+        <input type="file" id="file-input" accept="image/*,application/pdf" style="display:none" onchange="uploadBusinessCard(event)" />
+      </div>
+      <input type="text" id="message-input" placeholder="Type your message..." />
+      <button id="send-btn">Send</button>
+    </div>
+  </div>
 
-        const changeRole = (newRole) => {
-            role = newRole;
-            const avatar = document.getElementById("avatar");
-            const chatName = document.getElementById("chat-name");
-            const status = document.getElementById("status");
+  <script>
+    let role = "maverick"; // default
 
-            if (role === "maverick") {
-                avatar.src = "static/maverick-avatar.png";
-                chatName.textContent = "Chat with Maverick";
-                status.textContent = "We’re online";
-            } else {
-                avatar.src = "static/goose-avatar.png";
-                chatName.textContent = "Chat with Goose";
-                status.textContent = "Ready to help with data uploads";
-            }
-        };
+    const avatar = document.getElementById("avatar");
+    const chatName = document.getElementById("chat-name");
+    const status = document.getElementById("status");
+    const messagesDiv = document.getElementById("messages");
+    const messageInput = document.getElementById("message-input");
+    const sendBtn = document.getElementById("send-btn");
+    const switchBtn = document.getElementById("switch-bot");
 
-        const sendMessage = async () => {
-            const message = messageInput.value;
-            if (message.trim() === "") return;
+    switchBtn.addEventListener("click", () => {
+      if (role === "maverick") {
+        role = "goose";
+        avatar.src = "/static/goose-avatar.png";
+        chatName.textContent = "Chat with Goose";
+        status.textContent = "Ready to process your data.";
+        switchBtn.textContent = "Switch to Maverick";
+      } else {
+        role = "maverick";
+        avatar.src = "/static/maverick-avatar.png";
+        chatName.textContent = "Chat with Maverick";
+        status.textContent = "We’re online";
+        switchBtn.textContent = "Switch to Goose";
+      }
+    });
 
-            // Display user message
-            messagesDiv.innerHTML += `<div class="message user-message">${message}</div>`;
-            messageInput.value = "";
+    sendBtn.addEventListener("click", sendMessage);
+    messageInput.addEventListener("keypress", (e) => {
+      if (e.key === "Enter") sendMessage();
+    });
 
-            // Call backend to get the chatbot's response
-            const response = await fetch("/chat", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ message: message, role: role })
-            });
-            const data = await response.json();
+    async function sendMessage() {
+      const message = messageInput.value.trim();
+      if (!message) return;
 
-            // Display AI response
-            messagesDiv.innerHTML += `<div class="message ai-message">${data.response}</div>`;
+      appendMessage("user", message);
+      messageInput.value = "";
 
-            // Display quick response buttons
-            if (data.response.includes("Import data")) {
-                responseButtonsDiv.innerHTML = `
-                    <button onclick="handleQuickResponse('Import data')">Import data</button>
-                `;
-            }
+      const res = await fetch("/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message, role })
+      });
 
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
-        };
+      const data = await res.json();
+      appendMessage("ai", data.response);
+    }
 
-        const handleQuickResponse = (response) => {
-            messageInput.value = response;
-            sendMessage();
-        };
+    function appendMessage(sender, text) {
+      const msg = document.createElement("div");
+      msg.className = `message ${sender}-message`;
+      msg.innerHTML = text;
+      messagesDiv.appendChild(msg);
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
 
-        sendBtn.addEventListener("click", sendMessage);
-        messageInput.addEventListener("keypress", (e) => {
-            if (e.key === "Enter") {
-                sendMessage();
-            }
-        });
+    function triggerAttachment() {
+      document.getElementById("file-input").click();
+    }
 
-        // Function to trigger file input for attachments
-        const triggerAttachment = () => {
-            document.getElementById("file-input").click();
-        };
+    async function uploadBusinessCard(event) {
+      const file = event.target.files[0];
+      if (!file) return;
 
-        // Function to handle business card uploads
-        const uploadBusinessCard = async (event) => {
-            const file = event.target.files[0];
-            if (!file) return;
+      const formData = new FormData();
+      formData.append("file", file);
 
-            const formData = new FormData();
-            formData.append("file", file);
+      appendMessage("user", `Uploading business card: <strong>${file.name}</strong>...`);
 
-            // Display user message
-            messagesDiv.innerHTML += `<div class="message user-message">Uploading business card...</div>`;
+      const response = await fetch("/upload", {
+        method: "POST",
+        body: formData
+      });
 
-            // Call backend to process the uploaded file
-            const response = await fetch("/upload", {
-                method: "POST",
-                body: formData
-            });
-            const data = await response.json();
-
-            // Display AI response
-            messagesDiv.innerHTML += `<div class="message ai-message">${data.extracted_data}</div>`;
-
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
-        };
-    </script>
+      const data = await response.json();
+      if (data.extracted_data) {
+        appendMessage("ai", data.extracted_data);
+      } else {
+        appendMessage("ai", "Sorry, I couldn’t process that file.");
+      }
+    }
+  </script>
 </body>
 </html>
