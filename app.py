@@ -27,7 +27,7 @@ def extract_text_from_pdf(pdf_path):
     return "\n".join([page.get_text("text") for page in doc]).strip()
 
 def extract_text_from_image(image_path):
-    return pytesseract.image_to_string(image_path)
+    return pytesseract.image_to_string(image_path, config='--psm 6')  # Improved OCR processing
 
 def extract_contact_from_image(image_path):
     text = extract_text_from_image(image_path)
@@ -63,11 +63,14 @@ def index():
 @app.route("/chat", methods=["POST"])
 def chat():
     data = request.json
-    user_input = data.get("message", "")
+    user_input = data.get("message", "").lower()
     role = data.get("role", "maverick")
 
-    if "import data" in user_input.lower() or "upload file" in user_input.lower():
+    if "import data" in user_input or "upload file" in user_input:
         return jsonify({"response": "You can import data into your RealNex CRM by following these steps: 1. Access your RealNex CRM account. 2. Look for the import feature, which is typically located in the contacts or leads section. 3. Prepare your data in a CSV file format with the appropriate headers (e.g., name, email, phone number). 4. Follow the prompts to upload your CSV file and map the fields from your file to the corresponding fields in your RealNex CRM. 5. Review the imported data to ensure accuracy and completeness. If you encounter any issues during the import process, you can reach out to RealNex customer support for assistance. Would you like me to bring in Goose to handle the upload?"})
+    
+    if "yes" in user_input and "goose" in user_input:
+        return jsonify({"switch_to": "goose", "response": "Alright, bringing in Goose to handle your import! Please upload your file."})
 
     if role == "maverick":
         prompt = f"You are Maverick, a RealNex AI assistant. Answer user questions about commercial real estate tools and workflows.\nUser: {user_input}"
