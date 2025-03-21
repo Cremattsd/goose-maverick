@@ -3,112 +3,106 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>⚡ SkyNet CRE ⚡</title>
-    <style>
-        body {
-            font-family: 'Arial', sans-serif;
-            background: #0f0f0f;
-            color: white;
-            text-align: center;
-            padding: 20px;
-        }
-        .chat-container {
-            width: 60%;
-            margin: auto;
-            background: rgba(0, 0, 0, 0.8);
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0px 0px 15px cyan;
-            animation: glow 2s infinite alternate;
-        }
-        @keyframes glow {
-            from { box-shadow: 0px 0px 15px cyan; }
-            to { box-shadow: 0px 0px 25px magenta; }
-        }
-        .chat-box {
-            height: 300px;
-            overflow-y: scroll;
-            border: 1px solid cyan;
-            padding: 10px;
-            background: black;
-            border-radius: 5px;
-        }
-        .user-message { text-align: right; color: cyan; }
-        .bot-message { text-align: left; color: magenta; }
-        .input-box {
-            display: flex;
-            margin-top: 10px;
-        }
-        input {
-            flex: 1;
-            padding: 10px;
-            border-radius: 5px;
-            border: 1px solid cyan;
-            background: black;
-            color: white;
-        }
-        button {
-            padding: 10px;
-            background: magenta;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-        }
-        button:hover {
-            background: cyan;
-        }
-    </style>
+    <title>Maverick & Goose Chat</title>
+    <link rel="stylesheet" href="static/styles.css">
 </head>
 <body>
-    <h1>🔥 MAVERICK & GOOSE 🔥</h1>
+    <div class="chatbox">
+        <div class="chat-header">
+            <img id="avatar" src="static/maverick-avatar.png" alt="Maverick" />
+            <span id="chat-name">Chat with Maverick</span>
+            <span id="status">We’re online</span>
+            <button id="minimize-btn" onclick="toggleChatbox()">-</button>
+        </div>
+        <div class="messages" id="messages"></div>
+        
+        <!-- Quick Response Buttons -->
+        <div id="response-buttons"></div>
 
-    <h3>MAVERICK (Knowledge Bot)</h3>
-    <div class="chat-container">
-        <div class="chat-box" id="maverick-box"></div>
-        <input type="text" id="maverick-input" placeholder="Ask anything about RealNex...">
-        <button onclick="sendMaverick()">Ask Maverick</button>
+        <div class="input-container">
+            <input type="text" id="message-input" placeholder="Enter your message..." />
+            <button id="send-btn">Send</button>
+        </div>
+
+        <!-- Emoji and Attachment Buttons -->
+        <div class="emoji-attachment">
+            <button id="emoji-btn">😊</button>
+            <button id="attachment-btn">📎</button>
+        </div>
     </div>
 
-    <h3>GOOSE (Data Import Bot)</h3>
-    <input type="file" id="goose-upload">
-    <button onclick="uploadToGoose()">Upload to Goose</button>
-
     <script>
-        function sendMaverick() {
-            let input = document.getElementById("maverick-input").value;
-            let chatBox = document.getElementById("maverick-box");
+        let role = "maverick";  // Default role
+        const messagesDiv = document.getElementById("messages");
+        const messageInput = document.getElementById("message-input");
+        const sendBtn = document.getElementById("send-btn");
+        const responseButtonsDiv = document.getElementById("response-buttons");
+        const minimizeBtn = document.getElementById("minimize-btn");
 
-            chatBox.innerHTML += "<p class='user-message'><strong>You:</strong> " + input + "</p>";
+        // Toggle chatbox visibility
+        const toggleChatbox = () => {
+            const chatbox = document.querySelector('.chatbox');
+            chatbox.style.display = chatbox.style.display === 'none' ? 'block' : 'none';
+        };
 
-            fetch("/maverick", {
+        const changeRole = (newRole) => {
+            role = newRole;
+            const avatar = document.getElementById("avatar");
+            const chatName = document.getElementById("chat-name");
+            const status = document.getElementById("status");
+
+            if (role === "maverick") {
+                avatar.src = "static/maverick-avatar.png";
+                chatName.textContent = "Chat with Maverick";
+                status.textContent = "We’re online";
+            } else {
+                avatar.src = "static/goose-avatar.png";
+                chatName.textContent = "Chat with Goose";
+                status.textContent = "Ready to help with data uploads";
+            }
+        };
+
+        const sendMessage = async () => {
+            const message = messageInput.value;
+            if (message.trim() === "") return;
+
+            // Display user message
+            messagesDiv.innerHTML += `<div class="message user-message">${message}</div>`;
+            messageInput.value = "";
+
+            // Call backend to get the chatbot's response
+            const response = await fetch("/chat", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ message: input })
-            })
-            .then(response => response.json())
-            .then(data => {
-                chatBox.innerHTML += "<p class='bot-message'><strong>Maverick:</strong> " + data.response + "</p>";
-                document.getElementById("maverick-input").value = "";
-            })
-            .catch(error => {
-                chatBox.innerHTML += "<p class='bot-message'><strong>Maverick:</strong> Error occurred.</p>";
+                body: JSON.stringify({ message: message, role: role })
             });
-        }
+            const data = await response.json();
 
-        function uploadToGoose() {
-            let fileInput = document.getElementById("goose-upload").files[0];
-            let formData = new FormData();
-            formData.append("file", fileInput);
+            // Display AI response
+            messagesDiv.innerHTML += `<div class="message ai-message">${data.response}</div>`;
 
-            fetch("/goose", {
-                method: "POST",
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => alert("Goose uploaded your file!"))
-            .catch(error => alert("Error uploading to Goose!"));
-        }
+            // Display quick response buttons
+            if (data.response.includes("Shipping rates") || data.response.includes("importing data")) {
+                responseButtonsDiv.innerHTML = `
+                    <button onclick="handleQuickResponse('Shipping rates to USA')">Shipping rates to USA</button>
+                    <button onclick="handleQuickResponse('Import data')">Import data</button>
+                `;
+            }
+
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        };
+
+        const handleQuickResponse = (response) => {
+            messageInput.value = response;
+            sendMessage();
+        };
+
+        sendBtn.addEventListener("click", sendMessage);
+        messageInput.addEventListener("keypress", (e) => {
+            if (e.key === "Enter") {
+                sendMessage();
+            }
+        });
     </script>
 </body>
 </html>
