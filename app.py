@@ -5,6 +5,7 @@ import pytesseract
 import fitz  # PyMuPDF for PDF text extraction
 import pandas as pd
 from werkzeug.utils import secure_filename
+import re
 
 app = Flask(__name__)
 
@@ -37,25 +38,51 @@ def extract_text_from_pdf(pdf_path):
 def extract_text_from_image(image_path):
     return pytesseract.image_to_string(image_path)
 
+# Extract contact details from business card
+def extract_contact_from_image(image_path):
+    text = pytesseract.image_to_string(image_path)
+
+    # Regex patterns for extracting phone numbers and emails
+    phone_pattern = r'\+?[\d\s\-\(\)]{10,15}'  # Matches phone numbers
+    email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+    name_pattern = r'([A-Z][a-z]+(?:\s[A-Z][a-z]+)*)'  # Matches names like 'John Doe'
+
+    contact_info = {}
+
+    phone_matches = re.findall(phone_pattern, text)
+    email_matches = re.findall(email_pattern, text)
+    name_matches = re.findall(name_pattern, text)
+
+    if phone_matches:
+        contact_info['phone'] = phone_matches[0]
+    if email_matches:
+        contact_info['email'] = email_matches[0]
+    if name_matches:
+        contact_info['name'] = name_matches[0]
+
+    return contact_info
+
 # Process uploaded file
 def process_file(file_path, file_type):
     if file_type in {'png', 'jpg', 'jpeg'}:
-        extracted_text = extract_text_from_image(file_path)
+        # If it's a business card, extract contact info
+        contact_info = extract_contact_from_image(file_path)
+        if contact_info:
+            return f"Business Card Detected! Name: {contact_info.get('name', 'N/A')}, Email: {contact_info.get('email', 'N/A')}, Phone: {contact_info.get('phone', 'N/A')}"
+        else:
+            return extract_text_from_image(file_path)
     elif file_type == 'pdf':
-        extracted_text = extract_text_from_pdf(file_path)
+        return extract_text_from_pdf(file_path)
     elif file_type == 'csv':
         df = pd.read_csv(file_path)
-        extracted_text = df.to_string()
+        return df.to_string()
     elif file_type == 'xlsx':
         df = pd.read_excel(file_path)
-        extracted_text = df.to_string()
+        return df.to_string()
     elif file_type == 'vcard':
-        # Handle business card scanning, convert to vCard format
-        extracted_text = "Business card data: [sample extracted data]"
+        return "Business card detected. Please upload the card image for processing."
     else:
-        extracted_text = "Unsupported file type"
-    
-    return extracted_text
+        return "Unsupported file type"
 
 # Handle token storage for Goose
 USER_TOKEN = None
@@ -69,6 +96,11 @@ def chat():
     user_input = request.json.get("message")
     role = request.json.get("role")
 
+    # Dynamic responses based on user input related to importing data
+    if "import data" in user_input.lower():
+        return jsonify({"response": "Sure! Please upload your file, and I’ll help you import the data."})
+
+    # Default behavior for Maverick or Goose
     if role == "maverick":
         prompt = f"You are Maverick, a RealNex AI assistant. Answer all RealNex-related questions professionally. User: {user_input}"
     elif role == "goose":
