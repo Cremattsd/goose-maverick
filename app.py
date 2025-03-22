@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, session
 import os
 import openai
 import pytesseract
@@ -9,6 +9,7 @@ from PIL import Image
 import re
 
 app = Flask(__name__)
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "supersecret")
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
@@ -17,8 +18,6 @@ UPLOAD_FOLDER = "uploads"
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
-USER_TOKEN = None  # Stores user's API token after first Goose upload
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -34,7 +33,7 @@ def extract_text_from_pdf(pdf_path):
     return "\n".join([page.get_text("text") for page in doc]).strip()
 
 def extract_text_from_image(image_path):
-    return pytesseract.image_to_string(image_path, config='--psm 6')  # Improved OCR processing
+    return pytesseract.image_to_string(image_path, config='--psm 6')
 
 def extract_contact_from_image(image_path):
     text = extract_text_from_image(image_path)
@@ -81,7 +80,7 @@ def chat():
         return jsonify({"response": "You can import data into your RealNex CRM by following these steps: 1. Access your RealNex CRM account. 2. Look for the import feature, which is typically located in the contacts or leads section. 3. Prepare your data in a CSV file format with the appropriate headers (e.g., name, email, phone number). 4. Follow the prompts to upload your CSV file and map the fields from your file to the corresponding fields in your RealNex CRM. 5. Review the imported data to ensure accuracy and completeness. If you encounter any issues during the import process, you can reach out to RealNex customer support for assistance. Would you like me to bring in Goose to handle the upload?"})
 
     if "yes" in user_input and "goose" in user_input or "bring in goose" in user_input:
-        return jsonify({"switch_to": "goose", "response": "Alright, bringing in Goose to handle your import! Please upload your file and token."})
+        return jsonify({"switch_to": "goose", "response": "Alright, bringing in Goose to handle your import! Please upload your file and enter your token if you haven’t already."})
 
     if role == "maverick":
         prompt = f"You are Maverick, a RealNex AI assistant. Answer user questions about commercial real estate tools and workflows.\nUser: {user_input}"
@@ -99,8 +98,6 @@ def chat():
 
 @app.route("/upload", methods=["POST"])
 def upload_file():
-    global USER_TOKEN
-
     if 'file' not in request.files:
         return jsonify({"error": "No file uploaded."}), 400
 
@@ -108,13 +105,11 @@ def upload_file():
     token = request.form.get("token")
 
     if not token:
-        if USER_TOKEN:
-            token = USER_TOKEN
-        else:
+        token = session.get("token")
+        if not token:
             return jsonify({"error": "Please provide your RealNex API token."}), 401
-
-    if not USER_TOKEN:
-        USER_TOKEN = token  # store it for this session
+    else:
+        session['token'] = token
 
     if file.filename == '' or not allowed_file(file.filename):
         return jsonify({"error": "Invalid file or file type."}), 400
@@ -132,7 +127,7 @@ def upload_file():
 
     return jsonify({
         "message": f"Goose processed your file: {filename}",
-        "extracted_data": extracted[:1000]  # preview
+        "extracted_data": extracted[:1000]
     })
 
 if __name__ == "__main__":
