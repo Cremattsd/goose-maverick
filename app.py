@@ -5,13 +5,14 @@ import pytesseract
 import fitz  # PyMuPDF for PDF text extraction
 import pandas as pd
 from werkzeug.utils import secure_filename
+from PIL import Image
 import re
 
 app = Flask(__name__)
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-ALLOWED_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg', 'csv', 'xlsx'}
+ALLOWED_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg', 'webp', 'csv', 'xlsx'}
 UPLOAD_FOLDER = "uploads"
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
@@ -21,6 +22,12 @@ USER_TOKEN = None  # Stores user's API token after first Goose upload
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def convert_webp_to_png(webp_path):
+    png_path = webp_path.rsplit('.', 1)[0] + ".png"
+    with Image.open(webp_path).convert("RGB") as im:
+        im.save(png_path, "PNG")
+    return png_path
 
 def extract_text_from_pdf(pdf_path):
     doc = fitz.open(pdf_path)
@@ -39,6 +46,10 @@ def extract_contact_from_image(image_path):
     return contact_info
 
 def process_file(file_path, file_type):
+    if file_type == 'webp':
+        file_path = convert_webp_to_png(file_path)
+        file_type = 'png'
+
     if file_type in {'png', 'jpg', 'jpeg'}:
         contact = extract_contact_from_image(file_path)
         if any(contact.values()):
@@ -68,9 +79,9 @@ def chat():
 
     if "import data" in user_input or "upload file" in user_input:
         return jsonify({"response": "You can import data into your RealNex CRM by following these steps: 1. Access your RealNex CRM account. 2. Look for the import feature, which is typically located in the contacts or leads section. 3. Prepare your data in a CSV file format with the appropriate headers (e.g., name, email, phone number). 4. Follow the prompts to upload your CSV file and map the fields from your file to the corresponding fields in your RealNex CRM. 5. Review the imported data to ensure accuracy and completeness. If you encounter any issues during the import process, you can reach out to RealNex customer support for assistance. Would you like me to bring in Goose to handle the upload?"})
-    
-    if "yes" in user_input and "goose" in user_input:
-        return jsonify({"switch_to": "goose", "response": "Alright, bringing in Goose to handle your import! Please upload your file."})
+
+    if "yes" in user_input and "goose" in user_input or "bring in goose" in user_input:
+        return jsonify({"switch_to": "goose", "response": "Alright, bringing in Goose to handle your import! Please upload your file and token."})
 
     if role == "maverick":
         prompt = f"You are Maverick, a RealNex AI assistant. Answer user questions about commercial real estate tools and workflows.\nUser: {user_input}"
@@ -113,7 +124,11 @@ def upload_file():
     file.save(filepath)
 
     file_type = filename.rsplit('.', 1)[1].lower()
-    extracted = process_file(filepath, file_type)
+
+    try:
+        extracted = process_file(filepath, file_type)
+    except Exception as e:
+        return jsonify({"error": f"Processing failed: {str(e)}"}), 500
 
     return jsonify({
         "message": f"Goose processed your file: {filename}",
