@@ -82,6 +82,9 @@ def chat():
     if "yes" in user_input and "goose" in user_input or "bring in goose" in user_input:
         return jsonify({"switch_to": "goose", "response": "Alright, bringing in Goose to handle your import! Please upload your file and enter your token if you haven’t already."})
 
+    if role == "goose" and ("token" in user_input or "where do i put my token" in user_input or "how do i add my token" in user_input):
+        return jsonify({"response": "You can enter your RealNex API token in the token field just below the chat. Once entered, I’ll remember it for this session."})
+
     valid_keywords = ["realnex", "crm", "marketplace", "market edge", "marketedge", "transaction manager", "tour book", "lease analysis", "goose", "maverick"]
     if role == "maverick":
         if not any(kw in user_input for kw in valid_keywords):
