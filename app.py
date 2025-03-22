@@ -82,10 +82,19 @@ def chat():
     if "yes" in user_input and "goose" in user_input or "bring in goose" in user_input:
         return jsonify({"switch_to": "goose", "response": "Alright, bringing in Goose to handle your import! Please upload your file and enter your token if you haven’t already."})
 
+    valid_keywords = ["realnex", "crm", "marketplace", "market edge", "marketedge", "transaction manager", "tour book", "lease analysis", "goose", "maverick"]
     if role == "maverick":
-        prompt = f"You are Maverick, a RealNex AI assistant. Answer user questions about commercial real estate tools and workflows.\nUser: {user_input}"
+        if not any(kw in user_input for kw in valid_keywords):
+            return jsonify({"response": "I'm here to assist with RealNex-related tools only — including CRM, MarketEdge, MarketPlace, Lease Analysis, Tour Book, and Transaction Manager."})
+        prompt = (
+            "You are Maverick, a RealNex AI assistant. Only answer questions related to the RealNex platform, including CRM, MarketEdge, MarketPlace, Lease Analysis, Tour Book, Transaction Manager, and file importing with Goose.\n"
+            f"User: {user_input}"
+        )
     else:
-        prompt = f"You are Goose, an AI assistant helping users upload and process files into RealNex.\nUser: {user_input}"
+        prompt = (
+            "You are Goose, an AI assistant that helps RealNex users upload and process files into the RealNex CRM and related tools.\n"
+            f"User: {user_input}"
+        )
 
     try:
         response = openai.ChatCompletion.create(
