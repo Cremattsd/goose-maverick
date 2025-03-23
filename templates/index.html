@@ -4,15 +4,17 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Maverick & Goose</title>
+  <link rel="icon" type="image/x-icon" href="/static/chatbot_8943377.png" />
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
   <div class="chat-container">
     <div class="header">
-      <img id="bot-avatar" src="/static/maverick.png" alt="Maverick" class="avatar" />
+      <img src="/static/chatbot_8943377.png" alt="Main Logo" class="main-logo" />
+      <img id="bot-avatar" src="/static/maverick.JPG" alt="Maverick" class="avatar" />
       <span id="bot-name">Maverick</span>
-      <span class="status">Connected</span>
-      <img src="/static/logo.png" alt="RealNex Logo" class="logo" />
+      <span class="status">We’re online</span>
+      <button id="toggle-role">Switch to Goose</button>
     </div>
 
     <div class="chat-window" id="chat-window"></div>
@@ -23,15 +25,15 @@
     </div>
 
     <div class="input-area">
-      <input type="text" id="user-input" placeholder="Ask something..." />
-      <button id="send-button">Send</button>
       <label class="upload-button">
         <input type="file" id="file-upload" hidden />
         📎
       </label>
+      <input type="text" id="user-input" placeholder="Type your message..." />
+      <button id="send-button">Send</button>
     </div>
   </div>
 
-  <script src="/static/main.js"></script>
+  <script src="/static/scripts.js"></script>
 </body>
 </html>
