@@ -72,7 +72,7 @@ def index():
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    data = request.json
+    data = request.get_json()
     user_input = data.get("message", "").lower()
     role = data.get("role", "maverick")
 
