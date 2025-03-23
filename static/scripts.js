@@ -1,46 +1,73 @@
-async function sendMessage() {
-    const input = document.getElementById("chatInput");
-    const messages = document.getElementById("chatMessages");
-    const userMessage = input.value;
-    input.value = "";
+let currentRole = "maverick";
+let tokenSaved = false;
 
-    messages.innerHTML += `<div class="user-message">You: ${userMessage}</div>`;
+const chatWindow = document.getElementById("chat-window");
+const userInput = document.getElementById("user-input");
+const sendButton = document.getElementById("send-button");
+const tokenSection = document.getElementById("token-section");
+const tokenInput = document.getElementById("api-token");
+const fileUpload = document.getElementById("file-upload");
+const botAvatar = document.getElementById("bot-avatar");
+const botName = document.getElementById("bot-name");
 
-    const response = await fetch("/chat", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({message: userMessage})
-    });
-    const data = await response.json();
-    messages.innerHTML += `<div class="bot-message">Bot: ${data.response}</div>`;
+sendButton.addEventListener("click", () => sendMessage(userInput.value));
+userInput.addEventListener("keypress", (e) => {
+  if (e.key === "Enter") sendMessage(userInput.value);
+});
+
+fileUpload.addEventListener("change", async () => {
+  if (!tokenSaved) {
+    alert("Please enter your RealNex API token before uploading.");
+    return;
+  }
+  const file = fileUpload.files[0];
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("token", tokenInput.value);
+  const res = await fetch("/upload", {
+    method: "POST",
+    body: formData
+  });
+  const data = await res.json();
+  appendMessage("goose", data.message || data.error);
+  if (data.extracted_data) {
+    appendMessage("goose", data.extracted_data);
+  }
+});
+
+function saveToken() {
+  tokenSaved = true;
+  appendMessage("goose", "Token saved. You can now upload files.");
+  tokenSection.classList.add("hidden");
 }
 
-async function uploadFile() {
-    const file = document.getElementById("fileInput").files[0];
-    const token = document.getElementById("tokenInput").value;
+function appendMessage(sender, text) {
+  const msgDiv = document.createElement("div");
+  msgDiv.className = sender === "user" ? "user-message" : "bot-message";
+  msgDiv.innerText = text;
+  chatWindow.appendChild(msgDiv);
+  chatWindow.scrollTop = chatWindow.scrollHeight;
+}
 
-    if (!file) {
-        alert("Please select a file first.");
-        return;
-    }
-    if (!token) {
-        alert("Please provide your RealNex token.");
-        return;
-    }
+async function sendMessage(message) {
+  if (!message) return;
+  appendMessage("user", message);
+  userInput.value = "";
+  const res = await fetch("/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message, role: currentRole })
+  });
+  const data = await res.json();
 
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("token", token);
+  if (data.switch_to === "goose") {
+    currentRole = "goose";
+    botName.textContent = "Goose";
+    botAvatar.src = "/static/goose.png";
+    if (!tokenSaved) tokenSection.classList.remove("hidden");
+  }
 
-    const response = await fetch("/upload", {
-        method: "POST",
-        body: formData
-    });
-    const result = await response.json();
-
-    if (result.status === "success") {
-        alert("Uploaded successfully to RealNex!");
-    } else {
-        alert("Upload failed: " + result.error);
-    }
+  if (data.response) {
+    appendMessage("bot", data.response);
+  }
 }
