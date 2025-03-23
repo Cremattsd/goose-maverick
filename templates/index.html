@@ -4,33 +4,31 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Maverick & Goose</title>
-  <link rel="icon" type="image/x-icon" href="/static/chatbot_8943377.png" />
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
   <div class="chat-container">
     <div class="header">
       <img src="/static/chatbot_8943377.png" alt="Main Logo" class="main-logo" />
-      <img id="bot-avatar" src="/static/maverick.JPG" alt="Maverick" class="avatar" />
-      <span id="bot-name">Maverick</span>
-      <span class="status">We’re online</span>
+      <div>
+        <div><strong>Chat with <span id="bot-name">Maverick</span></strong></div>
+        <div class="status">We’re online</div>
+      </div>
       <button id="toggle-role">Switch to Goose</button>
+    </div>
+
+    <div id="token-bar" class="token-input hidden">
+      <input type="text" id="api-token" placeholder="Enter your API token" />
+      <button onclick="storeToken()">Save Token</button>
     </div>
 
     <div class="chat-window" id="chat-window"></div>
 
-    <div id="token-section" class="token-input hidden">
-      <input type="text" id="api-token" placeholder="Enter your RealNex API Token" />
-      <button onclick="saveToken()">Save Token</button>
-    </div>
-
     <div class="input-area">
-      <label class="upload-button">
-        <input type="file" id="file-upload" hidden />
-        📎
-      </label>
+      <span class="upload-button" onclick="triggerUpload()">📎</span>
+      <input type="file" id="file-upload" accept=".pdf,.png,.jpg,.jpeg,.csv,.xlsx" hidden />
       <input type="text" id="user-input" placeholder="Type your message..." />
-      <button id="send-button">Send</button>
+      <button onclick="sendMessage()">Send</button>
     </div>
   </div>
 
