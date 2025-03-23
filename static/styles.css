@@ -74,6 +74,39 @@ body {
   color: #333;
 }
 
+.message {
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.message.bot .bubble {
+  background: #f0f0f0;
+  color: #000;
+  margin-left: 10px;
+}
+
+.message.user .bubble {
+  background: #007bff;
+  color: white;
+  margin-right: 10px;
+  margin-left: auto;
+}
+
+.bubble {
+  padding: 10px 14px;
+  border-radius: 16px;
+  max-width: 75%;
+  line-height: 1.4;
+}
+
+.message-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
 .input-area {
   display: flex;
   padding: 12px;
