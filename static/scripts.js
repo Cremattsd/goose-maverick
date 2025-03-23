@@ -1,73 +1,84 @@
-let currentRole = "maverick";
-let tokenSaved = false;
+document.addEventListener("DOMContentLoaded", () => {
+  let currentRole = "maverick";
+  let savedToken = localStorage.getItem("realnexToken") || "";
 
-const chatWindow = document.getElementById("chat-window");
-const userInput = document.getElementById("user-input");
-const sendButton = document.getElementById("send-button");
-const tokenSection = document.getElementById("token-section");
-const tokenInput = document.getElementById("api-token");
-const fileUpload = document.getElementById("file-upload");
-const botAvatar = document.getElementById("bot-avatar");
-const botName = document.getElementById("bot-name");
+  const chatWindow = document.getElementById("chat-window");
+  const userInput = document.getElementById("user-input");
+  const fileUpload = document.getElementById("file-upload");
+  const toggleRoleButton = document.getElementById("toggle-role");
+  const tokenBar = document.getElementById("token-bar");
+  const apiTokenInput = document.getElementById("api-token");
+  const botName = document.getElementById("bot-name");
 
-sendButton.addEventListener("click", () => sendMessage(userInput.value));
-userInput.addEventListener("keypress", (e) => {
-  if (e.key === "Enter") sendMessage(userInput.value);
-});
+  if (savedToken) apiTokenInput.value = savedToken;
 
-fileUpload.addEventListener("change", async () => {
-  if (!tokenSaved) {
-    alert("Please enter your RealNex API token before uploading.");
-    return;
-  }
-  const file = fileUpload.files[0];
-  const formData = new FormData();
-  formData.append("file", file);
-  formData.append("token", tokenInput.value);
-  const res = await fetch("/upload", {
-    method: "POST",
-    body: formData
+  toggleRoleButton.addEventListener("click", () => {
+    currentRole = currentRole === "maverick" ? "goose" : "maverick";
+    botName.textContent = currentRole.charAt(0).toUpperCase() + currentRole.slice(1);
+    toggleRoleButton.textContent = `Switch to ${currentRole === "maverick" ? "Goose" : "Maverick"}`;
+    if (currentRole === "goose" && !savedToken) {
+      tokenBar.classList.remove("hidden");
+    } else {
+      tokenBar.classList.add("hidden");
+    }
   });
-  const data = await res.json();
-  appendMessage("goose", data.message || data.error);
-  if (data.extracted_data) {
-    appendMessage("goose", data.extracted_data);
+
+  window.storeToken = () => {
+    const token = apiTokenInput.value.trim();
+    if (token) {
+      savedToken = token;
+      localStorage.setItem("realnexToken", token);
+      tokenBar.classList.add("hidden");
+      addBotMessage("Token saved. Ready to import.");
+    }
+  };
+
+  window.triggerUpload = () => {
+    fileUpload.click();
+  };
+
+  window.sendMessage = () => {
+    const message = userInput.value.trim();
+    if (!message) return;
+
+    addUserMessage(message);
+    userInput.value = "";
+
+    fetch("/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, role: currentRole })
+    })
+      .then(res => res.json())
+      .then(data => {
+        addBotMessage(data.response);
+      })
+      .catch(err => {
+        addBotMessage("Something went wrong.");
+        console.error(err);
+      });
+  };
+
+  function addUserMessage(text) {
+    const msg = document.createElement("div");
+    msg.className = "message user-message";
+    msg.innerHTML = `
+      <img src="https://cdn-icons-png.flaticon.com/512/1144/1144760.png" alt="User" class="avatar" />
+      <div class="bubble">${text}</div>
+    `;
+    chatWindow.appendChild(msg);
+    chatWindow.scrollTop = chatWindow.scrollHeight;
+  }
+
+  function addBotMessage(text) {
+    const msg = document.createElement("div");
+    msg.className = "message bot-message";
+    const avatar = currentRole === "maverick" ? "maverick.JPG" : "goose.PNG";
+    msg.innerHTML = `
+      <img src="/static/${avatar}" alt="${currentRole}" class="avatar" />
+      <div class="bubble">${text}</div>
+    `;
+    chatWindow.appendChild(msg);
+    chatWindow.scrollTop = chatWindow.scrollHeight;
   }
 });
-
-function saveToken() {
-  tokenSaved = true;
-  appendMessage("goose", "Token saved. You can now upload files.");
-  tokenSection.classList.add("hidden");
-}
-
-function appendMessage(sender, text) {
-  const msgDiv = document.createElement("div");
-  msgDiv.className = sender === "user" ? "user-message" : "bot-message";
-  msgDiv.innerText = text;
-  chatWindow.appendChild(msgDiv);
-  chatWindow.scrollTop = chatWindow.scrollHeight;
-}
-
-async function sendMessage(message) {
-  if (!message) return;
-  appendMessage("user", message);
-  userInput.value = "";
-  const res = await fetch("/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, role: currentRole })
-  });
-  const data = await res.json();
-
-  if (data.switch_to === "goose") {
-    currentRole = "goose";
-    botName.textContent = "Goose";
-    botAvatar.src = "/static/goose.png";
-    if (!tokenSaved) tokenSection.classList.remove("hidden");
-  }
-
-  if (data.response) {
-    appendMessage("bot", data.response);
-  }
-}
