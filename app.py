@@ -1,146 +1,127 @@
-from flask import Flask, render_template, request, jsonify, session
+from flask import Flask, render_template, request, jsonify, current_app
+from flask_cors import CORS
+from flask_wtf import FlaskForm
+from wtforms import StringField, SelectField, SubmitField
+from wtforms.validators import DataRequired
+import requests
+import sqlite3
 import os
-import openai
-import pytesseract
-import fitz  # PyMuPDF for PDF text extraction
-import pandas as pd
-from werkzeug.utils import secure_filename
-from PIL import Image
-import re
+from dotenv import load_dotenv
+import logging
 
-app = Flask(__name__)
-app.secret_key = os.getenv("FLASK_SECRET_KEY", "supersecret")
+# Initialize Flask app
+app = Flask(__name__, static_folder='static')
+CORS(app)
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Load environment variables
+load_dotenv()
+app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'fallback-secret-key-for-dev-only')
 
-ALLOWED_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg', 'webp', 'csv', 'xlsx'}
-UPLOAD_FOLDER = "uploads"
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+# Initialize SQLite database
+def init_db():
+    os.makedirs('db', exist_ok=True)
+    with sqlite3.connect('db/credentials.db') as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS credentials (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                token TEXT NOT NULL,
+                company_id TEXT
+            )
+        ''')
+        conn.commit()
+    logger.info("Successfully initialized SQLite database at db/credentials.db")
 
-def convert_webp_to_png(webp_path):
-    png_path = webp_path.rsplit('.', 1)[0] + ".png"
-    with Image.open(webp_path).convert("RGB") as im:
-        im.save(png_path, "PNG")
-    return png_path
+init_db()
 
-def extract_text_from_pdf(pdf_path):
-    doc = fitz.open(pdf_path)
-    return "\n".join([page.get_text("text") for page in doc]).strip()
+# Form for snippet generation
+class SnippetForm(FlaskForm):
+    snippet_type = SelectField('Snippet Type', choices=[('contact', 'Contact Us'), ('listing', 'Listings + Contact Us')], validators=[DataRequired()])
+    token = StringField('Token', validators=[DataRequired()])
+    company_id = StringField('Company ID')
+    submit = SubmitField('Generate Snippet')
 
-def extract_text_from_image(image_path):
-    return pytesseract.image_to_string(image_path, config='--psm 6')
+# Validate RealNex API token
+def validate_realnex_token(token, company_id=None):
+    url = "https://api.realnex.com/v2/validate"  # Replace with actual endpoint
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        response = requests.get(url, headers=headers, timeout=5)
+        response.raise_for_status()
+        data = response.json()
+        logger.debug(f"RealNex API response: {data}")
+        return data
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"HTTP error: {e}, Response: {response.text}")
+        return None
+    except requests.exceptions.JSONDecodeError as e:
+        logger.error(f"JSON decode error: {e}, Response: {response.text}")
+        return None
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Request error: {e}")
+        return None
 
-def extract_contact_from_image(image_path):
-    text = extract_text_from_image(image_path)
-    contact_info = {
-        'name': next(iter(re.findall(r'([A-Z][a-z]+\s[A-Z][a-z]+)', text)), None),
-        'email': next(iter(re.findall(r'[\w\.-]+@[\w\.-]+', text)), None),
-        'phone': next(iter(re.findall(r'\+?[\d\s\-\(\)]{10,15}', text)), None)
-    }
-    return contact_info
-
-def process_file(file_path, file_type):
-    if file_type == 'webp':
-        file_path = convert_webp_to_png(file_path)
-        file_type = 'png'
-
-    if file_type in {'png', 'jpg', 'jpeg'}:
-        contact = extract_contact_from_image(file_path)
-        if any(contact.values()):
-            return f"Business Card Found:\nName: {contact['name']}\nEmail: {contact['email']}\nPhone: {contact['phone']}"
-        else:
-            return extract_text_from_image(file_path)
-    elif file_type == 'pdf':
-        return extract_text_from_pdf(file_path)
-    elif file_type == 'csv':
-        df = pd.read_csv(file_path)
-        return df.to_string()
-    elif file_type == 'xlsx':
-        df = pd.read_excel(file_path)
-        return df.to_string()
-    else:
-        return "Unsupported file type."
-
-@app.route("/")
+# Home route
+@app.route('/')
 def index():
-    return render_template("index.html")
+    form = SnippetForm()
+    return render_template('index.html', form=form)
 
-@app.route("/chat", methods=["POST"])
-def chat():
-    data = request.get_json()
-    user_input = data.get("message", "").lower()
-    role = data.get("role", "maverick")
+# Snippet generation route
+@app.route('/snippet', methods=['GET', 'POST'])
+def snippet():
+    form = SnippetForm()
+    if request.method == 'POST':
+        if form.validate_on_submit():
+            token = form.token.data
+            company_id = form.company_id.data if form.snippet_type.data == 'listing' else None
+            snippet_type = form.snippet_type.data
 
-    if "import data" in user_input or "upload file" in user_input:
-        return jsonify({"response": "You can import data into your RealNex CRM by following these steps: 1. Access your RealNex CRM account. 2. Look for the import feature, which is typically located in the contacts or leads section. 3. Prepare your data in a CSV file format with the appropriate headers (e.g., name, email, phone number). 4. Follow the prompts to upload your CSV file and map the fields from your file to the corresponding fields in your RealNex CRM. 5. Review the imported data to ensure accuracy and completeness. If you encounter any issues during the import process, you can reach out to RealNex customer support for assistance. Would you like me to bring in Goose to handle the upload?"})
+            # Validate token with RealNex API
+            api_response = validate_realnex_token(token, company_id)
+            if not api_response:
+                return render_template('snippet.html', form=form, error="Invalid token or API error", snippet_code="")
 
-    if "yes" in user_input and "goose" in user_input or "bring in goose" in user_input:
-        return jsonify({"switch_to": "goose", "response": "Alright, bringing in Goose to handle your import! Please upload your file and enter your token if you haven’t already."})
+            # Store credentials in database
+            with sqlite3.connect('db/credentials.db') as conn:
+                cursor = conn.cursor()
+                cursor.execute('INSERT INTO credentials (token, company_id) VALUES (?, ?)', (token, company_id))
+                conn.commit()
 
-    if role == "goose" and ("token" in user_input or "where do i put my token" in user_input or "how do i add my token" in user_input):
-        return jsonify({"response": "You can enter your RealNex API token in the token field just below the chat. Once entered, I’ll remember it for this session."})
+            # Generate iframe snippet
+            iframe_url = f"{request.url_root}form?snippet_type={snippet_type}&token={token}"
+            if company_id:
+                iframe_url += f"&company_id={company_id}"
+            snippet_code = f'<iframe src="{iframe_url}" width="100%" height="600" frameborder="0" style="border:0;"></iframe>'
+            return render_template('snippet.html', form=form, snippet_code=snippet_code, error=None)
+        else:
+            return render_template('snippet.html', form=form, error="Form validation failed", snippet_code="")
+    
+    # GET request: show form
+    snippet_type = request.args.get('snippet_type', 'contact')
+    token = request.args.get('token', '')
+    company_id = request.args.get('company_id', '')
+    form.snippet_type.data = snippet_type
+    form.token.data = token
+    form.company_id.data = company_id
+    return render_template('snippet.html', form=form, snippet_code="", error=None)
 
-    valid_keywords = ["realnex", "crm", "marketplace", "market edge", "marketedge", "transaction manager", "tour book", "lease analysis", "goose", "maverick"]
-    if role == "maverick":
-        if not any(kw in user_input for kw in valid_keywords):
-            return jsonify({"response": "I'm here to assist with RealNex-related tools only — including CRM, MarketEdge, MarketPlace, Lease Analysis, Tour Book, and Transaction Manager."})
-        prompt = (
-            "You are Maverick, a RealNex AI assistant. Only answer questions related to the RealNex platform, including CRM, MarketEdge, MarketPlace, Lease Analysis, Tour Book, Transaction Manager, and file importing with Goose.\n"
-            f"User: {user_input}"
-        )
-    else:
-        prompt = (
-            "You are Goose, an AI assistant that helps RealNex users upload and process files into the RealNex CRM and related tools.\n"
-            f"User: {user_input}"
-        )
+# Form rendering route (for iframe)
+@app.route('/form')
+def form():
+    snippet_type = request.args.get('snippet_type', 'contact')
+    token = request.args.get('token', '')
+    company_id = request.args.get('company_id', '')
+    
+    # Validate token
+    if not validate_realnex_token(token, company_id):
+        return "Invalid token", 403
+    
+    return render_template('form.html', snippet_type=snippet_type, token=token, company_id=company_id)
 
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "system", "content": prompt}]
-        )
-        return jsonify({"response": response.choices[0].message["content"]})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/upload", methods=["POST"])
-def upload_file():
-    if 'file' not in request.files:
-        return jsonify({"error": "No file uploaded."}), 400
-
-    file = request.files['file']
-    token = request.form.get("token")
-
-    if not token:
-        token = session.get("token")
-        if not token:
-            return jsonify({"error": "Please provide your RealNex API token."}), 401
-    else:
-        session['token'] = token
-
-    if file.filename == '' or not allowed_file(file.filename):
-        return jsonify({"error": "Invalid file or file type."}), 400
-
-    filename = secure_filename(file.filename)
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    file.save(filepath)
-
-    file_type = filename.rsplit('.', 1)[1].lower()
-
-    try:
-        extracted = process_file(filepath, file_type)
-    except Exception as e:
-        return jsonify({"error": f"Processing failed: {str(e)}"}), 500
-
-    return jsonify({
-        "message": f"Goose processed your file: {filename}",
-        "extracted_data": extracted[:1000]
-    })
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     app.run(debug=True)
