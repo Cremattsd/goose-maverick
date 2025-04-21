@@ -1,168 +1,63 @@
-/* styles.css */
+/* Tailwind CSS CDN */
+@import url('https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css');
 
+/* Custom styles */
 body {
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  background-color: #f0f2f5;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 100vh;
+    font-family: 'Arial', sans-serif;
+    background-color: #f7fafc;
 }
 
-.chat-container {
-  background: white;
-  border-radius: 12px;
-  width: 400px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
+.container {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 20px;
 }
 
-.header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
-  background: linear-gradient(to right, #007bff, #00c6ff);
-  color: white;
-  font-weight: bold;
-  font-size: 16px;
-  position: relative;
+form {
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-.main-logo {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  object-fit: contain;
+input, select, textarea {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
 }
 
-.avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  object-fit: cover;
+button {
+    background-color: #2d3748;
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
 }
 
-.status {
-  font-size: 12px;
-  font-weight: normal;
-  opacity: 0.9;
+button:hover {
+    background-color: #4a5568;
 }
 
-#toggle-role {
-  position: absolute;
-  right: 16px;
-  background: white;
-  color: #007bff;
-  border: none;
-  padding: 5px 10px;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 12px;
+.error {
+    color: #e53e3e;
+    margin-bottom: 10px;
 }
 
-.chat-window {
-  flex: 1;
-  padding: 16px;
-  overflow-y: auto;
-  background-color: #fefefe;
-  font-size: 14px;
-  color: #333;
+.snippet-code {
+    background: #edf2f7;
+    padding: 10px;
+    border-radius: 4px;
+    word-break: break-all;
 }
 
-.message {
-  display: flex;
-  align-items: flex-start;
-  margin-bottom: 12px;
-}
-
-.message.bot .bubble {
-  background: #f0f0f0;
-  color: #000;
-  margin-left: 10px;
-}
-
-.message.user .bubble {
-  background: #007bff;
-  color: white;
-  margin-right: 10px;
-  margin-left: auto;
-}
-
-.bubble {
-  padding: 10px 14px;
-  border-radius: 16px;
-  max-width: 75%;
-  line-height: 1.4;
-}
-
-.message-icon {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  object-fit: cover;
-}
-
-.input-area {
-  display: flex;
-  padding: 12px;
-  border-top: 1px solid #ddd;
-  background: #fafafa;
-  align-items: center;
-}
-
-.input-area input[type="text"] {
-  flex: 1;
-  padding: 10px;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  margin-right: 10px;
-}
-
-.input-area button {
-  padding: 10px 16px;
-  background-color: #007bff;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.upload-button {
-  font-size: 18px;
-  cursor: pointer;
-  margin-right: 8px;
-}
-
-.token-input {
-  display: flex;
-  flex-direction: row;
-  padding: 10px;
-  border-bottom: 1px solid #ddd;
-  background: #fff8e1;
-}
-
-.token-input input {
-  flex: 1;
-  padding: 8px;
-  margin-right: 10px;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-}
-
-.token-input button {
-  padding: 8px 12px;
-  background: #28a745;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.hidden {
-  display: none;
+@media (max-width: 640px) {
+    .container {
+        padding: 10px;
+    }
+    form {
+        padding: 15px;
+    }
 }
