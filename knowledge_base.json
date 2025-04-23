@@ -1,0 +1,22 @@
+[
+    {
+        "question": "What is RealNex?",
+        "answer": "RealNex is a comprehensive commercial real estate platform that integrates CRM, MarketPlace, and MarketEdge tools to manage properties, spaces, companies, and client data efficiently."
+    },
+    {
+        "question": "How do I import data into RealNex CRM?",
+        "answer": "RealNex CRM allows data imports via CSV files or manual entry. You can upload spreadsheets with contacts, properties, or spaces, and map fields to CRM tables. Ensure your data matches the required format, accessible via the CRM settings."
+    },
+    {
+        "question": "How do I set up a RealNex CRM account?",
+        "answer": "To set up a RealNex CRM account, sign up on the RealNex website, configure your user profile, and import initial data. Use the admin panel to manage users, teams, and permissions."
+    },
+    {
+        "question": "What is the RealNex MarketPlace?",
+        "answer": "RealNex MarketPlace is a platform for listing and searching commercial properties. Users can create, manage, and share listings with detailed property information."
+    },
+    {
+        "question": "How do I manage contacts in RealNex?",
+        "answer": "In RealNex CRM, contacts are managed as Principals. You can add contacts manually, import via CSV, or link them to companies and properties. Use the Principal dashboard to view and update contact details."
+    }
+]
