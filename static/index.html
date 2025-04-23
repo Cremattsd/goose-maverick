@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RealNex AI Chatbot</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/filepond@^4/dist/filepond.min.js"></script>
+    <link href="https://unpkg.com/filepond@^4/dist/filepond.min.css" rel="stylesheet">
+    <script src="https://unpkg.com/tesseract.js@4.0.0/dist/tesseract.min.js"></script>
+    <script src="https://unpkg.com/interactjs/dist/interact.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/dist/index.js" type="module"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #f5f5f5;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            overflow: auto;
+        }
+        .chat-container {
+            background: #ffffff;
+            border-radius: 1rem;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 380px;
+            max-width: 90%;
+            z-index: 1000;
+            display: none;
+            flex-direction: column;
+            transition: all 0.3s ease;
+        }
+        .chat-header {
+            background: #ffffff;
+            border-bottom: 1px solid #e5e7eb;
+            border-radius: 1rem 1rem 0 0;
+            padding: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: move;
+        }
+        .chat-header h1 {
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: #1f2937;
+        }
+        .chat-body {
+            flex-grow: 1;
+            padding: 1rem;
+            overflow-y: auto;
+            max-height: 400px;
+            background: #f9fafb;
+            border-radius: 0 0 1rem 1rem;
+        }
+        .chat-footer {
+            padding: 1rem;
+            background: #ffffff;
+            border-top: 1px solid #e5e7eb;
+        }
+        .chat-bubble-user {
+            background: #e5e7eb;
+            color: #1f2937;
+            border-radius: 1rem 1rem 0 1rem;
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            max-width: 80%;
+            display: inline-block;
+        }
+        .chat-bubble-bot {
+            background: #dbeafe;
+            color: #1f2937;
+            border-radius: 1rem 1rem 1rem 0;
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            max-width: 80%;
+            display: inline-block;
+        }
+        .snapshot-box {
+            background: #f3f4f6;
+            border-radius: 0.5rem;
+            padding: 0.75rem;
+            margin-top: 0.5rem;
+            white-space: pre-wrap;
+        }
+        .toggle-btn {
+            position: relative;
+            display: inline-flex;
+            width: 100%;
+            background: #e5e7eb;
+            border-radius: 9999px;
+            padding: 0.25rem;
+            margin-bottom: 0.5rem;
+        }
+        .toggle-btn input[type="radio"] {
+            display: none;
+        }
+        .toggle-btn label {
+            flex: 1;
+            text-align: center;
+            padding: 0.5rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: #6b7280;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            z-index: 1;
+        }
+        .toggle-btn input:checked + label {
+            color: #ffffff;
+        }
+        .toggle-btn .slider {
+            position: absolute;
+            top: 0.25rem;
+            bottom: 0.25rem;
+            width: 50%;
+            background: #3b82f6;
+            border-radius: 9999px;
+            transition: all 0.3s ease;
+        }
+        .toggle-btn input[value="maverick"]:checked ~ .slider {
+            left: 0.25rem;
+            transform: translateX(0);
+        }
+        .toggle-btn input[value="goose"]:checked ~ .slider {
+            left: calc(50% - 0.25rem);
+            transform: translateX(0);
+        }
+        .input-token {
+            position: relative;
+            width: 100%;
+        }
+        .input-token input {
+            width: 100%;
+            padding: 0.5rem 2.5rem 0.5rem 0.75rem;
+            border: 1px solid #d1d5db;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+            color: #1f2937;
+            background: #f9fafb;
+            outline: none;
+            transition: all 0.3s ease;
+        }
+        .input-token input:focus {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+        .input-token button {
+            position: absolute;
+            right: 0.5rem;
+            top: 50%;
+            transform: translateY(-50%);
+            background: transparent;
+            color: #6b7280;
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+            border: none;
+            border-radius: 0.25rem;
+            cursor: pointer;
+        }
+        .input-token button:hover {
+            background: #e5e7eb;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 0.5rem;
+            background: #e5e7eb;
+            border-radius: 9999px;
+            overflow: hidden;
+            margin: 0.5rem 0;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            background: #3b82f6;
+            width: 0;
+            transition: width 0.3s ease;
+        }
+        .drop-zone {
+            border: 2px dashed #d1d5db;
+            background: #f9fafb;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            text-align: center;
+            font-size: 0.875rem;
+            color: #6b7280;
+            transition: all 0.3s ease;
+        }
+        .drop-zone-active {
+            border-color: #3b82f6;
+            background: #eff6ff;
+        }
+        .quick-btn {
+            border: 1px solid #3b82f6;
+            color: #3b82f6;
+            background: transparent;
+            padding: 0.25rem 0.75rem;
+            font-size: 0.75rem;
+            border-radius: 9999px;
+            transition: all 0.3s ease;
+        }
+        .quick-btn:hover {
+            background: #3b82f6;
+            color: #ffffff;
+        }
+        .btn-primary {
+            background: #3b82f6;
+            color: #ffffff;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+        .btn-primary:hover {
+            background: #60a5fa;
+        }
+        @media (max-width: 640px) {
+            .chat-container {
+                width: 90%;
+                bottom: 10px;
+                right: 5%;
+            }
+            .chat-body {
+                max-height: 300px;
+            }
+            .chat-header h1 {
+                font-size: 1rem;
+            }
+            .toggle-btn label {
+                font-size: 0.75rem;
+                padding: 0.5rem 0.25rem;
+            }
+            .btn-primary, .quick-btn {
+                font-size: 0.75rem;
+                padding: 0.5rem 0.75rem;
+            }
+            .input-token input {
+                font-size: 0.75rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Floating Chatbot Window -->
+    <div id="chat-container" class="chat-container flex flex-col">
+        <!-- Header -->
+        <div id="chat-header" class="chat-header">
+            <h1>RealNex AI Chatbot</h1>
+            <button id="close-btn" class="text-gray-500 hover:text-gray-700">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            </button>
+        </div>
+
+        <!-- Chat Body -->
+        <div id="chat-body" class="chat-body drop-zone">
+            <div class="text-center">Select a personality to start chatting<br>Drag & drop files here</div>
+        </div>
+
+        <!-- Chat Footer -->
+        <div class="chat-footer">
+            <!-- Personality Toggle -->
+            <div class="toggle-btn">
+                <input type="radio" id="maverick" name="personality" value="maverick" checked>
+                <label for="maverick">Maverick (Q&A)</label>
+                <input type="radio" id="goose" name="personality" value="goose">
+                <label for="goose">Goose (Data Import)</label>
+                <div class="slider"></div>
+            </div>
+
+            <!-- CRM Token Input -->
+            <div class="input-token mb-3">
+                <input id="crm-token" type="text" placeholder="Enter your CRM token">
+                <button id="clear-token-btn" class="hidden">Clear</button>
+            </div>
+
+            <!-- Camera Capture (Hidden) -->
+            <video id="video" class="hidden w-full" autoplay></video>
+            <canvas id="canvas" class="hidden"></canvas>
+
+            <!-- File Upload and Progress Bars -->
+            <div id="filepond" class="hidden"></div>
+            <div id="upload-progress" class="progress-bar hidden">
+                <div id="upload-progress-fill" class="progress-bar-fill"></div>
+            </div>
+            <div id="normalization-progress" class="progress-bar hidden">
+                <div id="normalization-progress-fill" class="progress-bar-fill"></div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="flex items-center space-x-2">
+                <input id="user-input" type="text" class="flex-grow p-2 border border-gray-300 rounded-lg text-sm bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Enter your message...">
+                <button id="emoji-btn" class="text-gray-500 hover:text-blue-500">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                </button>
+                <emoji-picker id="emoji-picker" class="hidden absolute bottom-16 bg-white border border-gray-300 rounded-lg shadow-lg"></emoji-picker>
+                <div class="relative">
+                    <button id="attach-btn" class="text-gray-500 hover:text-blue-500">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.586-6.586a4 4 0 00-5.656-5.656l-6.586 6.586a6 6 0 108.486 8.486L15.172 7z"></path>
+                        </svg>
+                    </button>
+                    <div id="attach-menu" class="hidden absolute bottom-12 left-0 bg-white border border-gray-300 rounded-lg shadow-lg">
+                        <button id="attach-camera" class="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Take Photo</button>
+                        <button id="attach-library" class="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Photo Library</button>
+                        <button id="attach-file" class="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Attach File</button>
+                    </div>
+                </div>
+                <button id="send-btn" class="btn-primary">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9-9-9-9M3 10h18"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chatbot Toggle Button -->
+    <button id="chat-toggle-btn" class="fixed bottom-5 right-5 bg-blue-600 text-white rounded-full p-4 shadow-lg hover:bg-blue-500 transition-all">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>
+        </svg>
+    </button>
+
+    <script>
+        // Initialize FilePond
+        FilePond.registerPlugin(FilePondPluginFileValidateType);
+        const pond = FilePond.create(document.querySelector('#filepond'), {
+            acceptedFileTypes: ['image/*', 'application/pdf', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+            allowMultiple: true,
+            instantUpload: false,
+            onaddfile: (error, file) => {
+                if (!error) {
+                    uploadFile(file.file);
+                }
+            }
+        });
+
+        // Draggable Chat Window
+        interact('#chat-header').draggable({
+            listeners: {
+                move(event) {
+                    const target = event.target.parentElement;
+                    const x = (parseFloat(target.getAttribute('data-x')) || 0) + event.dx;
+                    const y = (parseFloat(target.getAttribute('data-y')) || 0) + event.dy;
+
+                    target.style.transform = `translate(${x}px, ${y}px)`;
+                    target.setAttribute('data-x', x);
+                    target.setAttribute('data-y', y);
+                }
+            },
+            modifiers: [
+                interact.modifiers.restrictRect({
+                    restriction: 'parent',
+                    endOnly: true
+                })
+            ]
+        });
+
+        // Toggle Chat Window Visibility
+        const chatContainer = document.querySelector('#chat-container');
+        const chatToggleBtn = document.querySelector('#chat-toggle-btn');
+        const closeBtn = document.querySelector('#close-btn');
+
+        chatToggleBtn.addEventListener('click', () => {
+            chatContainer.style.display = 'flex';
+            chatToggleBtn.style.display = 'none';
+        });
+
+        closeBtn.addEventListener('click', () => {
+            chatContainer.style.display = 'none';
+            chatToggleBtn.style.display = 'block';
+        });
+
+        // Drag-and-Drop Handling
+        const chatBody = document.querySelector('#chat-body');
+        chatBody.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            chatBody.classList.add('drop-zone-active');
+        });
+        chatBody.addEventListener('dragleave', () => {
+            chatBody.classList.remove('drop-zone-active');
+        });
+        chatBody.addEventListener('drop', (e) => {
+            e.preventDefault();
+            chatBody.classList.remove('drop-zone-active');
+            const files = e.dataTransfer.files;
+            Array.from(files).forEach(file => {
+                pond.addFile(file);
+            });
+        });
+
+        // Camera Setup
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        let stream = null;
+
+        async function startCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                video.classList.remove('hidden');
+                video.srcObject = stream;
+                const captureBtn = document.createElement('button');
+                captureBtn.textContent = 'Capture Photo';
+                captureBtn.className = 'btn-primary mt-2';
+                captureBtn.addEventListener('click', () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    canvas.getContext('2d').drawImage(video, 0, 0);
+                    canvas.toBlob(blob => {
+                        const file = new File([blob], 'field_photo.jpg', { type: 'image/jpeg' });
+                        uploadFile(file);
+                        video.classList.add('hidden');
+                        if (stream) {
+                            stream.getTracks().forEach(track => track.stop());
+                            stream = null;
+                        }
+                        captureBtn.remove();
+                    });
+                });
+                chatBody.appendChild(captureBtn);
+            } catch (err) {
+                addMessage('bot', 'Error accessing camera: ' + err.message);
+            }
+        }
+
+        // Chat Functionality
+        const userInput = document.querySelector('#user-input');
+        const sendBtn = document.querySelector('#send-btn');
+        const personalityInputs = document.querySelectorAll('input[name="personality"]');
+        const crmTokenInput = document.querySelector('#crm-token');
+        const clearTokenBtn = document.querySelector('#clear-token-btn');
+        const emojiBtn = document.querySelector('#emoji-btn');
+        const emojiPicker = document.querySelector('#emoji-picker');
+        const attachBtn = document.querySelector('#attach-btn');
+        const attachMenu = document.querySelector('#attach-menu');
+        const attachCamera = document.querySelector('#attach-camera');
+        const attachLibrary = document.querySelector('#attach-library');
+        const attachFile = document.querySelector('#attach-file');
+        const uploadProgress = document.querySelector('#upload-progress');
+        const uploadProgressFill = document.querySelector('#upload-progress-fill');
+        const normalizationProgress = document.querySelector('#normalization-progress');
+        const normalizationProgressFill = document.querySelector('#normalization-progress-fill');
+
+        // Load token from localStorage on page load
+        window.addEventListener('load', () => {
+            const savedToken = localStorage.getItem('realNexCrmToken');
+            if (savedToken) {
+                crmTokenInput.value = savedToken;
+                clearTokenBtn.classList.remove('hidden');
+            }
+        });
+
+        // Save token to localStorage whenever it changes
+        crmTokenInput.addEventListener('input', () => {
+            const token = crmTokenInput.value.trim();
+            if (token) {
+                localStorage.setItem('realNexCrmToken', token);
+                clearTokenBtn.classList.remove('hidden');
+            } else {
+                localStorage.removeItem('realNexCrmToken');
+                clearTokenBtn.classList.add('hidden');
+            }
+        });
+
+        // Clear token on button click
+        clearTokenBtn.addEventListener('click', () => {
+            localStorage.removeItem('realNexCrmToken');
+            crmTokenInput.value = '';
+            clearTokenBtn.classList.add('hidden');
+            addMessage('bot', 'CRM token cleared. Please enter a new token to process data.');
+        });
+
+        // Emoji Picker
+        emojiBtn.addEventListener('click', () => {
+            emojiPicker.classList.toggle('hidden');
+        });
+        emojiPicker.addEventListener('emoji-click', (event) => {
+            userInput.value += event.detail.unicode;
+            emojiPicker.classList.add('hidden');
+        });
+
+        // Attachment Menu
+        attachBtn.addEventListener('click', () => {
+            attachMenu.classList.toggle('hidden');
+        });
+        attachCamera.addEventListener('click', () => {
+            const token = crmTokenInput.value.trim();
+            if (!token) {
+                addMessage('bot', 'Please enter your RealNex CRM token to process data.');
+                attachMenu.classList.add('hidden');
+                return;
+            }
+            attachMenu.classList.add('hidden');
+            startCamera();
+        });
+        attachLibrary.addEventListener('click', () => {
+            const token = crmTokenInput.value.trim();
+            if (!token) {
+                addMessage('bot', 'Please enter your RealNex CRM token to process data.');
+                attachMenu.classList.add('hidden');
+                return;
+            }
+            attachMenu.classList.add('hidden');
+            pond.browse();
+        });
+        attachFile.addEventListener('click', () => {
+            const token = crmTokenInput.value.trim();
+            if (!token) {
+                addMessage('bot', 'Please enter your RealNex CRM token to process data.');
+                attachMenu.classList.add('hidden');
+                return;
+            }
+            attachMenu.classList.add('hidden');
+            pond.browse();
+        });
+
+        // Send Message
+        sendBtn.addEventListener('click', sendMessage);
+        userInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+
+        async function sendMessage() {
+            const message = userInput.value.trim();
+            if (!message) return;
+
+            addMessage('user', message);
+            userInput.value = '';
+
+            const personality = document.querySelector('input[name="personality"]:checked').value;
+            const token = crmTokenInput.value.trim();
+            const response = await fetch('/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message, personality, token })
+            });
+            const data = await response.json();
+            addMessage('bot', data.response, true);
+        }
+
+        async function uploadFile(file) {
+            const token = crmTokenInput.value.trim();
+            if (!token) {
+                addMessage('bot', 'Please enter your RealNex CRM token to process data.');
+                return;
+            }
+
+            uploadProgress.classList.remove('hidden');
+            normalizationProgress.classList.remove('hidden');
+            uploadProgressFill.style.width = '0%';
+            normalizationProgressFill.style.width = '0%';
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('personality', document.querySelector('input[name="personality"]:checked').value);
+            formData.append('token', token);
+
+            let uploadProgressValue = 0;
+            const uploadInterval = setInterval(() => {
+                uploadProgressValue += 10;
+                uploadProgressFill.style.width = `${uploadProgressValue}%`;
+                if (uploadProgressValue >= 100) clearInterval(uploadInterval);
+            }, 200);
+
+            const response = await fetch('/upload', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await response.json();
+
+            let normProgress = 0;
+            const normInterval = setInterval(() => {
+                normProgress += 10;
+                normalizationProgressFill.style.width = `${normProgress}%`;
+                if (normProgress >= 100) clearInterval(normInterval);
+            }, 200);
+
+            addMessage('bot', data.response, true);
+            if (data.snapshot) {
+                addMessage('bot', 'Data Import Snapshot:\n' + data.snapshot, false, true);
+            }
+
+            setTimeout(() => {
+                uploadProgress.classList.add('hidden');
+                normalizationProgress.classList.add('hidden');
+            }, 1000);
+        }
+
+        function addMessage(sender, message, showRating = false, isSnapshot = false) {
+            const div = document.createElement('div');
+            div.className = sender === 'user' ? 'text-right mb-3' : 'text-left mb-3';
+
+            const messageBubble = document.createElement('span');
+            messageBubble.className = `inline-block ${sender === 'user' ? 'chat-bubble-user' : 'chat-bubble-bot'} ${isSnapshot ? 'snapshot-box' : ''}`;
+            messageBubble.innerHTML = message.replace(/\n/g, '<br>');
+
+            div.appendChild(messageBubble);
+
+            if (sender === 'bot' && showRating) {
+                // Quick Response Buttons
+                const quickResponses = ['How do I import data?', 'What is RealNex?'];
+                const quickDiv = document.createElement('div');
+                quickDiv.className = 'flex flex-wrap gap-2 mt-2';
+                quickResponses.forEach(response => {
+                    const btn = document.createElement('button');
+                    btn.className = 'quick-btn';
+                    btn.textContent = response;
+                    btn.addEventListener('click', () => {
+                        userInput.value = response;
+                        sendMessage();
+                    });
+                    quickDiv.appendChild(btn);
+                });
+                div.appendChild(quickDiv);
+
+                // Response Rating
+                const ratingDiv = document.createElement('div');
+                ratingDiv.className = 'flex items-center mt-1';
+                ratingDiv.innerHTML = `
+                    <span class="text-xs text-gray-500 mr-2">Was this helpful?</span>
+                    <button class="text-gray-500 hover:text-green-500 mr-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0113.263 21H6a2 2 0 01-2-2V5a2 2 0 012-2h6a2 2 0 012 2v5z"></path>
+                        </svg>
+                    </button>
+                    <button class="text-gray-500 hover:text-red-500">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14H5.236a2 2 0 01-1.789-2.894l-3.5-7A2 2 0 0110.737 3H18a2 2 0 012 2v14a2 2 0 01-2 2h-6a2 2 0 01-2-2v-5z"></path>
+                        </svg>
+                    </button>
+                `;
+                div.appendChild(ratingDiv);
+            }
+
+            chatBody.appendChild(div);
+            chatBody.scrollTop = chatBody.scrollHeight;
+        }
+    </script>
+</body>
+</html>
