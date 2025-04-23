@@ -9,5 +9,5 @@ PyPDF2==3.0.1
 requests==2.32.3
 fuzzywuzzy==0.18.0
 gunicorn==23.0.0
-real_nex_sync_api_data_facade @ git+https://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@github.com/Cremattsd/realnex-sdk.git@main#egg=real_nex_sync_api_data_facade
+
 
