@@ -1,126 +1,96 @@
-# 🦢 Goose Prime + 🧠 Maverick AI
+# Goose & Maverick - README
 
-## 🚀 The Ultimate RealNex Smart Importer & Assistant
+## Overview
+This Flask-based app provides an interactive UI for:
+- Uploading and parsing business cards, PDFs, photos, and Excel files
+- Importing contact, company, space, and comp data into RealNex CRM
+- Chatting with Maverick, your AI assistant for CRE, RealNex, Pix-Virtual, and ViewLabs
+- Syncing contacts to Mailchimp or Constant Contact
 
-This is a full-stack AI-powered tool built to:
-- Scan business cards, property flyers, and spreadsheets
-- Automatically extract and sync data to RealNex CRM
-- Generate follow-up emails
-- Sync stale contacts to Mailchimp & Constant Contact
-- Answer common RealNex questions (Maverick AI)
+## Features
+- 🧠 **AI Assistant (Maverick):** Ask questions about RealNex, VR tools, and usage guidance.
+- 📸 **Goose OCR Importer:** Drag and drop cards, PDFs, and spreadsheets for CRM sync.
+- 🔐 **Token Validation:** Ensures valid RealNex Bearer tokens before uploads.
+- 📬 **Email Marketing Sync:** Sync contact data to RealNex, Mailchimp, or Constant Contact.
+- ⚖️ **Legal Consent:** Users must agree to RealNex Terms before uploading data.
 
--------------
+## Environment Variables
+```env
+# OpenAI API
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4o
 
-## 📁 Folder Structure
+# RealNex API
+REALNEX_API_BASE=https://sync.realnex.com/api/v1
 
+# Mailchimp (Optional)
+MAILCHIMP_API_KEY=...
+MAILCHIMP_LIST_ID=...
+MAILCHIMP_SERVER_PREFIX=usX
+
+# Constant Contact (Optional)
+CONSTANT_CONTACT_API_KEY=...
+CONSTANT_CONTACT_ACCESS_TOKEN=...
+CONSTANT_CONTACT_LIST_ID=...
+
+# Campaign Sync Defaults
+DEFAULT_CAMPAIGN_MODE=realnex  # Options: realnex, mailchimp, constant_contact
+UNLOCK_EMAIL_PROVIDER_SELECTION=false
 ```
-goose-prime/
-├── app.py                     # Main Flask backend
-├── goose_parser_tools.py     # Tools for PDFs, Excels, PDF log
-├── knowledge_base.json       # Q&A content for Maverick AI
+
+## Endpoints
+### `/`
+Serves the frontend UI (chat + upload).
+
+### `/ask` (POST)
+Send a message to Maverick. Returns a chat reply.
+
+### `/validate-token` (POST)
+Validate RealNex bearer token.
+
+### `/upload-business-card` (POST)
+Upload a photo or PDF of a business card and import to CRM.
+
+### `/suggest-mapping` (POST)
+Upload an Excel file and receive suggested column mappings.
+
+### `/bulk-import` (POST)
+Submit an Excel file + mapping JSON to import multiple contacts.
+
+### `/download-listing-template` (GET)
+Download the official RealNex listing upload Excel template.
+
+### `/get-listing-instructions` (GET)
+Get instructions for uploading listings.
+
+### `/sync-to-mailchimp` (POST)
+Send a contact to Mailchimp if enabled.
+
+### `/sync-to-constant-contact` (POST)
+Send a contact to Constant Contact if enabled.
+
+### `/terms` (GET)
+Returns the RealNex legal agreement string required before importing data.
+
+## Permissions
+All RealNex data imports and lookups respect CRM permissions tied to the user's token.
+
+## File Structure
+```bash
+project-root/
+├── app.py
+├── goose_parser_tools.py
 ├── static/
-│   └── index.html             # Frontend UI (Goose + Maverick)
-├── uploads/                  # Temporary uploads
-├── requirements.txt          # Python deps
-└── README.md                 # This file
+│   └── index.html (chat UI)
+├── upload/ (temporary file uploads)
+└── README.md
 ```
 
----
-
-## 📦 Requirements
-
-```
-Flask
-pytesseract
-Pillow
-exifread
-geopy
-requests
-fitz
-pandas
-fpdf
-gunicorn
-```
+## Deployment
+Use [Render](https://render.com/) or another platform to run `gunicorn app:app -b 0.0.0.0:$PORT`
 
 ---
 
-## 🧪 Setup (Local or Render)
+🛡 By using this tool, you confirm agreement to the RealNex [Terms of Use](https://realnex.com/Terms).
 
-1. Clone the repo:
-   ```bash
-   git clone <your repo>
-   cd goose-prime
-   ```
-
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. Run the app:
-   ```bash
-   python app.py
-   # OR for production:
-   gunicorn app:app
-   ```
-
-4. Visit: [http://localhost:5000/static/index.html](http://localhost:5000/static/index.html)
-
----
-
-## 🔐 RealNex CRM Token Required
-
-You’ll need to get your RealNex Bearer token from the RealNex Developer Console or Admin.
-Paste it into the UI when prompted.
-
----
-
-## 🧠 Maverick AI Knowledge Base
-
-Update `knowledge_base.json` with any common RealNex questions + answers.
-Used by the `/ask` endpoint.
-
----
-
-## 🔁 Contact Sync & Grouping
-
-- `/sync-followups` → Finds contacts with no activity in X days and adds to "Follow Up Group"
-- `/sync-mailchimp` → Sends those contacts to Mailchimp (requires API key + audience ID)
-- `/sync-constantcontact` → Sends to Constant Contact (requires API + list ID)
-
----
-
-## 🧾 PDF Import Logs
-
-- Every upload generates a summary log
-- Use `generate_pdf_log()` in `goose_parser_tools.py` to create a printable/email-friendly PDF
-
----
-
-## 📥 File Uploads Supported
-
-| File Type | Action |
-|-----------|--------|
-| JPG/PNG   | OCR business card + scan + import + follow-up |
-| PDF       | Parse property flyer (experimental) |
-| Excel     | Bulk contact import (auto-mapping headers) |
-
----
-
-## ✍️ Credits
-
-Created by **Matty** 💼
-Coded + trained by Goose 🦢 and Maverick 🧠 (with OpenAI inside)
-
----
-
-## 🛡️ Final Notes
-
-- All logic is token-based — no exposed CRM keys
-- Add your own Mailchimp + Constant Contact keys as needed
-- All parsing and uploads happen in-memory or `/uploads/`
-- Delete old files manually if needed
-
----
-
-Now go dominate the CRM game. 🦾
+🚀 Enjoy the upload party with Goose + Maverick!
