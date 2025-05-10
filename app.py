@@ -29,6 +29,12 @@ CONSTANT_CONTACT_API_KEY = os.getenv("CONSTANT_CONTACT_API_KEY")
 CONSTANT_CONTACT_ACCESS_TOKEN = os.getenv("CONSTANT_CONTACT_ACCESS_TOKEN")
 CONSTANT_CONTACT_LIST_ID = os.getenv("CONSTANT_CONTACT_LIST_ID")
 
+DEFAULT_CAMPAIGN_MODE = os.getenv("DEFAULT_CAMPAIGN_MODE", "realnex")  # 'realnex' | 'mailchimp' | 'constant_contact'
+
+# Hidden feature toggle (unlocked by admin only)
+UNLOCK_EMAIL_PROVIDER_SELECTION = os.getenv("UNLOCK_EMAIL_PROVIDER_SELECTION", "false").lower() == "true"
+
+
 def sync_to_mailchimp(email, first_name="", last_name=""):
     try:
         url = f"https://{MAILCHIMP_SERVER_PREFIX}.api.mailchimp.com/3.0/lists/{MAILCHIMP_LIST_ID}/members"
@@ -64,13 +70,25 @@ def sync_to_constant_contact(email, first_name="", last_name=""):
             "last_name": last_name,
             "list_memberships": [CONSTANT_CONTACT_LIST_ID]
         }
-        url = f"https://api.cc.email/v3/contacts/sign_up_form"
+        url = "https://api.cc.email/v3/contacts/sign_up_form"
         response = requests.post(url, headers=headers, json=data)
         response.raise_for_status()
         return True
     except Exception as e:
         logging.error(f"Constant Contact sync failed: {str(e)}")
         return False
+
+def sync_contact(email, first_name, last_name, provider=None):
+    provider = provider or DEFAULT_CAMPAIGN_MODE
+    if not UNLOCK_EMAIL_PROVIDER_SELECTION:
+        provider = DEFAULT_CAMPAIGN_MODE
+    if provider == "mailchimp":
+        return sync_to_mailchimp(email, first_name, last_name)
+    elif provider == "constant_contact":
+        return sync_to_constant_contact(email, first_name, last_name)
+    else:
+        logging.info(f"Using internal RealNex campaign sync for {email}")
+        return True  # Replace with actual internal sync logic when implemented
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def realnex_post(endpoint, token, data):
@@ -144,5 +162,3 @@ def sync_constant_contact():
     except Exception as e:
         logging.error(f"Constant Contact sync error: {str(e)}")
         return jsonify({"error": str(e)}), 500
-
-# ... rest of existing routes stay unchanged ...
