@@ -22,16 +22,20 @@ COPY requirements.txt package.json ./
 RUN pip install --no-cache-dir -r requirements.txt
 RUN npm install
 
+# ✅ Now copy the rest of the app before running build
+COPY . .
+
+# Ensure static folder exists
+RUN mkdir -p static
+
 # 🐛 Debug file structure and contents before Tailwind build
 RUN echo "📂 rc/ directory:" && ls -la rc && \
     echo "📂 static/ directory:" && ls -la static && \
-    echo "📄 rc/input.css contents:" && cat rc/input.css || true
+    echo "📄 rc/input.css contents:" && cat rc/input.css && \
+    echo "📄 tailwind.config.js contents:" && cat tailwind.config.js
 
 # Now try to build Tailwind CSS
-RUN npm run build:css
-
-# Copy the rest of the app
-COPY . .
+RUN npm run build:css || echo '❌ Tailwind build failed'
 
 # Expose the port Render will use
 EXPOSE 10000
