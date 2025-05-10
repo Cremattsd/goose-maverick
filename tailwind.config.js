@@ -1,6 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  content: ["./static/**/*.html"],  // Remove ./app.py since it’s not needed
+  content: ["./static/**/*.html"],
   theme: {
     extend: {},
   },
