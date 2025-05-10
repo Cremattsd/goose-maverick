@@ -12,7 +12,7 @@ app = Flask(__name__, static_folder='static', static_url_path='')
 UPLOAD_FOLDER = 'upload'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-# Push image with new token
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, filename='app.log', format='%(asctime)s - %(levelname)s - %(message)s')
 
