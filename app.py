@@ -5,7 +5,6 @@ import json
 import pytesseract
 import requests
 import exifread
-import io
 from PIL import Image
 from geopy.geocoders import Nominatim
 from flask import Flask, request, jsonify
@@ -19,6 +18,7 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 geolocator = Nominatim(user_agent="realnex_goose")
 REALNEX_API_BASE = "https://sync.realnex.com/api/v1"
 
+# === OCR & Location Extraction ===
 def extract_text_from_image(image_path):
     image = Image.open(image_path)
     return pytesseract.image_to_string(image)
@@ -42,6 +42,7 @@ def extract_exif_location(image_path):
         return {"lat": lat, "lon": lon, "address": location.address if location else None}
     return None
 
+# === RealNex Contact Creator ===
 def create_contact_in_realnex(token, data):
     headers = {
         "Authorization": f"Bearer {token}",
@@ -50,6 +51,7 @@ def create_contact_in_realnex(token, data):
     response = requests.post(f"{REALNEX_API_BASE}/Crm/contact", headers=headers, json=data)
     return response.status_code, response.json() if response.content else {}
 
+# === Goose Endpoint ===
 @app.route('/upload-business-card', methods=['POST'])
 def upload_business_card():
     token = request.form.get('token')
@@ -85,7 +87,7 @@ def upload_business_card():
         "status": status
     })
 
-# === Load Knowledge Base for Maverick ===
+# === Maverick Q&A ===
 with open("knowledge_base.json", "r") as f:
     knowledge_base = json.load(f)
 
@@ -99,6 +101,11 @@ def ask_maverick():
             return jsonify({ "answer": answer })
 
     return jsonify({ "answer": "Sorry, I couldn't find an answer to that. Try rephrasing your question." })
+
+# === Render root ping ===
+@app.route('/')
+def home():
+    return '✅ Goose & Maverick are online. Visit /static/index.html'
 
 if __name__ == '__main__':
     app.run(debug=True)
