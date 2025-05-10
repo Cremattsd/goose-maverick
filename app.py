@@ -1,12 +1,11 @@
 import os
-import json
 import logging
 import requests
 import pandas as pd
-import tempfile
 from flask import Flask, request, jsonify, send_from_directory
 from datetime import datetime, timedelta
-import openai
+from openai import OpenAI
+from openai.types.chat import ChatCompletionMessageParam
 from tenacity import retry, stop_after_attempt, wait_exponential
 from goose_parser_tools import extract_text_from_image, extract_text_from_pdf, extract_exif_location, is_business_card, parse_ocr_text, suggest_field_mapping, map_fields
 
@@ -15,18 +14,15 @@ UPLOAD_FOLDER = 'upload'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# Configure logging
 logging.basicConfig(level=logging.INFO, filename='app.log', format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Initialize services
 REALNEX_API_BASE = os.getenv("REALNEX_API_BASE", "https://sync.realnex.com/api/v1")
 ODATA_BASE = f"{REALNEX_API_BASE}/CrmOData"
-openai.api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-if not openai.api_key:
+if not client.api_key:
     raise ValueError("OPENAI_API_KEY environment variable is not set")
 
-# === RealNex API Helpers ===
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def realnex_post(endpoint, token, data):
     try:
@@ -86,24 +82,20 @@ def ask():
             "If the user asks about something unrelated, politely redirect them to these topics."
         )
 
-        response = openai.ChatCompletion.create(
-            model=os.getenv("OPENAI_MODEL", "gpt-4-turbo"),
-            messages=[
+        chat_request = {
+            "model": os.getenv("OPENAI_MODEL", "gpt-4-turbo"),
+            "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message}
             ]
-        )
+        }
+
+        response = client.chat.completions.create(**chat_request)
         answer = response.choices[0].message.content
         logging.info(f"User asked: {user_message}, Answered: {answer}")
         return jsonify({"answer": answer})
-    except openai.OpenAIError as e:
-        logging.error(f"OpenAI API error: {str(e)}")
-        return jsonify({"error": f"OpenAI API error: {str(e)}"}), 500
     except Exception as e:
         logging.error(f"Unexpected error in /ask: {str(e)}")
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
-# (Remaining routes unchanged for brevity, you can reinsert them here)
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
+# ...rest of your routes remain unchanged
