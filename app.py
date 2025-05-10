@@ -1,11 +1,13 @@
 import os
+import json
 import logging
 import requests
 import pandas as pd
+import tempfile
+import openai
 from flask import Flask, request, jsonify, send_from_directory
 from datetime import datetime, timedelta
 from openai import OpenAI
-from openai.types.chat import ChatCompletionMessageParam
 from tenacity import retry, stop_after_attempt, wait_exponential
 from goose_parser_tools import extract_text_from_image, extract_text_from_pdf, extract_exif_location, is_business_card, parse_ocr_text, suggest_field_mapping, map_fields
 
@@ -94,8 +96,9 @@ def ask():
         answer = response.choices[0].message.content
         logging.info(f"User asked: {user_message}, Answered: {answer}")
         return jsonify({"answer": answer})
+    except openai.OpenAIError as e:
+        logging.error(f"OpenAI API error: {str(e)}")
+        return jsonify({"error": f"OpenAI API error: {str(e)}"}), 500
     except Exception as e:
         logging.error(f"Unexpected error in /ask: {str(e)}")
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
-
-# ...rest of your routes remain unchanged
