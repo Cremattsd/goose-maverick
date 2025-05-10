@@ -1,93 +1,92 @@
-import re
 import pytesseract
-import exifread
-import pandas as pd
 from PIL import Image
-from pdf2image import convert_from_path
-from geopy.geocoders import Nominatim
-
-# Initialize geocoder
-geolocator = Nominatim(user_agent="realnex_goose")
+import pdf2image
+import exifread
+import re
+import pandas as pd
 
 def extract_text_from_image(image_path):
     try:
-        return pytesseract.image_to_string(Image.open(image_path))
+        img = Image.open(image_path)
+        text = pytesseract.image_to_string(img)
+        return text.strip()
     except Exception as e:
-        print(f"Image OCR failed: {str(e)}")
+        print(f"Error extracting text from image: {str(e)}")
         return ""
 
 def extract_text_from_pdf(pdf_path):
     try:
-        images = convert_from_path(pdf_path)
+        images = pdf2image.convert_from_path(pdf_path)
         text = ""
         for img in images:
-            text += pytesseract.image_to_string(img)
-        return text
+            text += pytesseract.image_to_string(img) + "\n"
+        return text.strip()
     except Exception as e:
-        print(f"PDF OCR failed: {str(e)}")
+        print(f"Error extracting text from PDF: {str(e)}")
         return ""
 
 def extract_exif_location(image_path):
     try:
         with open(image_path, 'rb') as f:
             tags = exifread.process_file(f)
-        def _deg(v):
-            d, m, s = v.values
-            return d.num/d.den + m.num/m.den/60 + s.num/s.den/3600
-        if 'GPS GPSLatitude' in tags and 'GPS GPSLongitude' in tags:
-            lat, lon = _deg(tags['GPS GPSLatitude']), _deg(tags['GPS GPSLongitude'])
-            if tags['GPS GPSLatitudeRef'].values != 'N': lat = -lat
-            if tags['GPS GPSLongitudeRef'].values != 'E': lon = -lon
-            try:
-                location = geolocator.reverse((lat, lon), exactly_one=True)
-                return {"lat": lat, "lon": lon, "address": location.address if location else None}
-            except Exception as e:
-                print(f"Geocoding failed: {str(e)}")
-                return {"lat": lat, "lon": lon, "address": None, "error": str(e)}
+            if 'GPS GPSLatitude' in tags and 'GPS GPSLongitude' in tags:
+                lat = tags['GPS GPSLatitude'].values
+                lon = tags['GPS GPSLongitude'].values
+                return {"latitude": str(lat), "longitude": str(lon)}
         return None
     except Exception as e:
-        print(f"EXIF extraction failed: {str(e)}")
+        print(f"Error extracting EXIF location: {str(e)}")
         return None
 
 def is_business_card(text):
-    return "@" in text and any(c.isdigit() for c in text) and any(len(line.split()) >= 2 for line in text.splitlines())
+    keywords = ['email', 'phone', 'www', '@', 'com', 'inc', 'llc']
+    return any(keyword in text.lower() for keyword in keywords)
 
 def parse_ocr_text(text):
-    lines = text.splitlines()
-    email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
-    phone_pattern = r'\b\d{3}-\d{3}-\d{4}\b'
-    name = next((l for l in lines if len(l.split()) >= 2 and not re.search(email_pattern, l) and not re.search(phone_pattern, l)), "")
-    email = next((l for l in lines if re.search(email_pattern, l)), "")
-    phone = next((l for l in lines if re.search(phone_pattern, l)), "")
-    company = next((l for l in lines if "inc" in l.lower() or "llc" in l.lower() or "corp" in l.lower()), "")
-    return {
-        "fullName": name.strip(),
-        "email": email.strip(),
-        "work": phone.strip(),
-        "company": company.strip()
-    }
+    parsed = {"fullName": "", "email": "", "work": "", "company": ""}
+    lines = text.split('\n')
+    
+    # Simple parsing logic
+    email_pattern = r'[\w\.-]+@[\w\.-]+\.\w+'
+    for line in lines:
+        line = line.strip()
+        if not parsed["email"]:
+            email_match = re.search(email_pattern, line)
+            if email_match:
+                parsed["email"] = email_match.group()
+                continue
+        if not parsed["fullName"] and line.replace(" ", "").isalpha():
+            parsed["fullName"] = line
+            continue
+        if not parsed["company"] and any(kw in line.lower() for kw in ['inc', 'llc', 'corp']):
+            parsed["company"] = line
+            continue
+        if not parsed["work"] and any(kw in line.lower() for kw in ['work', 'office', 'phone']):
+            parsed["work"] = line
+            continue
+    return parsed
 
 def suggest_field_mapping(df):
-    columns = df.columns.tolist()
-    mapping = {
-        "contacts": {},
-        "companies": {}
-    }
-    for col in columns:
-        col_lower = col.lower()
-        if "name" in col_lower:
-            mapping["contacts"]["fullName"] = col
-        elif "email" in col_lower:
-            mapping["contacts"]["email"] = col
-        elif "phone" in col_lower or "work" in col_lower:
-            mapping["contacts"]["work"] = col
-        elif "company" in col_lower or "org" in col_lower:
-            mapping["companies"]["name"] = col
+    mapping = {"contacts": {}, "companies": {}, "properties": {}, "spaces": {}, "projects": {}}
+    columns = df.columns.str.lower()
+    
+    # Suggest mappings for contacts
+    if "name" in columns:
+        mapping["contacts"]["fullName"] = "name"
+    if "email" in columns:
+        mapping["contacts"]["email"] = "email"
+    if "phone" in columns:
+        mapping["contacts"]["work"] = "phone"
+    
+    # Suggest mappings for companies
+    if "company" in columns:
+        mapping["companies"]["name"] = "company"
+    
     return mapping
 
-def map_fields(data, mapping):
+def map_fields(row, fields):
     mapped = {}
-    for crm_field, excel_col in mapping.items():
-        if excel_col in data:
-            mapped[crm_field] = data[excel_col]
-    return mapped
+    for target_field, source_field in fields.items():
+        if source_field.lower() in row and pd.notna(row[source_field.lower()]):
+            mapped[target_field] = str(row[source_field.lower()])
+    return mapped if mapped else None
