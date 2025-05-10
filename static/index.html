@@ -1,56 +1,63 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>RealNex Goose & Maverick</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-</head>
 <body class="bg-gray-100 font-sans">
 
-  <div class="min-h-screen flex flex-col lg:flex-row items-center justify-center gap-10 p-8">
-
-    <!-- 🦢 Goose Upload Box -->
+  <div class="min-h-screen flex items-center justify-center p-6">
     <div class="w-full max-w-md bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden">
-      <div class="px-6 py-4 bg-gradient-to-r from-blue-600 to-blue-400 text-white flex items-center justify-between">
+
+      <!-- Header with Switch -->
+      <div class="flex items-center justify-between px-5 py-4 bg-gradient-to-r from-blue-600 to-cyan-500 text-white">
         <div class="flex items-center gap-2">
-          <img src="goose-icon.png" alt="Goose Icon" class="w-6 h-6">
-          <h2 class="text-lg font-bold">Goose – Card Scanner</h2>
+          <img id="botIcon" src="maverick-icon.png" class="w-6 h-6" alt="Bot">
+          <h2 id="botTitle" class="font-bold text-lg">Chat with Maverick</h2>
         </div>
-        <span class="text-sm bg-white text-blue-600 px-2 py-0.5 rounded">Live</span>
+        <button onclick="toggleBot()" class="bg-white text-blue-600 text-xs font-semibold px-3 py-1 rounded hover:bg-gray-100">
+          Switch to Goose
+        </button>
       </div>
 
-      <form id="uploadForm" class="px-6 py-4 space-y-4">
-        <input type="file" name="file" id="file" class="block w-full border border-gray-300 rounded px-3 py-2 text-sm">
-        <input type="text" name="token" id="token" placeholder="RealNex API Token" class="block w-full border border-gray-300 rounded px-3 py-2 text-sm">
+      <!-- Maverick Mode -->
+      <div id="maverickBox" class="px-5 py-6 space-y-4">
+        <input type="text" id="question" placeholder="Ask anything about RealNex..." class="w-full border border-gray-300 rounded px-3 py-3 text-sm">
+        <button onclick="askMaverick()" class="w-full bg-cyan-600 text-white py-2 rounded font-semibold hover:bg-cyan-700">Send</button>
+        <div id="result" class="text-sm text-gray-800 whitespace-pre-wrap"></div>
+      </div>
+
+      <!-- Goose Mode -->
+      <form id="gooseBox" class="hidden px-5 py-6 space-y-4" enctype="multipart/form-data">
+        <input type="file" id="file" class="w-full border border-gray-300 rounded px-3 py-3 text-sm">
+        <input type="text" id="token" placeholder="RealNex API Token" class="w-full border border-gray-300 rounded px-3 py-3 text-sm">
         <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded font-semibold hover:bg-blue-700">Upload</button>
+        <div id="uploadResult" class="text-sm text-gray-800 whitespace-pre-wrap"></div>
       </form>
 
-      <div id="uploadResult" class="p-4 text-sm text-gray-700 whitespace-pre-wrap"></div>
     </div>
-
-    <!-- 🤖 Maverick Chat Box -->
-    <div class="w-full max-w-md bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden">
-      <div class="px-6 py-4 bg-gradient-to-r from-cyan-600 to-blue-400 text-white flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <img src="maverick-icon.png" alt="Maverick Icon" class="w-6 h-6">
-          <h2 class="text-lg font-bold">Chat with Maverick</h2>
-        </div>
-        <span class="text-sm bg-white text-cyan-600 px-2 py-0.5 rounded">Ask</span>
-      </div>
-
-      <div class="px-6 py-4 space-y-4">
-        <input type="text" id="question" placeholder="Type your RealNex question..." class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
-        <button onclick="askMaverick()" class="w-full bg-cyan-600 text-white py-2 rounded font-semibold hover:bg-cyan-700">Send</button>
-      </div>
-
-      <div id="result" class="p-4 text-sm text-gray-800 whitespace-pre-wrap"></div>
-    </div>
-
   </div>
 
-  <!-- Scripts -->
+  <!-- JavaScript -->
   <script>
-    document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+    const toggleBot = () => {
+      const mBox = document.getElementById('maverickBox');
+      const gBox = document.getElementById('gooseBox');
+      const title = document.getElementById('botTitle');
+      const icon = document.getElementById('botIcon');
+      const btn = document.querySelector('button');
+
+      if (mBox.classList.contains('hidden')) {
+        mBox.classList.remove('hidden');
+        gBox.classList.add('hidden');
+        title.textContent = 'Chat with Maverick';
+        icon.src = 'maverick-icon.png';
+        btn.textContent = 'Switch to Goose';
+      } else {
+        mBox.classList.add('hidden');
+        gBox.classList.remove('hidden');
+        title.textContent = 'Goose – Card Scanner';
+        icon.src = 'goose-icon.png';
+        btn.textContent = 'Switch to Maverick';
+      }
+    }
+
+    // Goose upload logic
+    document.getElementById('gooseBox').addEventListener('submit', async (e) => {
       e.preventDefault();
       const formData = new FormData();
       formData.append('file', document.getElementById('file').files[0]);
@@ -65,6 +72,7 @@
       document.getElementById('uploadResult').textContent = JSON.stringify(result, null, 2);
     });
 
+    // Maverick Q&A logic
     async function askMaverick() {
       const question = document.getElementById('question').value;
       const response = await fetch('/ask', {
@@ -76,6 +84,4 @@
       document.getElementById('result').textContent = result.answer;
     }
   </script>
-
 </body>
-</html>
