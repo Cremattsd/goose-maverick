@@ -5,34 +5,64 @@
   <title>RealNex Goose & Maverick</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-gray-100 p-6 font-sans">
-  <div class="max-w-xl mx-auto bg-white p-6 rounded shadow-md">
-    <h1 class="text-2xl font-bold mb-4">📇 Business Card Scanner (Goose)</h1>
-    <form id="uploadForm" class="mb-6">
-      <input type="file" name="file" id="file" class="mb-4 block w-full">
-      <input type="text" name="token" id="token" placeholder="RealNex API Token" class="mb-4 block w-full border px-2 py-1">
-      <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded">Upload</button>
-    </form>
+<body class="bg-gray-100 font-sans">
 
-    <h2 class="text-xl font-semibold mb-2">🤖 Ask Maverick</h2>
-    <input type="text" id="question" placeholder="Type a RealNex question..." class="block w-full border px-2 py-1 mb-2">
-    <button onclick="askMaverick()" class="bg-green-600 text-white px-4 py-2 rounded">Ask</button>
+  <div class="min-h-screen flex flex-col lg:flex-row items-center justify-center gap-10 p-8">
 
-    <div id="result" class="text-sm whitespace-pre-wrap mt-4"></div>
+    <!-- 🦢 Goose Upload Box -->
+    <div class="w-full max-w-md bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden">
+      <div class="px-6 py-4 bg-gradient-to-r from-blue-600 to-blue-400 text-white flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <img src="goose-icon.png" alt="Goose Icon" class="w-6 h-6">
+          <h2 class="text-lg font-bold">Goose – Card Scanner</h2>
+        </div>
+        <span class="text-sm bg-white text-blue-600 px-2 py-0.5 rounded">Live</span>
+      </div>
+
+      <form id="uploadForm" class="px-6 py-4 space-y-4">
+        <input type="file" name="file" id="file" class="block w-full border border-gray-300 rounded px-3 py-2 text-sm">
+        <input type="text" name="token" id="token" placeholder="RealNex API Token" class="block w-full border border-gray-300 rounded px-3 py-2 text-sm">
+        <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded font-semibold hover:bg-blue-700">Upload</button>
+      </form>
+
+      <div id="uploadResult" class="p-4 text-sm text-gray-700 whitespace-pre-wrap"></div>
+    </div>
+
+    <!-- 🤖 Maverick Chat Box -->
+    <div class="w-full max-w-md bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden">
+      <div class="px-6 py-4 bg-gradient-to-r from-cyan-600 to-blue-400 text-white flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <img src="maverick-icon.png" alt="Maverick Icon" class="w-6 h-6">
+          <h2 class="text-lg font-bold">Chat with Maverick</h2>
+        </div>
+        <span class="text-sm bg-white text-cyan-600 px-2 py-0.5 rounded">Ask</span>
+      </div>
+
+      <div class="px-6 py-4 space-y-4">
+        <input type="text" id="question" placeholder="Type your RealNex question..." class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+        <button onclick="askMaverick()" class="w-full bg-cyan-600 text-white py-2 rounded font-semibold hover:bg-cyan-700">Send</button>
+      </div>
+
+      <div id="result" class="p-4 text-sm text-gray-800 whitespace-pre-wrap"></div>
+    </div>
+
   </div>
 
+  <!-- Scripts -->
   <script>
     document.getElementById('uploadForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const formData = new FormData();
       formData.append('file', document.getElementById('file').files[0]);
       formData.append('token', document.getElementById('token').value);
+
       const response = await fetch('/upload-business-card', {
         method: 'POST',
         body: formData
       });
+
       const result = await response.json();
-      document.getElementById('result').textContent = JSON.stringify(result, null, 2);
+      document.getElementById('uploadResult').textContent = JSON.stringify(result, null, 2);
     });
 
     async function askMaverick() {
@@ -46,5 +76,6 @@
       document.getElementById('result').textContent = result.answer;
     }
   </script>
+
 </body>
 </html>
