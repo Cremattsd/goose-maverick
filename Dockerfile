@@ -21,11 +21,14 @@ COPY requirements.txt package.json ./
 # 🧰 Upgrade build tools for pandas/numpy compatibility
 RUN pip install --upgrade pip setuptools wheel
 
+# 🔥 Remove potential broken pre-installed Flask/Werkzeug versions
+RUN pip uninstall -y flask werkzeug || true && rm -rf /root/.cache/pip
+
 # Install Python + Node dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 RUN npm install
 
-# ✅ Now copy the rest of the app before running build
+# ✅ Copy the rest of the app
 COPY . .
 
 # Ensure static folder exists
