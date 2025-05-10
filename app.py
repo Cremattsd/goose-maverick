@@ -17,10 +17,8 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 geolocator = Nominatim(user_agent="realnex_goose")
-
 REALNEX_API_BASE = "https://sync.realnex.com/api/v1"
 
-# === OCR & Location Extraction ===
 def extract_text_from_image(image_path):
     image = Image.open(image_path)
     return pytesseract.image_to_string(image)
@@ -44,7 +42,6 @@ def extract_exif_location(image_path):
         return {"lat": lat, "lon": lon, "address": location.address if location else None}
     return None
 
-# === RealNex API ===
 def create_contact_in_realnex(token, data):
     headers = {
         "Authorization": f"Bearer {token}",
@@ -64,11 +61,9 @@ def upload_business_card():
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     file.save(filepath)
 
-    # Extract text and location
     ocr_text = extract_text_from_image(filepath)
     exif_data = extract_exif_location(filepath)
 
-    # Basic contact parsing logic
     lines = ocr_text.splitlines()
     name = next((line for line in lines if len(line.split()) >= 2), "")
     email = next((line for line in lines if "@" in line), "")
@@ -89,6 +84,21 @@ def upload_business_card():
         "contactCreated": response,
         "status": status
     })
+
+# === Load Knowledge Base for Maverick ===
+with open("knowledge_base.json", "r") as f:
+    knowledge_base = json.load(f)
+
+@app.route('/ask', methods=['POST'])
+def ask_maverick():
+    data = request.get_json()
+    message = data.get('message', '').strip().lower()
+
+    for question, answer in knowledge_base.items():
+        if message in question.lower():
+            return jsonify({ "answer": answer })
+
+    return jsonify({ "answer": "Sorry, I couldn't find an answer to that. Try rephrasing your question." })
 
 if __name__ == '__main__':
     app.run(debug=True)
