@@ -84,6 +84,11 @@ def ask():
             "If the user asks about something unrelated, politely redirect them to these topics."
         )
 
+        if 'upload' in user_message.lower() and 'listing' in user_message.lower():
+            return jsonify({
+                "answer": "Sure thing! You can download the official RealNex listing upload template here: /download-listing-template. Fill it out and send it to support@realnex.com."
+            })
+
         chat_request = {
             "model": os.getenv("OPENAI_MODEL", "gpt-4-turbo"),
             "messages": [
