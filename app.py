@@ -1,4 +1,4 @@
-# goose_backend_upgrade.py
+# goose_maverick_backend.py
 
 import os
 import json
@@ -6,10 +6,10 @@ import pytesseract
 import requests
 import exifread
 from PIL import Image
+from datetime import datetime
 from geopy.geocoders import Nominatim
 from flask import Flask, request, jsonify
 from werkzeug.utils import secure_filename
-from datetime import datetime
 
 app = Flask(__name__)
 UPLOAD_FOLDER = 'uploads'
@@ -19,7 +19,7 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 geolocator = Nominatim(user_agent="realnex_goose")
 REALNEX_API_BASE = "https://sync.realnex.com/api/v1"
 
-# === OCR & Location Extraction ===
+# === OCR & EXIF ===
 def extract_text_from_image(image_path):
     image = Image.open(image_path)
     return pytesseract.image_to_string(image)
@@ -43,7 +43,7 @@ def extract_exif_location(image_path):
         return {"lat": lat, "lon": lon, "address": location.address if location else None}
     return None
 
-# === API Helpers ===
+# === RealNex API Helpers ===
 def realnex_post(endpoint, token, data):
     headers = {
         "Authorization": f"Bearer {token}",
@@ -53,15 +53,23 @@ def realnex_post(endpoint, token, data):
     response = requests.post(url, headers=headers, json=data)
     return response.status_code, response.json() if response.content else {}
 
-def create_history(token, subject, notes, contact_key=None):
+def create_history(token, subject, notes, object_key=None, object_type="contact"):
     data = {
         "subject": subject,
         "notes": notes,
-        "event_type_key": "Weblead",
+        "event_type_key": "Weblead"
     }
-    if contact_key:
-        data["contact_key"] = contact_key
+    if object_key:
+        data[f"{object_type}_key"] = object_key
     return realnex_post("/Crm/history", token, data)
+
+# === Business Card Detection ===
+def is_business_card(text):
+    has_email = "@" in text
+    has_phone = any(char.isdigit() for char in text) and "-" in text
+    lines = text.splitlines()
+    has_name_line = any(len(line.split()) >= 2 for line in lines)
+    return has_email and has_phone and has_name_line
 
 # === Upload Endpoint ===
 @app.route('/upload-business-card', methods=['POST'])
@@ -88,19 +96,24 @@ def upload_business_card():
         "fullName": name.strip(),
         "email": email.strip(),
         "work": phone.strip(),
-        "prospect": True,
-        "notes": notes.strip()
+        "prospect": True
     }
+    if is_business_card(ocr_text) and notes:
+        contact_payload["notes"] = notes.strip()
 
     status, contact_response = realnex_post("/Crm/contact", token, contact_payload)
     contact_key = contact_response.get("key")
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    history_note = f"Imported via Goose on {timestamp}\n\nOCR Text:\n{ocr_text}\n\nUser Notes:\n{notes}"
-    create_history(token, subject="Goose Import Log", notes=history_note, contact_key=contact_key)
+    history_note = f"Imported via Goose on {timestamp}\n\nOCR Text:\n{ocr_text}"
+    if is_business_card(ocr_text) and notes:
+        history_note += f"\n\nUser Notes:\n{notes}"
+    create_history(token, "Goose Import Log", history_note, contact_key, "contact")
 
-    first_name = name.split()[0] if name else "there"
-    email_draft = f"""Subject: Great connecting today!
+    email_draft = ""
+    if is_business_card(ocr_text):
+        first_name = name.split()[0] if name else "there"
+        email_draft = f"""Subject: Great connecting today!
 
 Hi {first_name},
 
@@ -112,15 +125,12 @@ Best,
 Matty
 """
 
-    # Log for email report
     import_log = {
         "file": filename,
-        "created": [
-            f"Contact: {name.strip()}"
-        ],
+        "created": [f"Contact: {name.strip()}"],
         "matched": [],
-        "notes": notes,
         "ocr": ocr_text,
+        "notes": notes if is_business_card(ocr_text) else "",
         "timestamp": timestamp
     }
 
@@ -148,7 +158,7 @@ def ask_maverick():
 
 @app.route('/')
 def home():
-    return '✅ Goose Prime is live. Visit /static/index.html'
+    return '✅ Goose & Maverick AI are live. Visit /static/index.html'
 
 if __name__ == '__main__':
     app.run(debug=True)
