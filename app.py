@@ -104,6 +104,82 @@ def ask():
         logging.error(f"Unexpected error in /ask: {str(e)}")
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
+@app.route('/validate-token', methods=['POST'])
+def validate_token():
+    token = request.json.get("token")
+    if not token:
+        return jsonify({"valid": False, "error": "Token required"}), 400
+    status, data = realnex_get("Contacts?$top=1", token)
+    return jsonify({"valid": status == 200, "error": None if status == 200 else data.get("error")})
+
+@app.route('/upload-business-card', methods=['POST'])
+def upload_business_card():
+    file = request.files.get("file")
+    token = request.form.get("token")
+    notes = request.form.get("notes", "")
+    if not file or not token:
+        return jsonify({"error": "Missing file or token"}), 400
+
+    temp_path = os.path.join(tempfile.gettempdir(), file.filename)
+    file.save(temp_path)
+    ext = file.filename.lower()
+
+    if ext.endswith(".pdf"):
+        text = extract_text_from_pdf(temp_path)
+    else:
+        text = extract_text_from_image(temp_path)
+
+    fields = parse_ocr_text(text)
+    exif_location = extract_exif_location(temp_path)
+    fields.update(exif_location)
+
+    contact_data = map_fields(fields, "contact")
+    contact_data["prospect"] = True
+
+    status, contact = realnex_post("/Crm/contact", token, contact_data)
+    follow_up = "Created contact successfully."
+    if status not in [200, 201]:
+        follow_up = f"Error creating contact: {contact.get('error')}"
+    else:
+        create_history(token, "Business Card Uploaded", notes, object_key=contact.get("key"))
+
+    return jsonify({"fields": fields, "followUpEmail": follow_up})
+
+@app.route('/suggest-mapping', methods=['POST'])
+def suggest_mapping():
+    file = request.files.get("file")
+    if not file:
+        return jsonify({"error": "Missing file"}), 400
+
+    df = pd.read_excel(file)
+    suggestions = suggest_field_mapping(df.columns.tolist())
+    return jsonify({"suggestedMapping": suggestions})
+
+@app.route('/bulk-import', methods=['POST'])
+def bulk_import():
+    file = request.files.get("file")
+    token = request.form.get("token")
+    mapping_json = request.form.get("mapping")
+    if not file or not token or not mapping_json:
+        return jsonify({"error": "Missing required fields"}), 400
+
+    df = pd.read_excel(file)
+    mapping = json.loads(mapping_json)
+    processed = 0
+
+    for _, row in df.iterrows():
+        try:
+            record = {k: row[v] for k, v in mapping.items() if v in row and pd.notna(row[v])}
+            record["prospect"] = True
+            status, result = realnex_post("/Crm/contact", token, record)
+            if status in [200, 201]:
+                create_history(token, "Excel Import", "Bulk imported contact", object_key=result.get("key"))
+                processed += 1
+        except Exception as e:
+            logging.warning(f"Skipping row due to error: {e}")
+
+    return jsonify({"processed": processed})
+
 @app.route('/download-listing-template', methods=['GET'])
 def download_listing_template():
     try:
