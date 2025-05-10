@@ -29,11 +29,8 @@ CONSTANT_CONTACT_API_KEY = os.getenv("CONSTANT_CONTACT_API_KEY")
 CONSTANT_CONTACT_ACCESS_TOKEN = os.getenv("CONSTANT_CONTACT_ACCESS_TOKEN")
 CONSTANT_CONTACT_LIST_ID = os.getenv("CONSTANT_CONTACT_LIST_ID")
 
-DEFAULT_CAMPAIGN_MODE = os.getenv("DEFAULT_CAMPAIGN_MODE", "realnex")  # 'realnex' | 'mailchimp' | 'constant_contact'
-
-# Hidden feature toggle (unlocked by admin only)
+DEFAULT_CAMPAIGN_MODE = os.getenv("DEFAULT_CAMPAIGN_MODE", "realnex")
 UNLOCK_EMAIL_PROVIDER_SELECTION = os.getenv("UNLOCK_EMAIL_PROVIDER_SELECTION", "false").lower() == "true"
-
 
 def sync_to_mailchimp(email, first_name="", last_name=""):
     try:
@@ -88,7 +85,7 @@ def sync_contact(email, first_name, last_name, provider=None):
         return sync_to_constant_contact(email, first_name, last_name)
     else:
         logging.info(f"Using internal RealNex campaign sync for {email}")
-        return True  # Replace with actual internal sync logic when implemented
+        return True
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def realnex_post(endpoint, token, data):
