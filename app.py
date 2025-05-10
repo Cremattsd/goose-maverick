@@ -102,3 +102,17 @@ def ask():
     except Exception as e:
         logging.error(f"Unexpected error in /ask: {str(e)}")
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
+
+@app.route('/download-listing-template', methods=['GET'])
+def download_listing_template():
+    try:
+        return send_from_directory('static', 'realnex_listing_template.xlsx', as_attachment=True)
+    except Exception as e:
+        logging.error(f"Failed to serve listing template: {str(e)}")
+        return jsonify({"error": "Failed to download listing template"}), 500
+
+@app.route('/get-listing-instructions', methods=['GET'])
+def get_listing_instructions():
+    return jsonify({
+        "message": "To upload your listings to RealNex, please download the official template using /download-listing-template. Fill it out and send the completed version to support@realnex.com."
+    })
