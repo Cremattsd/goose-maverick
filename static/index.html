@@ -1,12 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Goose & Maverick</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
 <body class="bg-gray-100 font-sans">
 
   <div class="min-h-screen flex items-center justify-center p-6">
     <div class="w-full max-w-md bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden">
 
-      <!-- Header with Switch -->
+      <!-- Header -->
       <div class="flex items-center justify-between px-5 py-4 bg-gradient-to-r from-blue-600 to-cyan-500 text-white">
         <div class="flex items-center gap-2">
-          <img id="botIcon" src="maverick-icon.png" class="w-6 h-6" alt="Bot">
+          <img id="botIcon" src="maverick-icon.png" class="w-6 h-6" alt="Bot Icon">
           <h2 id="botTitle" class="font-bold text-lg">Chat with Maverick</h2>
         </div>
         <button onclick="toggleBot()" class="bg-white text-blue-600 text-xs font-semibold px-3 py-1 rounded hover:bg-gray-100">
@@ -14,14 +21,14 @@
         </button>
       </div>
 
-      <!-- Maverick Mode -->
+      <!-- Maverick Chat UI -->
       <div id="maverickBox" class="px-5 py-6 space-y-4">
         <input type="text" id="question" placeholder="Ask anything about RealNex..." class="w-full border border-gray-300 rounded px-3 py-3 text-sm">
         <button onclick="askMaverick()" class="w-full bg-cyan-600 text-white py-2 rounded font-semibold hover:bg-cyan-700">Send</button>
         <div id="result" class="text-sm text-gray-800 whitespace-pre-wrap"></div>
       </div>
 
-      <!-- Goose Mode -->
+      <!-- Goose Upload UI -->
       <form id="gooseBox" class="hidden px-5 py-6 space-y-4" enctype="multipart/form-data">
         <input type="file" id="file" class="w-full border border-gray-300 rounded px-3 py-3 text-sm">
         <input type="text" id="token" placeholder="RealNex API Token" class="w-full border border-gray-300 rounded px-3 py-3 text-sm">
@@ -32,7 +39,7 @@
     </div>
   </div>
 
-  <!-- JavaScript -->
+  <!-- Scripts -->
   <script>
     const toggleBot = () => {
       const mBox = document.getElementById('maverickBox');
@@ -54,9 +61,9 @@
         icon.src = 'goose-icon.png';
         btn.textContent = 'Switch to Maverick';
       }
-    }
+    };
 
-    // Goose upload logic
+    // Goose logic
     document.getElementById('gooseBox').addEventListener('submit', async (e) => {
       e.preventDefault();
       const formData = new FormData();
@@ -72,7 +79,7 @@
       document.getElementById('uploadResult').textContent = JSON.stringify(result, null, 2);
     });
 
-    // Maverick Q&A logic
+    // Maverick logic
     async function askMaverick() {
       const question = document.getElementById('question').value;
       const response = await fetch('/ask', {
@@ -85,3 +92,4 @@
     }
   </script>
 </body>
+</html>
