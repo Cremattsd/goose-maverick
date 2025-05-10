@@ -18,7 +18,10 @@ RUN apt-get update -y && \
 # Copy dependency files
 COPY requirements.txt package.json ./
 
-# Install dependencies
+# 🧰 Upgrade build tools for pandas/numpy compatibility
+RUN pip install --upgrade pip setuptools wheel
+
+# Install Python + Node dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 RUN npm install
 
@@ -34,7 +37,7 @@ RUN echo "📂 rc/ directory:" && ls -la rc && \
     echo "📄 rc/input.css contents:" && cat rc/input.css && \
     echo "📄 tailwind.config.js contents:" && cat tailwind.config.js
 
-# Now try to build Tailwind CSS
+# Build Tailwind CSS
 RUN npm run build:css || echo '❌ Tailwind build failed'
 
 # Expose the port Render will use
