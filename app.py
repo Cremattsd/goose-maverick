@@ -1,5 +1,3 @@
-# goose_backend_upgrade.py
-
 import os
 import json
 import pytesseract
@@ -43,18 +41,33 @@ def extract_exif_location(image_path):
     return None
 
 # === RealNex Contact Creator ===
-def create_contact_in_realnex(token, data):
+def create_contact(token, contact_data):
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
     }
-    response = requests.post(f"{REALNEX_API_BASE}/Crm/contact", headers=headers, json=data)
+    response = requests.post(f"{REALNEX_API_BASE}/Crm/contact", headers=headers, json=contact_data)
     return response.status_code, response.json() if response.content else {}
 
-# === Goose Endpoint ===
+def create_history_record(token, subject, notes, contact_key=None):
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "subject": subject,
+        "notes": notes,
+        "event_type_key": "Weblead"
+    }
+    if contact_key:
+        payload["contact_key"] = contact_key
+
+    return requests.post(f"{REALNEX_API_BASE}/Crm/history", headers=headers, json=payload)
+
 @app.route('/upload-business-card', methods=['POST'])
 def upload_business_card():
     token = request.form.get('token')
+    notes = request.form.get('notes', '')
     if 'file' not in request.files or not token:
         return jsonify({"error": "File and token required"}), 400
 
@@ -75,19 +88,47 @@ def upload_business_card():
         "fullName": name.strip(),
         "email": email.strip(),
         "work": phone.strip(),
-        "prospect": True
+        "prospect": True,
+        "notes": notes.strip()
     }
 
-    status, response = create_contact_in_realnex(token, contact_payload)
+    status, contact_response = create_contact(token, contact_payload)
+    contact_key = contact_response.get("key")
+
+    # Create History Record
+    if notes and contact_key:
+        create_history_record(token, subject="Business Card Upload", notes=notes, contact_key=contact_key)
+
+    # Follow-up Email Draft
+    first_name = name.split()[0] if name else "there"
+    email_draft = f"""Subject: Great connecting today!
+
+Hi {first_name},
+
+It was a pleasure meeting you. I’ve added your info to my CRM and will follow up soon.
+
+If there’s anything I can assist with — finding space, investment insights, or scheduling a tour — just let me know!
+
+Best,  
+[Your Name]
+"""
 
     return jsonify({
         "ocrText": ocr_text,
         "location": exif_data,
-        "contactCreated": response,
-        "status": status
+        "contactCreated": contact_response,
+        "status": status,
+        "followUpEmail": email_draft
     })
 
-# === Maverick Q&A ===
+# === Webhook Endpoint for Zapier/Make.com Integration
+@app.route('/goose-webhook', methods=['POST'])
+def goose_webhook():
+    data = request.get_json()
+    print("📩 Goose Webhook Received:", data)
+    return jsonify({"status": "received", "message": "Data synced"}), 200
+
+# === Maverick
 with open("knowledge_base.json", "r") as f:
     knowledge_base = json.load(f)
 
@@ -95,14 +136,11 @@ with open("knowledge_base.json", "r") as f:
 def ask_maverick():
     data = request.get_json()
     message = data.get('message', '').strip().lower()
-
     for question, answer in knowledge_base.items():
         if message in question.lower():
             return jsonify({ "answer": answer })
-
     return jsonify({ "answer": "Sorry, I couldn't find an answer to that. Try rephrasing your question." })
 
-# === Render root ping ===
 @app.route('/')
 def home():
     return '✅ Goose & Maverick are online. Visit /static/index.html'
