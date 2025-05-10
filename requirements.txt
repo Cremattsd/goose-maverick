@@ -1,13 +1,6 @@
-fastapi==0.115.2
-uvicorn==0.32.0
+flask
 pytesseract==0.3.13
 Pillow==10.4.0
 geopy==2.4.1
 exifread==3.0.0
-pandas==2.2.3
-PyPDF2==3.0.1
 requests==2.32.3
-fuzzywuzzy==0.18.0
-gunicorn==23.0.0
-
-
