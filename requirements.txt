@@ -13,3 +13,4 @@ numpy==1.24.4
 PyPDF2==3.0.1
 fuzzywuzzy==0.18.0
 openai==1.23.6
+tenacity==8.2.3
