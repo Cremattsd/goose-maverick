@@ -21,6 +21,13 @@ COPY requirements.txt package.json ./
 # Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 RUN npm install
+
+# 🐛 Debug file structure and contents before Tailwind build
+RUN echo "📂 rc/ directory:" && ls -la rc && \
+    echo "📂 static/ directory:" && ls -la static && \
+    echo "📄 rc/input.css contents:" && cat rc/input.css || true
+
+# Now try to build Tailwind CSS
 RUN npm run build:css
 
 # Copy the rest of the app
