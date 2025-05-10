@@ -7,7 +7,6 @@ import tempfile
 import openai
 from flask import Flask, request, jsonify, send_from_directory
 from datetime import datetime, timedelta
-from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
 from goose_parser_tools import extract_text_from_image, extract_text_from_pdf, extract_exif_location, is_business_card, parse_ocr_text, suggest_field_mapping, map_fields
 
@@ -20,10 +19,7 @@ logging.basicConfig(level=logging.INFO, filename='app.log', format='%(asctime)s 
 
 REALNEX_API_BASE = os.getenv("REALNEX_API_BASE", "https://sync.realnex.com/api/v1")
 ODATA_BASE = f"{REALNEX_API_BASE}/CrmOData"
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-if not client.api_key:
-    raise ValueError("OPENAI_API_KEY environment variable is not set")
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def realnex_post(endpoint, token, data):
@@ -97,8 +93,8 @@ def ask():
             ]
         }
 
-        response = client.chat.completions.create(**chat_request)
-        answer = response.choices[0].message.content
+        response = openai.ChatCompletion.create(**chat_request)
+        answer = response.choices[0].message["content"]
         logging.info(f"User asked: {user_message}, Answered: {answer}")
         return jsonify({"answer": answer})
     except openai.OpenAIError as e:
