@@ -9,7 +9,7 @@ This is a full-stack AI-powered tool built to:
 - Sync stale contacts to Mailchimp & Constant Contact
 - Answer common RealNex questions (Maverick AI)
 
------
+-------------
 
 ## 📁 Folder Structure
 
