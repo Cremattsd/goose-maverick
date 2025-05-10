@@ -38,157 +38,39 @@ TERMS_MESSAGE = (
     "(https://realnex.com/Terms). You represent you own the data or have the right to use it, and agree to "
     "indemnify RealNex for any claims from misuse.")
 
-@app.route("/terms-message", methods=["GET"])
-def get_terms_message():
-    return jsonify({"message": TERMS_MESSAGE})
-
-@app.route("/accept-terms", methods=["POST"])
-def accept_terms():
-    accepted = request.json.get("accepted")
-    user = request.json.get("user", "anonymous")
-    if accepted:
-        logging.info(f"User {user} accepted terms at {datetime.utcnow().isoformat()} UTC")
-        return jsonify({"accepted": True})
-    else:
-        return jsonify({"accepted": False, "error": "Terms must be accepted before importing."}), 403
-
-@app.route("/upload-check", methods=["POST"])
-def check_before_upload():
-    data = request.json
-    if not data.get("accepted_terms"):
-        return jsonify({"error": "You must accept the RealNex Terms before uploading."}), 403
-    return jsonify({"ok": True})
-
-@app.route("/upload", methods=["POST"])
-def upload_file():
+@app.route("/ask", methods=["POST"])
+def ask():
     try:
-        token = request.form.get("token")
-        file = request.files.get("file")
-        notes = request.form.get("notes", "")
-        accepted_terms = request.form.get("accepted_terms", "false") == "true"
+        user_message = request.json.get("message", "").strip()
+        if not user_message:
+            return jsonify({"error": "Please enter a message."}), 400
 
-        if not accepted_terms:
-            return jsonify({"error": "Terms must be accepted before uploading."}), 403
+        system_prompt = (
+            "You are Maverick, a knowledgeable chat assistant specializing in commercial real estate, RealNex, Zendesk, webinars, Pix-Virtual (pix-virtual.com), Pixl Imaging, and ViewLabs. "
+            "Provide helpful, on-topic answers about these subjects, including general information, best practices, or troubleshooting tips. "
+            "Note that RealNex users authenticate with a bearer token, not an API key, though you do not need one to answer questions. "
+            "Pix-Virtual offers virtual reality solutions for real estate, including QuickTour, RealFit, and PropertyMax for marketing properties. "
+            "Pixl Imaging provides business card design and OCR solutions. "
+            "If the user asks about something unrelated, politely redirect them to these topics."
+        )
 
-        if not file or not token:
-            return jsonify({"error": "Missing file or token."}), 400
+        if 'upload' in user_message.lower() and 'listing' in user_message.lower():
+            return jsonify({
+                "answer": "Sure thing! You can download the official RealNex listing upload template here: /download-listing-template. Fill it out and send it to support@realnex.com."
+            })
 
-        filename = secure_filename(file.filename)
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(file_path)
+        chat_request = {
+            "model": os.getenv("OPENAI_MODEL", "gpt-4o"),
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message}
+            ]
+        }
 
-        if filename.endswith('.xlsx'):
-            df = pd.read_excel(file_path)
-            mapping = suggest_field_mapping(df.columns.tolist())
-            return jsonify({"mappingSuggested": mapping})
-
-        elif filename.endswith('.pdf'):
-            text = extract_text_from_pdf(file_path)
-        else:
-            text = extract_text_from_image(file_path)
-
-        if is_business_card(text):
-            parsed = parse_ocr_text(text)
-            location = extract_exif_location(file_path)
-            contact = {
-                "fullName": parsed.get("fullName"),
-                "email": parsed.get("email"),
-                "work": parsed.get("work"),
-                "company": parsed.get("company"),
-                "prospect": True
-            }
-            if location:
-                contact.update(location)
-
-            status, result = realnex_post("/Crm/contact", token, contact)
-            if status in [200, 201]:
-                create_history(token, "Business Card Import", notes, object_key=result.get("key"), object_type="contact")
-                return jsonify({"message": "Business card imported successfully.", "contact": contact})
-            else:
-                return jsonify({"error": result}), 500
-        else:
-            return jsonify({"message": "Text extracted, but no business card detected.", "text": text})
+        response = openai.ChatCompletion.create(**chat_request)
+        answer = response.choices[0].message["content"]
+        logging.info(f"User asked: {user_message}, Answered: {answer}")
+        return jsonify({"answer": answer})
     except Exception as e:
-        logging.error(f"Upload processing failed: {str(e)}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/docs")
-def swagger_ui():
-    return '''
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>Goose & Maverick API Docs</title>
-      <link rel="stylesheet" type="text/css" href="/static/swagger-ui.css" />
-      <script src="/static/swagger-ui-bundle.js"></script>
-      <script src="/static/swagger-ui-standalone-preset.js"></script>
-    </head>
-    <body>
-      <div id="swagger-ui"></div>
-      <script>
-        const ui = SwaggerUIBundle({
-          url: "/static/openapi.json",
-          dom_id: '#swagger-ui',
-          presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
-          layout: "StandaloneLayout"
-        })
-      </script>
-    </body>
-    </html>
-    '''
-
-# === Campaign Sync Logic ===
-def sync_to_mailchimp(email, first_name="", last_name=""):
-    try:
-        url = f"https://{MAILCHIMP_SERVER_PREFIX}.api.mailchimp.com/3.0/lists/{MAILCHIMP_LIST_ID}/members"
-        data = {
-            "email_address": email,
-            "status": "subscribed",
-            "merge_fields": {
-                "FNAME": first_name,
-                "LNAME": last_name
-            }
-        }
-        headers = {
-            "Authorization": f"Bearer {MAILCHIMP_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        r = requests.post(url, headers=headers, json=data)
-        r.raise_for_status()
-        return True
-    except Exception as e:
-        logging.error(f"Mailchimp sync failed: {str(e)}")
-        return False
-
-def sync_to_constant_contact(email, first_name="", last_name=""):
-    try:
-        headers = {
-            "Authorization": f"Bearer {CONSTANT_CONTACT_ACCESS_TOKEN}",
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-        }
-        data = {
-            "email_address": {"address": email},
-            "first_name": first_name,
-            "last_name": last_name,
-            "list_memberships": [CONSTANT_CONTACT_LIST_ID]
-        }
-        url = "https://api.cc.email/v3/contacts/sign_up_form"
-        response = requests.post(url, headers=headers, json=data)
-        response.raise_for_status()
-        return True
-    except Exception as e:
-        logging.error(f"Constant Contact sync failed: {str(e)}")
-        return False
-
-def sync_contact(email, first_name, last_name, provider=None):
-    provider = provider or DEFAULT_CAMPAIGN_MODE
-    if not UNLOCK_EMAIL_PROVIDER_SELECTION:
-        provider = DEFAULT_CAMPAIGN_MODE
-    if provider == "mailchimp":
-        return sync_to_mailchimp(email, first_name, last_name)
-    elif provider == "constant_contact":
-        return sync_to_constant_contact(email, first_name, last_name)
-    else:
-        logging.info(f"Using internal RealNex campaign sync for {email}")
-        return True
+        logging.error(f"OpenAI error: {str(e)}")
+        return jsonify({"error": f"OpenAI error: {str(e)}"}), 500
