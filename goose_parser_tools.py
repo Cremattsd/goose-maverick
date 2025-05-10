@@ -1,88 +1,93 @@
-# goose_parser_tools.py – Handles PDFs, Excels, and PDF Logs
-
-import fitz  # PyMuPDF
+import re
+import pytesseract
+import exifread
 import pandas as pd
-from fpdf import FPDF
-import os
-from datetime import datetime
+from PIL import Image
+from pdf2image import convert_from_path
+from geopy.geocoders import Nominatim
 
-# === 1. Parse PDF Flyer ===
-def parse_flyer_text(filepath):
-    doc = fitz.open(filepath)
-    text = "\n".join(page.get_text() for page in doc)
-    return text
+# Initialize geocoder
+geolocator = Nominatim(user_agent="realnex_goose")
 
-def extract_property_from_flyer(text):
+def extract_text_from_image(image_path):
+    try:
+        return pytesseract.image_to_string(Image.open(image_path))
+    except Exception as e:
+        print(f"Image OCR failed: {str(e)}")
+        return ""
+
+def extract_text_from_pdf(pdf_path):
+    try:
+        images = convert_from_path(pdf_path)
+        text = ""
+        for img in images:
+            text += pytesseract.image_to_string(img)
+        return text
+    except Exception as e:
+        print(f"PDF OCR failed: {str(e)}")
+        return ""
+
+def extract_exif_location(image_path):
+    try:
+        with open(image_path, 'rb') as f:
+            tags = exifread.process_file(f)
+        def _deg(v):
+            d, m, s = v.values
+            return d.num/d.den + m.num/m.den/60 + s.num/s.den/3600
+        if 'GPS GPSLatitude' in tags and 'GPS GPSLongitude' in tags:
+            lat, lon = _deg(tags['GPS GPSLatitude']), _deg(tags['GPS GPSLongitude'])
+            if tags['GPS GPSLatitudeRef'].values != 'N': lat = -lat
+            if tags['GPS GPSLongitudeRef'].values != 'E': lon = -lon
+            try:
+                location = geolocator.reverse((lat, lon), exactly_one=True)
+                return {"lat": lat, "lon": lon, "address": location.address if location else None}
+            except Exception as e:
+                print(f"Geocoding failed: {str(e)}")
+                return {"lat": lat, "lon": lon, "address": None, "error": str(e)}
+        return None
+    except Exception as e:
+        print(f"EXIF extraction failed: {str(e)}")
+        return None
+
+def is_business_card(text):
+    return "@" in text and any(c.isdigit() for c in text) and any(len(line.split()) >= 2 for line in text.splitlines())
+
+def parse_ocr_text(text):
     lines = text.splitlines()
-    props = {
-        "address": next((l for l in lines if any(w in l.lower() for w in ["street", "ave", "road"])), ""),
-        "city": next((l for l in lines if "," in l and any(s in l for s in ["CA", "TX", "NY"])), ""),
-        "squareFeet": next((l for l in lines if "sf" in l.lower() or "sq ft" in l.lower()), "")
+    email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+    phone_pattern = r'\b\d{3}-\d{3}-\d{4}\b'
+    name = next((l for l in lines if len(l.split()) >= 2 and not re.search(email_pattern, l) and not re.search(phone_pattern, l)), "")
+    email = next((l for l in lines if re.search(email_pattern, l)), "")
+    phone = next((l for l in lines if re.search(phone_pattern, l)), "")
+    company = next((l for l in lines if "inc" in l.lower() or "llc" in l.lower() or "corp" in l.lower()), "")
+    return {
+        "fullName": name.strip(),
+        "email": email.strip(),
+        "work": phone.strip(),
+        "company": company.strip()
     }
-    return props
 
-# === 2. Parse Excel ===
-def parse_excel_contacts(filepath):
-    df = pd.read_excel(filepath)
-    results = []
-    for _, row in df.iterrows():
-        result = {
-            "fullName": row.get("Full Name", ""),
-            "email": row.get("Email", ""),
-            "work": row.get("Phone", ""),
-            "organizationId": row.get("Company", ""),
-            "address1": row.get("Address", ""),
-            "city": row.get("City", ""),
-            "state": row.get("State", ""),
-            "zipCode": str(row.get("Zip", ""))
-        }
-        results.append(result)
-    return results
-
-# === 3. Generate PDF Report ===
-class ImportReportPDF(FPDF):
-    def header(self):
-        self.set_font("Arial", 'B', 14)
-        self.cell(0, 10, "Goose Import Report", ln=True, align="C")
-        self.set_font("Arial", '', 10)
-        self.cell(0, 10, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=True, align="C")
-        self.ln(10)
-
-    def add_log(self, data):
-        self.set_font("Arial", '', 10)
-        for key, value in data.items():
-            self.set_font("Arial", 'B', 11)
-            self.cell(0, 10, f"{key.capitalize()}:", ln=True)
-            self.set_font("Arial", '', 10)
-            if isinstance(value, list):
-                for item in value:
-                    self.cell(0, 8, f"- {item}", ln=True)
-            else:
-                self.multi_cell(0, 8, str(value))
-            self.ln(3)
-
-
-
-def generate_pdf_log(log_data, output_path="import_report.pdf"):
-    pdf = ImportReportPDF()
-    pdf.add_page()
-    pdf.add_log(log_data)
-    pdf.output(output_path)
-    return output_path
-
-# === Example Usage ===
-if __name__ == "__main__":
-    flyer_text = parse_flyer_text("example_flyer.pdf")
-    print("Flyer Extract:", extract_property_from_flyer(flyer_text))
-
-    parsed_contacts = parse_excel_contacts("contacts.xlsx")
-    print("Parsed Excel:", parsed_contacts[:2])
-
-    log = {
-        "file": "example_flyer.pdf",
-        "created": ["Property: 123 Main St", "Contact: Joe Smith"],
-        "matched": ["Company: Acme Inc"],
-        "notes": "Uploaded via Goose Prime"
+def suggest_field_mapping(df):
+    columns = df.columns.tolist()
+    mapping = {
+        "contacts": {},
+        "companies": {}
     }
-    generate_pdf_log(log)
-    print("Report saved.")
+    for col in columns:
+        col_lower = col.lower()
+        if "name" in col_lower:
+            mapping["contacts"]["fullName"] = col
+        elif "email" in col_lower:
+            mapping["contacts"]["email"] = col
+        elif "phone" in col_lower or "work" in col_lower:
+            mapping["contacts"]["work"] = col
+        elif "company" in col_lower or "org" in col_lower:
+            mapping["companies"]["name"] = col
+    return mapping
+
+def map_fields(data, mapping):
+    mapped = {}
+    for crm_field, excel_col in mapping.items():
+        if excel_col in data:
+            mapped[crm_field] = data[excel_col]
+    return mapped
