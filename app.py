@@ -5,9 +5,8 @@ import requests
 import pandas as pd
 import tempfile
 import openai
-from flask import Flask, request, jsonify, send_from_directory, render_template
+from flask import Flask, request, jsonify, send_from_directory
 from datetime import datetime, timedelta
-from werkzeug.utils import secure_filename
 from tenacity import retry, stop_after_attempt, wait_exponential
 from goose_parser_tools import extract_text_from_image, extract_text_from_pdf, extract_exif_location, is_business_card, parse_ocr_text, suggest_field_mapping, map_fields
 
@@ -33,12 +32,81 @@ CONSTANT_CONTACT_LIST_ID = os.getenv("CONSTANT_CONTACT_LIST_ID")
 DEFAULT_CAMPAIGN_MODE = os.getenv("DEFAULT_CAMPAIGN_MODE", "realnex")
 UNLOCK_EMAIL_PROVIDER_SELECTION = os.getenv("UNLOCK_EMAIL_PROVIDER_SELECTION", "false").lower() == "true"
 
-TERMS_MESSAGE = (
-    "Protection of data is paramount to RealNex. By uploading data, you agree to the RealNex Terms of Use "
-    "(https://realnex.com/Terms). You represent you own the data or have the right to use it, and agree to "
-    "indemnify RealNex for any claims from misuse.")
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+def realnex_post(endpoint, token, data):
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    response = requests.post(f"{REALNEX_API_BASE}{endpoint}", headers=headers, json=data)
+    response.raise_for_status()
+    return response.status_code, response.json() if response.content else {}
 
-@app.route("/ask", methods=["POST"])
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+def realnex_get(endpoint, token):
+    headers = {"Authorization": f"Bearer {token}"}
+    response = requests.get(f"{ODATA_BASE}/{endpoint}", headers=headers)
+    response.raise_for_status()
+    return response.status_code, response.json().get('value', [])
+
+def create_history(token, subject, notes, object_key=None, object_type="contact"):
+    payload = {
+        "subject": subject,
+        "notes": notes,
+        "event_type_key": "Weblead"
+    }
+    if object_key:
+        payload[f"{object_type}_key"] = object_key
+    return realnex_post("/Crm/history", token, payload)
+
+def sync_to_mailchimp(email, first_name="", last_name=""):
+    try:
+        url = f"https://{MAILCHIMP_SERVER_PREFIX}.api.mailchimp.com/3.0/lists/{MAILCHIMP_LIST_ID}/members"
+        data = {
+            "email_address": email,
+            "status": "subscribed",
+            "merge_fields": {"FNAME": first_name, "LNAME": last_name}
+        }
+        headers = {"Authorization": f"Bearer {MAILCHIMP_API_KEY}", "Content-Type": "application/json"}
+        requests.post(url, headers=headers, json=data).raise_for_status()
+        return True
+    except Exception as e:
+        logging.error(f"Mailchimp sync failed: {str(e)}")
+        return False
+
+def sync_to_constant_contact(email, first_name="", last_name=""):
+    try:
+        headers = {
+            "Authorization": f"Bearer {CONSTANT_CONTACT_ACCESS_TOKEN}",
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
+        data = {
+            "email_address": {"address": email},
+            "first_name": first_name,
+            "last_name": last_name,
+            "list_memberships": [CONSTANT_CONTACT_LIST_ID]
+        }
+        url = "https://api.cc.email/v3/contacts/sign_up_form"
+        requests.post(url, headers=headers, json=data).raise_for_status()
+        return True
+    except Exception as e:
+        logging.error(f"Constant Contact sync failed: {str(e)}")
+        return False
+
+def sync_contact(email, first_name, last_name, provider=None):
+    provider = provider or DEFAULT_CAMPAIGN_MODE
+    if not UNLOCK_EMAIL_PROVIDER_SELECTION:
+        provider = DEFAULT_CAMPAIGN_MODE
+    if provider == "mailchimp":
+        return sync_to_mailchimp(email, first_name, last_name)
+    elif provider == "constant_contact":
+        return sync_to_constant_contact(email, first_name, last_name)
+    logging.info(f"Using internal RealNex campaign sync for {email}")
+    return True
+
+@app.route('/')
+def index():
+    return app.send_static_file('index.html')
+
+@app.route('/ask', methods=['POST'])
 def ask():
     try:
         user_message = request.json.get("message", "").strip()
@@ -47,17 +115,8 @@ def ask():
 
         system_prompt = (
             "You are Maverick, a knowledgeable chat assistant specializing in commercial real estate, RealNex, Zendesk, webinars, Pix-Virtual (pix-virtual.com), Pixl Imaging, and ViewLabs. "
-            "Provide helpful, on-topic answers about these subjects, including general information, best practices, or troubleshooting tips. "
-            "Note that RealNex users authenticate with a bearer token, not an API key, though you do not need one to answer questions. "
-            "Pix-Virtual offers virtual reality solutions for real estate, including QuickTour, RealFit, and PropertyMax for marketing properties. "
-            "Pixl Imaging provides business card design and OCR solutions. "
-            "If the user asks about something unrelated, politely redirect them to these topics."
+            "Provide helpful, on-topic answers about these subjects."
         )
-
-        if 'upload' in user_message.lower() and 'listing' in user_message.lower():
-            return jsonify({
-                "answer": "Sure thing! You can download the official RealNex listing upload template here: /download-listing-template. Fill it out and send it to support@realnex.com."
-            })
 
         chat_request = {
             "model": os.getenv("OPENAI_MODEL", "gpt-4o"),
@@ -68,27 +127,51 @@ def ask():
         }
 
         response = openai.ChatCompletion.create(**chat_request)
-        answer = response.choices[0].message["content"]
+        answer = response.choices[0].message.content
         logging.info(f"User asked: {user_message}, Answered: {answer}")
         return jsonify({"answer": answer})
+    except openai.error.OpenAIError as e:
+        logging.error(f"OpenAI API error: {str(e)}")
+        return jsonify({"error": f"OpenAI API error: {str(e)}"}), 500
     except Exception as e:
-        logging.error(f"OpenAI error: {str(e)}")
-        return jsonify({"error": f"OpenAI error: {str(e)}"}), 500
+        logging.error(f"Unexpected error in /ask: {str(e)}")
+        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
-@app.route("/terms")
-def terms():
-    return jsonify({"terms": TERMS_MESSAGE})
-
-@app.route("/validate-token", methods=["POST"])
+@app.route('/validate-token', methods=['POST'])
 def validate_token():
-    token = request.json.get("token")
-    if not token:
-        return jsonify({"error": "Token required"}), 400
     try:
-        headers = {"Authorization": f"Bearer {token}"}
-        res = requests.get(f"{ODATA_BASE}/Contacts?$top=1", headers=headers)
-        if res.status_code == 200:
+        token = request.json.get("token", "").strip()
+        if not token:
+            return jsonify({"error": "Token is required"}), 400
+
+        status, result = realnex_get("Contacts?$top=1", token)
+        if status == 200:
             return jsonify({"valid": True})
-        return jsonify({"valid": False, "error": res.text}), 401
+        return jsonify({"valid": False, "error": result.get("error", "Invalid token")}), 401
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        logging.error(f"Error validating token: {str(e)}")
+        return jsonify({"error": f"Error validating token: {str(e)}"}), 500
+
+@app.route('/terms', methods=['GET'])
+def get_terms():
+    return jsonify({
+        "text": (
+            "Protection of data is paramount to RealNex. By using the RealNex Services, you agree to abide by the Terms of Use. "
+            "You represent that you are the owner of all data uploaded and have legal authority to upload it."
+        )
+    })
+
+@app.route('/sync-to-mailchimp', methods=['POST'])
+def sync_mailchimp():
+    data = request.json
+    success = sync_to_mailchimp(data.get("email"), data.get("firstName", ""), data.get("lastName", ""))
+    return jsonify({"success": success})
+
+@app.route('/sync-to-constant-contact', methods=['POST'])
+def sync_constant_contact():
+    data = request.json
+    success = sync_to_constant_contact(data.get("email"), data.get("firstName", ""), data.get("lastName", ""))
+    return jsonify({"success": success})
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
