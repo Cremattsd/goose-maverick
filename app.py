@@ -1,3 +1,5 @@
+# goose_backend_upgrade.py
+
 import os
 import json
 import pytesseract
@@ -7,6 +9,7 @@ from PIL import Image
 from geopy.geocoders import Nominatim
 from flask import Flask, request, jsonify
 from werkzeug.utils import secure_filename
+from datetime import datetime
 
 app = Flask(__name__)
 UPLOAD_FOLDER = 'uploads'
@@ -40,30 +43,27 @@ def extract_exif_location(image_path):
         return {"lat": lat, "lon": lon, "address": location.address if location else None}
     return None
 
-# === RealNex Contact Creator ===
-def create_contact(token, contact_data):
+# === API Helpers ===
+def realnex_post(endpoint, token, data):
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
     }
-    response = requests.post(f"{REALNEX_API_BASE}/Crm/contact", headers=headers, json=contact_data)
+    url = f"{REALNEX_API_BASE}{endpoint}"
+    response = requests.post(url, headers=headers, json=data)
     return response.status_code, response.json() if response.content else {}
 
-def create_history_record(token, subject, notes, contact_key=None):
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
-    payload = {
+def create_history(token, subject, notes, contact_key=None):
+    data = {
         "subject": subject,
         "notes": notes,
-        "event_type_key": "Weblead"
+        "event_type_key": "Weblead",
     }
     if contact_key:
-        payload["contact_key"] = contact_key
+        data["contact_key"] = contact_key
+    return realnex_post("/Crm/history", token, data)
 
-    return requests.post(f"{REALNEX_API_BASE}/Crm/history", headers=headers, json=payload)
-
+# === Upload Endpoint ===
 @app.route('/upload-business-card', methods=['POST'])
 def upload_business_card():
     token = request.form.get('token')
@@ -92,14 +92,13 @@ def upload_business_card():
         "notes": notes.strip()
     }
 
-    status, contact_response = create_contact(token, contact_payload)
+    status, contact_response = realnex_post("/Crm/contact", token, contact_payload)
     contact_key = contact_response.get("key")
 
-    # Create History Record
-    if notes and contact_key:
-        create_history_record(token, subject="Business Card Upload", notes=notes, contact_key=contact_key)
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    history_note = f"Imported via Goose on {timestamp}\n\nOCR Text:\n{ocr_text}\n\nUser Notes:\n{notes}"
+    create_history(token, subject="Goose Import Log", notes=history_note, contact_key=contact_key)
 
-    # Follow-up Email Draft
     first_name = name.split()[0] if name else "there"
     email_draft = f"""Subject: Great connecting today!
 
@@ -110,25 +109,31 @@ It was a pleasure meeting you. I’ve added your info to my CRM and will follow 
 If there’s anything I can assist with — finding space, investment insights, or scheduling a tour — just let me know!
 
 Best,  
-[Your Name]
+Matty
 """
+
+    # Log for email report
+    import_log = {
+        "file": filename,
+        "created": [
+            f"Contact: {name.strip()}"
+        ],
+        "matched": [],
+        "notes": notes,
+        "ocr": ocr_text,
+        "timestamp": timestamp
+    }
 
     return jsonify({
         "ocrText": ocr_text,
         "location": exif_data,
         "contactCreated": contact_response,
         "status": status,
-        "followUpEmail": email_draft
+        "followUpEmail": email_draft,
+        "importLog": import_log
     })
 
-# === Webhook Endpoint for Zapier/Make.com Integration
-@app.route('/goose-webhook', methods=['POST'])
-def goose_webhook():
-    data = request.get_json()
-    print("📩 Goose Webhook Received:", data)
-    return jsonify({"status": "received", "message": "Data synced"}), 200
-
-# === Maverick
+# === Maverick Chat ===
 with open("knowledge_base.json", "r") as f:
     knowledge_base = json.load(f)
 
@@ -143,7 +148,7 @@ def ask_maverick():
 
 @app.route('/')
 def home():
-    return '✅ Goose & Maverick are online. Visit /static/index.html'
+    return '✅ Goose Prime is live. Visit /static/index.html'
 
 if __name__ == '__main__':
     app.run(debug=True)
