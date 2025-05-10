@@ -74,3 +74,21 @@ def ask():
     except Exception as e:
         logging.error(f"OpenAI error: {str(e)}")
         return jsonify({"error": f"OpenAI error: {str(e)}"}), 500
+
+@app.route("/terms")
+def terms():
+    return jsonify({"terms": TERMS_MESSAGE})
+
+@app.route("/validate-token", methods=["POST"])
+def validate_token():
+    token = request.json.get("token")
+    if not token:
+        return jsonify({"error": "Token required"}), 400
+    try:
+        headers = {"Authorization": f"Bearer {token}"}
+        res = requests.get(f"{ODATA_BASE}/Contacts?$top=1", headers=headers)
+        if res.status_code == 200:
+            return jsonify({"valid": True})
+        return jsonify({"valid": False, "error": res.text}), 401
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
