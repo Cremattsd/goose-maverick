@@ -6,7 +6,7 @@ import pandas as pd
 import tempfile
 from flask import Flask, request, jsonify, send_from_directory
 from datetime import datetime, timedelta
-import openai
+from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
 from goose_parser_tools import extract_text_from_image, extract_text_from_pdf, extract_exif_location, is_business_card, parse_ocr_text, suggest_field_mapping, map_fields
 
@@ -20,8 +20,8 @@ logging.basicConfig(level=logging.INFO, filename='app.log', format='%(asctime)s 
 REALNEX_API_BASE = os.getenv("REALNEX_API_BASE", "https://sync.realnex.com/api/v1")
 ODATA_BASE = f"{REALNEX_API_BASE}/CrmOData"
 
-# ✅ Correct OpenAI API key setup
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Initialize OpenAI client
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def realnex_post(endpoint, token, data):
@@ -63,7 +63,7 @@ def ask():
             "Answer clearly and helpfully, focusing only on these topics."
         )
 
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model=os.getenv("OPENAI_MODEL", "gpt-4o"),
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -71,7 +71,7 @@ def ask():
             ]
         )
 
-        answer = response.choices[0].message["content"]
+        answer = response.choices[0].message.content
         return jsonify({"answer": answer})
     except Exception as e:
         logging.error(f"OpenAI error: {str(e)}")
