@@ -6,7 +6,7 @@ import pandas as pd
 import tempfile
 from flask import Flask, request, jsonify, send_from_directory
 from datetime import datetime, timedelta
-import openai
+from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
 from goose_parser_tools import extract_text_from_image, extract_text_from_pdf, extract_exif_location, is_business_card, parse_ocr_text, suggest_field_mapping, map_fields
 
@@ -20,7 +20,7 @@ logging.basicConfig(level=logging.INFO, filename='app.log', format='%(asctime)s 
 REALNEX_API_BASE = os.getenv("REALNEX_API_BASE", "https://sync.realnex.com/api/v1")
 ODATA_BASE = f"{REALNEX_API_BASE}/CrmOData"
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 MAILCHIMP_API_KEY = os.getenv("MAILCHIMP_API_KEY")
 MAILCHIMP_LIST_ID = os.getenv("MAILCHIMP_LIST_ID")
@@ -115,11 +115,11 @@ def ask():
             return jsonify({"error": "Please enter a message."}), 400
 
         system_prompt = (
-            "You are Maverick, a knowledgeable chat assistant specializing in commercial real estate, RealNex, Zendesk, webinars, Pix-Virtual (pix-virtual.com), Pixl Imaging, and ViewLabs. "
-            "Provide helpful, on-topic answers about these subjects."
+            "Hi! I’m Maverick, your chat assistant. Ask me anything about RealNex and RealNex VR or RealNex Real Blasts & Campaigns. "
+            "I also have access to the RealNex knowledge base for many questions and more! 😊"
         )
 
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model=os.getenv("OPENAI_MODEL", "gpt-4o"),
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -127,7 +127,7 @@ def ask():
             ]
         )
 
-        answer = response.choices[0].message["content"]
+        answer = response.choices[0].message.content
         logging.info(f"User asked: {user_message}, Answered: {answer}")
         return jsonify({"answer": answer})
     except Exception as e:
