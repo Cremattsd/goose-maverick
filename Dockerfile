@@ -1,38 +1,39 @@
-# Use official Python image
+# Use the official Python 3.11 slim image
 FROM python:3.11-slim
 
 # Set working directory
 WORKDIR /app
 
-# Install system packages
-RUN apt-get update && apt-get install -y \
+# Install system dependencies
+RUN apt-get update -y && \
+    apt-get install -y \
     tesseract-ocr \
     libtesseract-dev \
     poppler-utils \
     curl \
-    gnupg \
-    && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
-    && apt-get install -y nodejs \
-    && apt-get clean
+    build-essential \
+    nodejs \
+    npm \
+    git && \
+    apt-get clean
 
 # Install Python dependencies
 COPY requirements.txt ./
 RUN pip install --upgrade pip setuptools wheel
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Node (Tailwind/Webpack) dependencies
-COPY package.json package-lock.json ./
+# Setup Node.js environment and install TailwindCSS
+COPY package.json ./
 RUN npm install
 
-# Copy all project files
+# Copy application files
 COPY . .
 
-# Build Tailwind and JS (if needed)
-RUN npm run build:css || echo "Tailwind build failed"
-RUN npm run build:js || echo "JS build failed"
+# Build Tailwind CSS
+RUN npm run build:css || echo "⚠️ Tailwind build failed, continuing..."
 
-# Expose Flask port
+# Expose app port
 EXPOSE 10000
 
-# Start Flask app via gunicorn
+# Run the app with Gunicorn
 CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:10000", "app:app"]
