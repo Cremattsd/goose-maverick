@@ -16,8 +16,8 @@ COPY requirements.txt .
 RUN pip install --upgrade pip setuptools wheel && pip install --no-cache-dir -r requirements.txt
 
 # Copy Node files and install Tailwind
-COPY package.json package-lock.json ./
-RUN npm install
+COPY package.json ./
+RUN npm install --legacy-peer-deps
 
 # Copy the rest of the app
 COPY . .
