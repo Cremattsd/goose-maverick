@@ -1,56 +1,44 @@
-```dockerfile
-# Use the official Python 3.11 image as the base
+# === Base Python image for Flask backend ===
 FROM python:3.11-slim
 
 # Set working directory
 WORKDIR /app
 
-# Unset proxy environment variables to prevent openai issues
-ENV HTTP_PROXY=
-ENV HTTPS_PROXY=
-
-# Install system dependencies
-RUN apt-get update -y && \
-    apt-get install -y \
+# === System dependencies ===
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
     tesseract-ocr \
     libtesseract-dev \
     poppler-utils \
-    curl && \
-    curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
+    curl \
+    gnupg \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# === Install Node.js 18 for Tailwind ===
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
     apt-get install -y nodejs && \
-    apt-get clean
+    npm install -g npm
 
-# Copy dependency files
-COPY requirements.txt package.json ./
+# === Copy and install Python requirements ===
+COPY requirements.txt ./
+RUN pip install --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Upgrade build tools for pandas/numpy compatibility
-RUN pip install --upgrade pip setuptools wheel
-
-# Remove potential broken pre-installed Flask/Werkzeug versions
-RUN pip uninstall -y flask werkzeug || true && rm -rf /root/.cache/pip
-
-# Install Python + Node dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# === Copy and install Node (Tailwind) deps ===
+COPY package.json package-lock.json ./
 RUN npm install
 
-# Copy the rest of the app
+# === Copy the rest of the app (backend + frontend) ===
 COPY . .
+
+# === Tailwind Build ===
+RUN npm run build:css || echo '⚠️ Tailwind build failed, continuing...'
 
 # Ensure static folder exists
 RUN mkdir -p static
 
-# Debug file structure and contents before Tailwind build
-RUN echo "📂 rc/ directory:" && ls -la rc && \
-    echo "📂 static/ directory:" && ls -la static && \
-    echo "📄 rc/input.css contents:" && cat rc/input.css && \
-    echo "📄 tailwind.config.js contents:" && cat tailwind.config.js
-
-# Build Tailwind CSS
-RUN npm run build:css || echo '❌ Tailwind build failed'
-
-# Expose the port Render will use
+# === Expose port ===
 EXPOSE 10000
 
-# Command to run the app
+# === Run it ===
 CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:10000", "app:app"]
-```
