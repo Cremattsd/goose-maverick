@@ -4,36 +4,35 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
+# Install system and Node dependencies
 RUN apt-get update -y && \
-    apt-get install -y \
-    tesseract-ocr \
-    libtesseract-dev \
-    poppler-utils \
-    curl \
-    build-essential \
-    nodejs \
-    npm \
-    git && \
+    apt-get install -y curl gnupg build-essential tesseract-ocr libtesseract-dev poppler-utils && \
+    curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
+    apt-get install -y nodejs && \
     apt-get clean
 
-# Install Python dependencies
+# Copy Python dependency files
 COPY requirements.txt ./
-RUN pip install --upgrade pip setuptools wheel
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Setup Node.js environment and install TailwindCSS
+# Copy Node dependency files
 COPY package.json ./
+
+# Optional: only copy package-lock.json if it exists
+COPY package-lock.json ./ 
+
+# Install Node dependencies
 RUN npm install
 
-# Copy application files
+# Copy rest of app
 COPY . .
 
 # Build Tailwind CSS
-RUN npm run build:css || echo "⚠️ Tailwind build failed, continuing..."
+RUN npm run build:css
 
-# Expose app port
+# Expose the port Render will use
 EXPOSE 10000
 
-# Run the app with Gunicorn
+# Start the app with Gunicorn
 CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:10000", "app:app"]
