@@ -1,44 +1,38 @@
-# === Base Python image for Flask backend ===
+# Use official Python image
 FROM python:3.11-slim
 
 # Set working directory
 WORKDIR /app
-#Push
-# === System dependencies ===
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
+
+# Install system packages
+RUN apt-get update && apt-get install -y \
     tesseract-ocr \
     libtesseract-dev \
     poppler-utils \
     curl \
     gnupg \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+    && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+    && apt-get install -y nodejs \
+    && apt-get clean
 
-# === Install Node.js 18 for Tailwind ===
-RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
-    apt-get install -y nodejs && \
-    npm install -g npm
-
-# === Copy and install Python requirements ===
+# Install Python dependencies
 COPY requirements.txt ./
-RUN pip install --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip setuptools wheel
+RUN pip install --no-cache-dir -r requirements.txt
 
-# === Copy and install Node (Tailwind) deps ===
+# Install Node (Tailwind/Webpack) dependencies
 COPY package.json package-lock.json ./
 RUN npm install
 
-# === Copy the rest of the app (backend + frontend) ===
+# Copy all project files
 COPY . .
 
-# === Tailwind Build ===
-RUN npm run build:css || echo '⚠️ Tailwind build failed, continuing...'
+# Build Tailwind and JS (if needed)
+RUN npm run build:css || echo "Tailwind build failed"
+RUN npm run build:js || echo "JS build failed"
 
-# Ensure static folder exists
-RUN mkdir -p static
-
-# === Expose port ===
+# Expose Flask port
 EXPOSE 10000
 
-# === Run it ===
+# Start Flask app via gunicorn
 CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:10000", "app:app"]
