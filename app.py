@@ -155,7 +155,7 @@ def validate_token():
         return jsonify({"valid": False, "error": result.get("error", "Invalid token")}), 401
     except Exception as e:
         logging.error(f"Error validating token: {str(e)}")
-        return jsonify({"error": f"Error validating token: {str(e)}")}), 500
+        return jsonify({"error": f"Error validating token: {str(e)}"}), 500
 
 @app.route("/terms", methods=["GET"])
 def get_terms():
