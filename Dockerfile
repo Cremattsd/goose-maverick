@@ -1,8 +1,13 @@
+```dockerfile
 # Use the official Python 3.11 image as the base
 FROM python:3.11-slim
 
 # Set working directory
 WORKDIR /app
+
+# Unset proxy environment variables to prevent openai issues
+ENV HTTP_PROXY=
+ENV HTTPS_PROXY=
 
 # Install system dependencies
 RUN apt-get update -y && \
@@ -18,23 +23,23 @@ RUN apt-get update -y && \
 # Copy dependency files
 COPY requirements.txt package.json ./
 
-# 🧰 Upgrade build tools for pandas/numpy compatibility
+# Upgrade build tools for pandas/numpy compatibility
 RUN pip install --upgrade pip setuptools wheel
 
-# 🔥 Remove potential broken pre-installed Flask/Werkzeug versions
+# Remove potential broken pre-installed Flask/Werkzeug versions
 RUN pip uninstall -y flask werkzeug || true && rm -rf /root/.cache/pip
 
 # Install Python + Node dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 RUN npm install
 
-# ✅ Copy the rest of the app
+# Copy the rest of the app
 COPY . .
 
 # Ensure static folder exists
 RUN mkdir -p static
 
-# 🐛 Debug file structure and contents before Tailwind build
+# Debug file structure and contents before Tailwind build
 RUN echo "📂 rc/ directory:" && ls -la rc && \
     echo "📂 static/ directory:" && ls -la static && \
     echo "📄 rc/input.css contents:" && cat rc/input.css && \
@@ -48,3 +53,4 @@ EXPOSE 10000
 
 # Command to run the app
 CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:10000", "app:app"]
+```
