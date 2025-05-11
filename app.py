@@ -6,7 +6,7 @@ import pandas as pd
 import tempfile
 from flask import Flask, request, jsonify, send_from_directory
 from datetime import datetime, timedelta
-from openai import OpenAI
+import openai
 from tenacity import retry, stop_after_attempt, wait_exponential
 from goose_parser_tools import extract_text_from_image, extract_text_from_pdf, extract_exif_location, is_business_card, parse_ocr_text, suggest_field_mapping, map_fields
 
@@ -20,7 +20,7 @@ logging.basicConfig(level=logging.INFO, filename='app.log', format='%(asctime)s 
 REALNEX_API_BASE = os.getenv("REALNEX_API_BASE", "https://sync.realnex.com/api/v1")
 ODATA_BASE = f"{REALNEX_API_BASE}/CrmOData"
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 MAILCHIMP_API_KEY = os.getenv("MAILCHIMP_API_KEY")
 MAILCHIMP_LIST_ID = os.getenv("MAILCHIMP_LIST_ID")
@@ -119,8 +119,8 @@ def ask():
             "I also have access to the RealNex knowledge base for many questions and more! 😊"
         )
 
-        response = client.chat.completions.create(
-            model=os.getenv("OPENAI_MODEL", "gpt-4o"),
+        response = openai.ChatCompletion.create(
+            model=os.getenv("OPENAI_MODEL", "gpt-4-turbo"),
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message}
@@ -153,22 +153,4 @@ def validate_token():
 def get_terms():
     return jsonify({
         "text": (
-            "Protection of data is paramount to RealNex. By using the RealNex Services, you agree to abide by the Terms of Use. "
-            "You represent that you are the owner of all data uploaded and have legal authority to upload it."
-        )
-    })
-
-@app.route('/sync-to-mailchimp', methods=['POST'])
-def sync_mailchimp():
-    data = request.json
-    success = sync_to_mailchimp(data.get("email"), data.get("firstName", ""), data.get("lastName", ""))
-    return jsonify({"success": success})
-
-@app.route('/sync-to-constant-contact', methods=['POST'])
-def sync_constant_contact():
-    data = request.json
-    success = sync_to_constant_contact(data.get("email"), data.get("firstName", ""), data.get("lastName", ""))
-    return jsonify({"success": success})
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
+            "Protection of data is paramount to RealN
