@@ -1,4 +1,4 @@
-# Goose & Maverick - README
+# Goose & Maverick - README -
 
 ## Overview
 This Flask-based app provides an interactive UI for:
