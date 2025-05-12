@@ -116,7 +116,7 @@ def ask():
 
         system_prompt = (
             "Hi! I’m Maverick, your chat assistant. Ask me anything about RealNex and RealNex VR or RealNex Real Blasts & Campaigns. "
-            "I also have access to the RealNex knowledge base for many questions and more! 😊"
+            "I also have access to the RealNex knowledge base for many questions and more!"
         )
 
         response = client.chat.completions.create(
