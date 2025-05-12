@@ -27,8 +27,6 @@ logging.basicConfig(level=logging.INFO, filename='app.log', format='%(asctime)s 
 
 REALNEX_API_BASE = os.getenv("REALNEX_API_BASE", "https://sync.realnex.com/api/v1")
 ODATA_BASE = f"{REALNEX_API_BASE}/CrmOData"
-
-# ✅ Correct OpenAI setup
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 MAILCHIMP_API_KEY = os.getenv("MAILCHIMP_API_KEY")
