@@ -5,6 +5,10 @@ import exifread
 import re
 import pandas as pd
 import logging
+import openai
+
+# Set OpenAI API key globally
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 def extract_text_from_image(image_path):
     try:
@@ -66,7 +70,7 @@ def parse_ocr_text(text):
     lines = text.split('\n')
 
     email_pattern = r'[\w\.-]+@[\w\.-]+\.\w+'
-    phone_pattern = r'(\+?\d{1,2}[-.\s]?)?(\(?\d{3}\)?[-.\s]?){2}\d{4}'
+    phone_pattern = r'(\+?\d{1,2}[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)?\d{3}[-.\s]?\d{4}'
 
     for line in lines:
         line = line.strip()
