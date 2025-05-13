@@ -7,6 +7,7 @@ import tempfile
 from flask import Flask, request, jsonify, send_from_directory
 from datetime import datetime, timedelta
 from openai import OpenAI
+from httpx import Client as HTTPXClient
 from tenacity import retry, stop_after_attempt, wait_exponential
 from goose_parser_tools import (
     extract_text_from_image,
@@ -39,8 +40,11 @@ CONSTANT_CONTACT_LIST_ID = os.getenv("CONSTANT_CONTACT_LIST_ID")
 DEFAULT_CAMPAIGN_MODE = os.getenv("DEFAULT_CAMPAIGN_MODE", "realnex")
 UNLOCK_EMAIL_PROVIDER_SELECTION = os.getenv("UNLOCK_EMAIL_PROVIDER_SELECTION", "false").lower() == "true"
 
-# OpenAI client instance (new SDK >= 1.0.0)
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# ✅ OpenAI client with proxy override for Render
+openai_client = OpenAI(
+    api_key=os.getenv("OPENAI_API_KEY"),
+    http_client=HTTPXClient(proxies=None)
+)
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def realnex_post(endpoint, token, data):
