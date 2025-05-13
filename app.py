@@ -6,7 +6,7 @@ import pandas as pd
 import tempfile
 from flask import Flask, request, jsonify, send_from_directory
 from datetime import datetime, timedelta
-import openai
+from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
 from goose_parser_tools import (
     extract_text_from_image,
@@ -27,7 +27,6 @@ logging.basicConfig(level=logging.INFO, filename='app.log', format='%(asctime)s 
 
 REALNEX_API_BASE = os.getenv("REALNEX_API_BASE", "https://sync.realnex.com/api/v1")
 ODATA_BASE = f"{REALNEX_API_BASE}/CrmOData"
-openai.api_key = os.getenv("OPENAI_API_KEY")
 
 MAILCHIMP_API_KEY = os.getenv("MAILCHIMP_API_KEY")
 MAILCHIMP_LIST_ID = os.getenv("MAILCHIMP_LIST_ID")
@@ -39,6 +38,9 @@ CONSTANT_CONTACT_LIST_ID = os.getenv("CONSTANT_CONTACT_LIST_ID")
 
 DEFAULT_CAMPAIGN_MODE = os.getenv("DEFAULT_CAMPAIGN_MODE", "realnex")
 UNLOCK_EMAIL_PROVIDER_SELECTION = os.getenv("UNLOCK_EMAIL_PROVIDER_SELECTION", "false").lower() == "true"
+
+# OpenAI client instance (new SDK >= 1.0.0)
+openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def realnex_post(endpoint, token, data):
@@ -126,7 +128,7 @@ def ask():
             "I also have access to the RealNex knowledge base for many questions and more!"
         )
 
-        response = openai.ChatCompletion.create(
+        response = openai_client.chat.completions.create(
             model=os.getenv("OPENAI_MODEL", "gpt-4o"),
             messages=[
                 {"role": "system", "content": system_prompt},
