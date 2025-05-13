@@ -126,7 +126,7 @@ def ask():
             "I also have access to the RealNex knowledge base for many questions and more!"
         )
 
-        response = openai.chat.completions.create(
+        response = openai.ChatCompletion.create(
             model=os.getenv("OPENAI_MODEL", "gpt-4o"),
             messages=[
                 {"role": "system", "content": system_prompt},
