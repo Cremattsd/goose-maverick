@@ -40,10 +40,10 @@ CONSTANT_CONTACT_LIST_ID = os.getenv("CONSTANT_CONTACT_LIST_ID")
 DEFAULT_CAMPAIGN_MODE = os.getenv("DEFAULT_CAMPAIGN_MODE", "realnex")
 UNLOCK_EMAIL_PROVIDER_SELECTION = os.getenv("UNLOCK_EMAIL_PROVIDER_SELECTION", "false").lower() == "true"
 
-# ✅ OpenAI client with proxy override for Render
+# ✅ Safe OpenAI client setup — no proxies argument
 openai_client = OpenAI(
     api_key=os.getenv("OPENAI_API_KEY"),
-    http_client=HTTPXClient(proxies=None)
+    http_client=HTTPXClient()
 )
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
