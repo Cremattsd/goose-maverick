@@ -1,0 +1,70 @@
+# .github/workflows/docker-deploy.yml
+name: Goose + Maverick Full Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: cremattsd/goose-maverick:latest
+
+      - name: Trigger Render Deploy (if configured)
+        if: ${{ secrets.RENDER_DEPLOY_HOOK_URL != '' }}
+        run: |
+          curl -X POST ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+
+  dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate Goose Sync Dashboard Stub
+        run: |
+          echo "Generating dashboard..."
+          mkdir -p static/dashboard
+          echo "<html><body><h1>Goose Sync Dashboard</h1><p>Coming soon...</p></body></html>" > static/dashboard/index.html
+
+  voice-to-text:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add Web Speech API Support
+        run: |
+          echo "Injecting voice input JS..."
+          mkdir -p static/js
+          echo "window.onload = function () {\n  const recognition = new webkitSpeechRecognition();\n  recognition.continuous = false;\n  recognition.interimResults = false;\n  recognition.lang = 'en-US';\n  document.getElementById('start-voice').onclick = function () {\n    recognition.start();\n  };\n  recognition.onresult = function (e) {\n    document.getElementById('message-input').value = e.results[0][0].transcript;\n  };\n};" > static/js/voice.js
+
+  ai-email-generator:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add Follow-Up Email Generator Function
+        run: |
+          echo "Adding email generation endpoint..."
+          echo "\n@app.route('/generate-email', methods=['POST'])\ndef generate_email():\n    try:\n        data = request.json\n        parsed_data = data.get('summary', '')\n        prompt = f'Write a professional follow-up email based on this data: {parsed_data}'\n        response = openai_client.chat.completions.create(\n            model='gpt-4o',\n            messages=[\n                {'role': 'system', 'content': 'You are a commercial real estate assistant.'},\n                {'role': 'user', 'content': prompt}\n            ]\n        )\n        return jsonify({ 'email': response.choices[0].message.content })\n    except Exception as e:\n        return jsonify({ 'error': str(e) }), 500" >> app.py
+
+  chrome-extension:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Scaffold Chrome Extension Features
+        run: |
+          mkdir -p chrome_extension
+          echo "{\"name\": \"RealNex Enhanced Maps\", \"version\": \"1.0\", \"manifest_version\": 3, \"permissions\": [\"activeTab\"], \"action\": {\"default_popup\": \"popup.html\"} }" > chrome_extension/manifest.json
+          echo "<html><body><h1>Map Overlays Coming Soon</h1></body></html>" > chrome_extension/popup.html
