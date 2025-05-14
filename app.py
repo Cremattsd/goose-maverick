@@ -7,7 +7,6 @@ import tempfile
 from flask import Flask, request, jsonify, send_from_directory
 from datetime import datetime, timedelta
 from openai import OpenAI
-from httpx import Client as HTTPXClient
 from tenacity import retry, stop_after_attempt, wait_exponential
 from goose_parser_tools import (
     extract_text_from_image,
@@ -29,6 +28,8 @@ logging.basicConfig(level=logging.INFO, filename='app.log', format='%(asctime)s 
 REALNEX_API_BASE = os.getenv("REALNEX_API_BASE", "https://sync.realnex.com/api/v1")
 ODATA_BASE = f"{REALNEX_API_BASE}/CrmOData"
 
+openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
 MAILCHIMP_API_KEY = os.getenv("MAILCHIMP_API_KEY")
 MAILCHIMP_LIST_ID = os.getenv("MAILCHIMP_LIST_ID")
 MAILCHIMP_SERVER_PREFIX = os.getenv("MAILCHIMP_SERVER_PREFIX")
@@ -39,12 +40,6 @@ CONSTANT_CONTACT_LIST_ID = os.getenv("CONSTANT_CONTACT_LIST_ID")
 
 DEFAULT_CAMPAIGN_MODE = os.getenv("DEFAULT_CAMPAIGN_MODE", "realnex")
 UNLOCK_EMAIL_PROVIDER_SELECTION = os.getenv("UNLOCK_EMAIL_PROVIDER_SELECTION", "false").lower() == "true"
-
-# ✅ Safe OpenAI client setup — no proxies argument
-openai_client = OpenAI(
-    api_key=os.getenv("OPENAI_API_KEY"),
-    http_client=HTTPXClient()
-)
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def realnex_post(endpoint, token, data):
@@ -127,15 +122,13 @@ def ask():
         if not user_message:
             return jsonify({"error": "Please enter a message."}), 400
 
-        system_prompt = (
-            "Hi! I’m Maverick, your chat assistant. Ask me anything about RealNex, RealNex VR, Pix-Virtual, or our webinars! "
-            "I also have access to the RealNex knowledge base for many questions and more!"
-        )
+        if "who made you" in user_message.lower():
+            return jsonify({"answer": "Matty Boy"})
 
         response = openai_client.chat.completions.create(
             model=os.getenv("OPENAI_MODEL", "gpt-4o"),
             messages=[
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": "You are a commercial real estate assistant. Only answer questions related to RealNex, RealNex VR, Pix-Virtual, or ViewLabs."},
                 {"role": "user", "content": user_message}
             ]
         )
@@ -146,6 +139,23 @@ def ask():
     except Exception as e:
         logging.error(f"OpenAI API error: {str(e)}")
         return jsonify({"error": f"OpenAI API error: {str(e)}"}), 500
+
+@app.route('/generate-email', methods=['POST'])
+def generate_email():
+    try:
+        data = request.json
+        parsed_data = data.get('summary', '')
+        prompt = f'Write a professional follow-up email based on this data: {parsed_data}'
+        response = openai_client.chat.completions.create(
+            model='gpt-4o',
+            messages=[
+                {'role': 'system', 'content': 'You are a commercial real estate assistant.'},
+                {'role': 'user', 'content': prompt}
+            ]
+        )
+        return jsonify({ 'email': response.choices[0].message.content })
+    except Exception as e:
+        return jsonify({ 'error': str(e) }), 500
 
 @app.route('/validate-token', methods=['POST'])
 def validate_token():
