@@ -1,3 +1,7 @@
+// === FULLY UPDATED app.py (Flask backend) ===
+# Includes: Matty Boy response, custom intro, reminder prefs, OpenAI
+# Save as app.py
+
 import os 
 import json
 import logging
@@ -118,12 +122,15 @@ def index():
 @app.route('/ask', methods=['POST'])
 def ask():
     try:
-        user_message = request.json.get("message", "").strip()
+        user_message = request.json.get("message", "").strip().lower()
         if not user_message:
             return jsonify({"error": "Please enter a message."}), 400
 
-        if "who made you" in user_message.lower():
-            return jsonify({"answer": "Matty Boy"})
+        if "who made you" in user_message or "who built you" in user_message:
+            return jsonify({"answer": "I was made by Matty Boy — the mind behind Goose, Maverick, and the RealNex AI revolution."})
+
+        if "help" in user_message or "what can you do" in user_message:
+            return jsonify({"answer": "RealNex, RealNex Webinars, Real Blasts, or more — ask away!"})
 
         response = openai_client.chat.completions.create(
             model=os.getenv("OPENAI_MODEL", "gpt-4o"),
@@ -139,6 +146,16 @@ def ask():
     except Exception as e:
         logging.error(f"OpenAI API error: {str(e)}")
         return jsonify({"error": f"OpenAI API error: {str(e)}"}), 500
+
+@app.route('/set-reminder-prefs', methods=['POST'])
+def set_reminder_prefs():
+    try:
+        data = request.json
+        with open('reminder_settings.json', 'w') as f:
+            json.dump(data, f)
+        return jsonify({"message": "Reminder preferences saved!"})
+    except Exception as e:
+        return jsonify({"error": f"Failed to save preferences: {str(e)}"}), 500
 
 @app.route('/generate-email', methods=['POST'])
 def generate_email():
