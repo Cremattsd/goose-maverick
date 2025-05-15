@@ -30,55 +30,9 @@ jobs:
 
       - name: Trigger Render Deploy (if configured)
         run: |
-          if [ "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" != "" ]; then
+          if [ -n "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" ]; then
             echo "Triggering Render Deploy Hook..."
             curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
           else
             echo "No Render Deploy Hook configured. Skipping."
           fi
-
-  dashboard:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Generate Goose Sync Dashboard Stub
-        run: |
-          echo "Generating dashboard..."
-          mkdir -p static/dashboard
-          echo "<html><body><h1>Goose Sync Dashboard</h1><p>Coming soon...</p></body></html>" > static/dashboard/index.html
-
-  voice-to-text:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Add Web Speech API Support
-        run: |
-          echo "Injecting voice input JS..."
-          mkdir -p static/js
-          echo "window.onload = function () {
-            const recognition = new webkitSpeechRecognition();
-            recognition.continuous = false;
-            recognition.interimResults = false;
-            recognition.lang = 'en-US';
-            document.getElementById('start-voice').onclick = function () {
-              recognition.start();
-            };
-            recognition.onresult = function (e) {
-              document.getElementById('message-input').value = e.results[0][0].transcript;
-            };
-          };" > static/js/voice.js
-
-  ai-email-generator:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Add Follow-Up Email Generator Function
-        run: |
-          echo "Adding email generation endpoint..."
-          echo "\n@app.route('/generate-email', methods=['POST'])\ndef generate_email():\n    try:\n        data = request.json\n        parsed_data = data.get('summary', '')\n        prompt = f'Write a professional follow-up email based on this data: {parsed_data}'\n        response = openai_client.chat.completions.create(\n            model='gpt-4o',\n            messages=[\n                {'role': 'system', 'content': 'You are a commercial real estate assistant.'},\n                {'role': 'user', 'content': prompt}\n            ]\n        )\n        return jsonify({ 'email': response.choices[0].message.content })\n    except Exception as e:\n        return jsonify({ 'error': str(e) }), 500" >> app.py
-
-  chrome-extension:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Scaffold Chrome Extension Features
-        run: |
-          mkdir -p chrome_extension
-          echo "{\"name\": \"RealNex Enhanced Maps\", \"version\": \"1.0\", \"manifest_version\": 3, \"permissions\": [\"activeTab\"], \"action\": {\"default_popup\": \"popup.html\"} }" > chrome_extension/manifest.json
-          echo "<html><body><h1>Map Overlays Coming Soon</h1></body></html>" > chrome_extension/popup.html
