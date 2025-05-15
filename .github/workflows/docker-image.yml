@@ -30,11 +30,11 @@ jobs:
 
       - name: Trigger Render Deploy (if configured)
         run: |
-          if [ -n "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" ]; then
-            echo "Triggering Render deploy hook..."
-            curl -X POST ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          if [ "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" != "" ]; then
+            echo "Triggering Render Deploy Hook..."
+            curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
           else
-            echo "No Render deploy hook set. Skipping."
+            echo "No Render Deploy Hook configured. Skipping."
           fi
 
   dashboard:
@@ -62,7 +62,7 @@ jobs:
               recognition.start();
             };
             recognition.onresult = function (e) {
-              document.getElementById('chat-message').value = e.results[0][0].transcript;
+              document.getElementById('message-input').value = e.results[0][0].transcript;
             };
           };" > static/js/voice.js
 
