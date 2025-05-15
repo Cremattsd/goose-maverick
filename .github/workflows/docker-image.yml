@@ -29,11 +29,13 @@ jobs:
           tags: cremattsd/goose-maverick:latest
 
       - name: Trigger Render Deploy (if configured)
-        env:
-          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
-        if: env.RENDER_DEPLOY_HOOK_URL != ''
         run: |
-          curl -X POST ${{ env.RENDER_DEPLOY_HOOK_URL }}
+          if [ -n "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" ]; then
+            echo "Triggering Render deploy hook..."
+            curl -X POST ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          else
+            echo "No Render deploy hook set. Skipping."
+          fi
 
   dashboard:
     runs-on: ubuntu-latest
