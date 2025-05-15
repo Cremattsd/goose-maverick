@@ -1,7 +1,3 @@
-// === FULLY UPDATED app.py (Flask backend) ===
-# Includes: Matty Boy response, custom intro, reminder prefs, OpenAI
-# Save as app.py
-
 import os 
 import json
 import logging
