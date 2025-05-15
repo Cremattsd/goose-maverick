@@ -1,4 +1,4 @@
-let mode = 'maverick';
+let mode = 'maverick'; 2
 let token = localStorage.getItem('realNexApiKey') || '';
 let currentFile = null;
 let hasPromptedForRealNex = localStorage.getItem('hasPromptedForRealNex') || false;
