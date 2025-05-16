@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Goose Sync Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+      background: #f9fafb;
+      padding: 40px;
+    }
+    .card {
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 0 12px rgba(0,0,0,0.05);
+      margin-bottom: 20px;
+    }
+    .title {
+      font-size: 1.25rem;
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+    #error-list {
+      color: #b91c1c;
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>📊 Goose Sync Dashboard</h1>
+
+  <div class="card">
+    <div class="title">Upload Stats</div>
+    <p><strong>Files Uploaded:</strong> <span id="filesUploaded">-</span></p>
+    <p><strong>Last Upload Time:</strong> <span id="lastUploadTime">-</span></p>
+    <p><strong>Scanned Data Points:</strong> <span id="scannedPoints">-</span></p>
+  </div>
+
+  <div class="card">
+    <div class="title">Scan Volume</div>
+    <canvas id="scanChart" height="100"></canvas>
+  </div>
+
+  <div class="card">
+    <div class="title">Latest Errors</div>
+    <pre id="error-list">Loading errors...</pre>
+  </div>
+
+  <script>
+    async function loadStats() {
+      const res = await fetch('/dashboard/stats');
+      const data = await res.json();
+      document.getElementById('filesUploaded').textContent = data.filesUploaded;
+      document.getElementById('lastUploadTime').textContent = data.lastUploadTime;
+      document.getElementById('scannedPoints').textContent = data.scannedPoints;
+      updateChart(data.scannedPoints);
+    }
+
+    async function loadErrors() {
+      const res = await fetch('/dashboard/errors');
+      const data = await res.json();
+      document.getElementById('error-list').textContent = data.errors.join('');
+    }
+
+    function updateChart(value) {
+      const ctx = document.getElementById('scanChart').getContext('2d');
+      new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: ['Scans'],
+          datasets: [{
+            label: 'Data Points',
+            data: [value],
+            backgroundColor: '#6366f1'
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { display: false },
+            title: { display: false }
+          },
+          scales: {
+            y: { beginAtZero: true }
+          }
+        }
+      });
+    }
+
+    loadStats();
+    loadErrors();
+  </script>
+</body>
+</html>
