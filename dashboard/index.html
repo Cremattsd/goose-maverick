@@ -70,8 +70,8 @@
       document.getElementById('lastUploadTime').textContent = stats.lastUploadTime;
       document.getElementById('scannedPoints').textContent = stats.scannedPoints;
 
-      // Load OCR entries
-      const ocrRes = await fetch('/static/scanned_data_points.json');
+      // Load scanned data
+      const ocrRes = await fetch('/dashboard/data');
       const ocrData = await ocrRes.json();
       displayOCR(ocrData);
       drawChart(ocrData);
