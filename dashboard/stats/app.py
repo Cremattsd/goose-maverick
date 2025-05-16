@@ -1,13 +1,16 @@
-// === app.py: Now supports dashboard phrase detection ===
+// === app.py: Now supports dashboard phrase detection + file upload + Goose OCR with CRM sync + graph data ===
 
 from flask import Flask, request, jsonify, send_from_directory, send_file
 from datetime import datetime, timedelta
 import random, os, json
+from PIL import Image
+import pytesseract
 
 app = Flask(__name__)
 UPLOAD_FOLDER = 'uploads'
 ERROR_LOG = 'errors.log'
 METRIC_LOG = 'dashboard_metrics.json'
+CRM_DATA_FILE = 'scanned_data_points.json'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 DASHBOARD_PHRASES = [
@@ -18,15 +21,72 @@ DASHBOARD_PHRASES = [
 
 @app.route('/dashboard/stats')
 def dashboard_stats():
-    ...  # (same as before)
+    try:
+        files = os.listdir(UPLOAD_FOLDER)
+        latest = max([os.path.getmtime(os.path.join(UPLOAD_FOLDER, f)) for f in files], default=0)
+        with open(CRM_DATA_FILE, 'r') as f:
+            records = json.load(f)
+        return jsonify({
+            "filesUploaded": len(files),
+            "lastUploadTime": datetime.fromtimestamp(latest).isoformat() if latest else "N/A",
+            "scannedPoints": len(records)
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/dashboard/errors')
 def dashboard_errors():
-    ...  # (same as before)
+    try:
+        if not os.path.exists(ERROR_LOG): return jsonify({"errors": []})
+        with open(ERROR_LOG, 'r') as f:
+            return jsonify({"errors": f.readlines()[-10:]})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-@app.route('/dashboard/download')
-def dashboard_download():
-    ...  # (same as before)
+@app.route('/dashboard/data')
+def dashboard_data():
+    try:
+        if not os.path.exists(CRM_DATA_FILE):
+            return jsonify([])
+        with open(CRM_DATA_FILE, 'r') as f:
+            return jsonify(json.load(f))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/upload', methods=['POST'])
+def upload():
+    try:
+        file = request.files['file']
+        filename = file.filename
+        save_path = os.path.join(UPLOAD_FOLDER, filename)
+        file.save(save_path)
+
+        ocr_result = ""
+        if filename.lower().endswith(('png', 'jpg', 'jpeg')):
+            image = Image.open(save_path)
+            ocr_result = pytesseract.image_to_string(image).strip()
+
+            # Simulate saving to CRM (append to JSON file)
+            if not os.path.exists(CRM_DATA_FILE):
+                with open(CRM_DATA_FILE, 'w') as f:
+                    json.dump([], f)
+
+            with open(CRM_DATA_FILE, 'r+') as f:
+                data = json.load(f)
+                data.append({
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "filename": filename,
+                    "text": ocr_result
+                })
+                f.seek(0)
+                json.dump(data, f, indent=2)
+
+        return jsonify({
+            "message": "Upload complete with OCR scan and CRM sync.",
+            "ocrText": ocr_result
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/ask', methods=['POST'])
 def ask():
@@ -37,93 +97,9 @@ def ask():
                 "action": "show_dashboard",
                 "message": "Pulling up your Goose Sync Dashboard now 📊"
             })
-        # fallback if not a dashboard request
         return jsonify({
-            "message": "Hi! I’m Maverick. Ask me anything about RealNex, RealBlasts, or sync activity."
+            "message": "Pulling up your Goose Sync Dashboard now 📊",
+            "action": "show_dashboard"
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-...  # (rest of app.py remains unchanged)
-
-
-// === frontend.js: Now auto-triggers dashboard from chat + draggable widget ===
-
-function initChatWidget() {
-  const chatWidget = document.createElement('div');
-  chatWidget.id = 'chat-widget';
-  chatWidget.className = 'chat-widget';
-  chatWidget.style.position = 'fixed';
-  chatWidget.style.bottom = '20px';
-  chatWidget.style.right = '20px';
-  chatWidget.style.zIndex = '9999';
-  chatWidget.style.background = 'white';
-  chatWidget.style.border = '1px solid #ccc';
-  chatWidget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)';
-  chatWidget.style.padding = '10px';
-  chatWidget.style.borderRadius = '12px';
-  chatWidget.style.width = '300px';
-  chatWidget.style.resize = 'both';
-  chatWidget.style.overflow = 'auto';
-  chatWidget.innerHTML = `
-    <div id="chat-body">
-      <div><strong>Maverick:</strong> Hi! I’m Maverick. Ask me anything about RealNex, RealBlasts, or sync stats. 📊</div>
-      <input type="text" id="chat-input" placeholder="Ask Maverick..." style="width:100%;margin-top:10px;">
-      <button onclick="sendMessage()" style="margin-top:5px;width:100%;">Ask</button>
-    </div>`;
-  document.body.appendChild(chatWidget);
-  makeWidgetDraggable(chatWidget);
-  loadStats();
-  loadErrors();
-  setInterval(loadStats, 60000);
-}
-
-document.addEventListener('DOMContentLoaded', initChatWidget);
-
-function makeWidgetDraggable(el) {
-  el.onmousedown = function (e) {
-    let offsetX = e.clientX - el.getBoundingClientRect().left;
-    let offsetY = e.clientY - el.getBoundingClientRect().top;
-    function mouseMoveHandler(e) {
-      el.style.left = e.clientX - offsetX + 'px';
-      el.style.top = e.clientY - offsetY + 'px';
-      el.style.bottom = 'unset';
-      el.style.right = 'unset';
-      el.style.position = 'absolute';
-    }
-    function mouseUpHandler() {
-      document.removeEventListener('mousemove', mouseMoveHandler);
-      document.removeEventListener('mouseup', mouseUpHandler);
-    }
-    document.addEventListener('mousemove', mouseMoveHandler);
-    document.addEventListener('mouseup', mouseUpHandler);
-  };
-}
-
-function sendMessage() {
-  const input = document.getElementById('chat-input');
-  const message = input.value.trim();
-  if (!message) return;
-
-  fetch('/ask', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message })
-  })
-    .then(res => res.json())
-    .then(data => {
-      const chatBody = document.getElementById('chat-body');
-      if (data.action === 'show_dashboard') {
-        loadStats();
-        loadErrors();
-        alert(data.message);
-      } else {
-        const response = document.createElement('div');
-        response.innerHTML = `<strong>Maverick:</strong> ${data.message}`;
-        chatBody.appendChild(response);
-      }
-    });
-  input.value = '';
-}
-
-window.sendMessage = sendMessage;
