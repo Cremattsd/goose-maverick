@@ -1,4 +1,4 @@
-// === app.py: Full updated version with Goose dashboard, OCR upload, CRM sync, RealNex integration, smart prompts, and reminders ===
+# === app.py: Full updated version with Goose dashboard, OCR upload, CRM sync, RealNex integration, smart prompts, and reminders ===
 
 import os 
 import json
