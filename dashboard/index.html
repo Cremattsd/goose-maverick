@@ -7,7 +7,7 @@
   <style>
     body {
       font-family: sans-serif;
-      background: #f9fafb;
+      background: #f3f4f6;
       padding: 40px;
     }
     .card {
@@ -15,7 +15,7 @@
       padding: 20px;
       border-radius: 12px;
       box-shadow: 0 0 12px rgba(0,0,0,0.05);
-      margin-bottom: 20px;
+      margin-bottom: 24px;
     }
     .title {
       font-size: 1.25rem;
@@ -25,6 +25,13 @@
     #error-list {
       color: #b91c1c;
       font-family: monospace;
+      white-space: pre-wrap;
+    }
+    .ocr-entry {
+      margin-bottom: 1rem;
+      padding: 0.75rem;
+      background: #f9fafb;
+      border-left: 4px solid #6366f1;
     }
   </style>
 </head>
@@ -33,30 +40,41 @@
   <h1>📊 Goose Sync Dashboard</h1>
 
   <div class="card">
-    <div class="title">Upload Stats</div>
+    <div class="title">📁 Upload Stats</div>
     <p><strong>Files Uploaded:</strong> <span id="filesUploaded">-</span></p>
     <p><strong>Last Upload Time:</strong> <span id="lastUploadTime">-</span></p>
     <p><strong>Scanned Data Points:</strong> <span id="scannedPoints">-</span></p>
   </div>
 
   <div class="card">
-    <div class="title">Scan Volume</div>
+    <div class="title">📈 Scans Over Time</div>
     <canvas id="scanChart" height="100"></canvas>
   </div>
 
   <div class="card">
-    <div class="title">Latest Errors</div>
+    <div class="title">🧠 Latest Scanned Text</div>
+    <div id="ocr-list">Loading scanned entries...</div>
+  </div>
+
+  <div class="card">
+    <div class="title">🚨 Recent Errors</div>
     <pre id="error-list">Loading errors...</pre>
   </div>
 
   <script>
     async function loadStats() {
-      const res = await fetch('/dashboard/stats');
-      const data = await res.json();
-      document.getElementById('filesUploaded').textContent = data.filesUploaded;
-      document.getElementById('lastUploadTime').textContent = data.lastUploadTime;
-      document.getElementById('scannedPoints').textContent = data.scannedPoints;
-      updateChart(data.scannedPoints);
+      const statsRes = await fetch('/dashboard/stats');
+      const stats = await statsRes.json();
+
+      document.getElementById('filesUploaded').textContent = stats.filesUploaded;
+      document.getElementById('lastUploadTime').textContent = stats.lastUploadTime;
+      document.getElementById('scannedPoints').textContent = stats.scannedPoints;
+
+      // Load OCR entries
+      const ocrRes = await fetch('/static/scanned_data_points.json');
+      const ocrData = await ocrRes.json();
+      displayOCR(ocrData);
+      drawChart(ocrData);
     }
 
     async function loadErrors() {
@@ -65,23 +83,45 @@
       document.getElementById('error-list').textContent = data.errors.join('');
     }
 
-    function updateChart(value) {
+    function displayOCR(entries) {
+      const container = document.getElementById('ocr-list');
+      container.innerHTML = '';
+      entries.slice(-5).reverse().forEach(entry => {
+        const div = document.createElement('div');
+        div.className = 'ocr-entry';
+        div.innerHTML = `<strong>${entry.filename}</strong> <br><small>${new Date(entry.timestamp).toLocaleString()}</small><br>${entry.text}`;
+        container.appendChild(div);
+      });
+    }
+
+    function drawChart(entries) {
+      const daily = {};
+      entries.forEach(e => {
+        const date = new Date(e.timestamp).toISOString().slice(0, 10);
+        daily[date] = (daily[date] || 0) + 1;
+      });
+
+      const labels = Object.keys(daily).sort();
+      const values = labels.map(k => daily[k]);
+
       const ctx = document.getElementById('scanChart').getContext('2d');
       new Chart(ctx, {
-        type: 'bar',
+        type: 'line',
         data: {
-          labels: ['Scans'],
+          labels,
           datasets: [{
-            label: 'Data Points',
-            data: [value],
-            backgroundColor: '#6366f1'
+            label: 'Scans per Day',
+            data: values,
+            fill: true,
+            borderColor: '#4f46e5',
+            backgroundColor: 'rgba(99,102,241,0.1)',
+            tension: 0.3
           }]
         },
         options: {
           responsive: true,
           plugins: {
-            legend: { display: false },
-            title: { display: false }
+            legend: { display: false }
           },
           scales: {
             y: { beginAtZero: true }
