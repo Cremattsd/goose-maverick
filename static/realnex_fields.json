@@ -1,0 +1,65 @@
+{
+  "contacts": [
+    "Full Name",
+    "First Name",
+    "Last Name",
+    "Salutation",
+    "Greeting",
+    "Work",
+    "Mobile",
+    "Email",
+    "Company"
+  ],
+  "companies": [
+    "Organization",
+    "Subsidiary",
+    "Company",
+    "Address1",
+    "Address2",
+    "City",
+    "State",
+    "Zip Code"
+  ],
+  "projects": [
+    "Project",
+    "Type",
+    "Size",
+    "Status",
+    "Date opened"
+  ],
+  "properties": [
+    "Property Name",
+    "Property Type",
+    "Property Address",
+    "Property Address2",
+    "Property City",
+    "Property State",
+    "Property Zip Code"
+  ],
+  "spaces": [
+    "Property.Property name",
+    "Property.Address 1",
+    "Property.City",
+    "Property.State",
+    "Property.Zip code"
+  ],
+  "lease_comps": [
+    "Property name",
+    "Address 1",
+    "Address 2",
+    "City",
+    "State",
+    "Zip code",
+    "Tenant",
+    "Lease Start",
+    "Rent"
+  ],
+  "sales_comps": [
+    "Property name",
+    "Sale date",
+    "Buyer.Name",
+    "Buyer.Company",
+    "Buyer.Work",
+    "Buyer.Email"
+  ]
+}
