@@ -1,4 +1,7 @@
+# goose_parser_tools.py – updated for saved mapping support and per-entity mapping logic
+
 import os
+import json
 import pytesseract
 from PIL import Image
 import pdf2image
@@ -10,37 +13,35 @@ import openai
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
+MAPPING_FILE_DIR = '.'
+
+# === OCR FUNCTIONS ===
 def extract_text_from_image(image_path):
     try:
         img = Image.open(image_path)
-        text = pytesseract.image_to_string(img)
-        return text.strip()
+        return pytesseract.image_to_string(img).strip()
     except Exception as e:
-        logging.error(f"Error extracting text from image: {str(e)}")
+        logging.error(f"Image OCR error: {str(e)}")
         return ""
 
 def extract_text_from_pdf(pdf_path):
     try:
         images = pdf2image.convert_from_path(pdf_path)
-        text = ""
-        for img in images:
-            text += pytesseract.image_to_string(img) + "\n"
-        return text.strip()
+        return "\n".join([pytesseract.image_to_string(img) for img in images]).strip()
     except Exception as e:
-        logging.error(f"Error extracting text from PDF: {str(e)}")
+        logging.error(f"PDF OCR error: {str(e)}")
         return ""
 
+# === GEO FUNCTIONS ===
 def dms_to_decimal(dms, ref):
     try:
         degrees = float(dms[0].num) / float(dms[0].den)
         minutes = float(dms[1].num) / float(dms[1].den)
         seconds = float(dms[2].num) / float(dms[2].den)
         decimal = degrees + (minutes / 60.0) + (seconds / 3600.0)
-        if ref in ['S', 'W']:
-            decimal = -decimal
-        return decimal
+        return -decimal if ref in ['S', 'W'] else decimal
     except Exception as e:
-        logging.error(f"Error converting DMS to decimal: {str(e)}")
+        logging.error(f"DMS conversion error: {str(e)}")
         return None
 
 def extract_exif_location(image_path):
@@ -49,78 +50,84 @@ def extract_exif_location(image_path):
             tags = exifread.process_file(f)
             if 'GPS GPSLatitude' in tags and 'GPS GPSLongitude' in tags:
                 lat = tags['GPS GPSLatitude'].values
-                lat_ref = tags['GPS GPSLatitudeRef'].values[0]
                 lon = tags['GPS GPSLongitude'].values
+                lat_ref = tags['GPS GPSLatitudeRef'].values[0]
                 lon_ref = tags['GPS GPSLongitudeRef'].values[0]
                 return {
                     "latitude": dms_to_decimal(lat, lat_ref),
                     "longitude": dms_to_decimal(lon, lon_ref)
                 }
-        return None
     except Exception as e:
-        logging.error(f"Error extracting EXIF location: {str(e)}")
-        return None
+        logging.error(f"EXIF read error: {str(e)}")
+    return None
 
+# === TEXT UTILITIES ===
 def is_business_card(text):
-    keywords = ['email', 'phone', 'www', '@', 'com', 'inc', 'llc']
-    return any(keyword in text.lower() for keyword in keywords)
+    return any(keyword in text.lower() for keyword in ['email', 'phone', 'www', '@', 'com', 'inc', 'llc'])
 
 def parse_ocr_text(text):
     parsed = {"fullName": "", "email": "", "work": "", "company": ""}
     lines = text.split('\n')
-
-    email_pattern = r'[\w\.-]+@[\w\.-]+\.\w+'
-    phone_pattern = r'(\+?\d{1,2}[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)?\d{3}[-.\s]?\d{4}'
+    email_re = r'[\w\.-]+@[\w\.-]+\.\w+'
+    phone_re = r'(\+?\d{1,2}[-.\s]?)?(\(?\d{3}\)?[-.\s]?)?\d{3}[-.\s]?\d{4}'
 
     for line in lines:
         line = line.strip()
         if not parsed["email"]:
-            email_match = re.search(email_pattern, line)
-            if email_match:
-                parsed["email"] = email_match.group()
-                continue
+            match = re.search(email_re, line)
+            if match: parsed["email"] = match.group(); continue
         if not parsed["work"]:
-            phone_match = re.search(phone_pattern, line)
-            if phone_match:
-                parsed["work"] = phone_match.group()
-                continue
-        if not parsed["company"] and any(kw in line.lower() for kw in ['inc', 'llc', 'corp']):
+            match = re.search(phone_re, line)
+            if match: parsed["work"] = match.group(); continue
+        if not parsed["company"] and any(x in line.lower() for x in ['inc', 'llc', 'corp']):
             parsed["company"] = line
             continue
-        if not parsed["fullName"] and line.replace(" ", "").isalpha() and not any(x in line.lower() for x in ['inc', 'llc', 'corp']):
+        if not parsed["fullName"] and line.replace(" ", "").isalpha():
             parsed["fullName"] = line
             continue
     return parsed
 
+# === FIELD MAPPING ===
+def load_saved_mapping(name=None):
+    try:
+        filename = f"saved_mapping_{name}.json" if name else "saved_mapping.json"
+        filepath = os.path.join(MAPPING_FILE_DIR, filename)
+        if os.path.exists(filepath):
+            with open(filepath, 'r') as f:
+                return json.load(f)
+    except Exception as e:
+        logging.error(f"Mapping load error: {str(e)}")
+    return {"contacts": {}}
+
 def suggest_field_mapping(df):
     mapping = {"contacts": {}, "companies": {}, "properties": {}, "spaces": {}, "projects": {}}
     columns = df.columns.str.lower()
-
-    if "name" in columns:
-        mapping["contacts"]["fullName"] = "name"
-    if "email" in columns:
-        mapping["contacts"]["email"] = "email"
-    if "phone" in columns:
-        mapping["contacts"]["work"] = "phone"
-
-    if "company" in columns:
-        mapping["companies"]["name"] = "company"
-
+    if "name" in columns: mapping["contacts"]["fullName"] = "name"
+    if "email" in columns: mapping["contacts"]["email"] = "email"
+    if "phone" in columns: mapping["contacts"]["work"] = "phone"
+    if "company" in columns: mapping["companies"]["name"] = "company"
     return mapping
 
 def map_fields(row, fields):
     mapped = {}
-    for target_field, source_field in fields.items():
-        if source_field.lower() in row and pd.notna(row[source_field.lower()]):
-            mapped[target_field] = str(row[source_field.lower()])
+    for target, source in fields.items():
+        val = row.get(source.lower())
+        if pd.notna(val):
+            mapped[target] = str(val)
     return mapped if mapped else None
 
-def auto_map_dataframe(df):
-    mapping = suggest_field_mapping(df)
-    mapped = []
+def auto_map_dataframe(df, map_name=None):
+    """
+    Map a DataFrame using a saved or suggested field mapping.
+    Optional: pass map_name to load mapping from saved_mapping_<map_name>.json
+    """
+    df.columns = df.columns.str.lower()
+    mapping = load_saved_mapping(map_name)
+    if not mapping["contacts"]:
+        mapping = suggest_field_mapping(df)
+    result = []
     for _, row in df.iterrows():
-        row_dict = {col.lower(): val for col, val in row.items()}
-        mapped_row = map_fields(row_dict, mapping["contacts"])
-        if mapped_row:
-            mapped.append(mapped_row)
-    return mapped
+        mapped = map_fields(row, mapping.get("contacts", {}))
+        if mapped:
+            result.append(mapped)
+    return result
