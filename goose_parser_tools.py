@@ -1,3 +1,5 @@
+# goose_parser_tools.py – updated for saved mapping support and per-entity mapping logic
+
 import os
 import json
 import pytesseract
@@ -114,13 +116,6 @@ def suggest_field_mapping(df):
                 if field.lower().replace(" ", "") in col.replace(" ", ""):
                     mapping[entity][field] = col
     return mapping
-    mapping = {"contacts": {}, "companies": {}, "properties": {}, "spaces": {}, "projects": {}}
-    columns = df.columns.str.lower()
-    if "name" in columns: mapping["contacts"]["fullName"] = "name"
-    if "email" in columns: mapping["contacts"]["email"] = "email"
-    if "phone" in columns: mapping["contacts"]["work"] = "phone"
-    if "company" in columns: mapping["companies"]["name"] = "company"
-    return mapping
 
 def map_fields(row, fields):
     mapped = {}
@@ -131,13 +126,9 @@ def map_fields(row, fields):
     return mapped if mapped else None
 
 def auto_map_dataframe(df, map_name=None):
-    """
-    Map a DataFrame using a saved or suggested field mapping.
-    Optional: pass map_name to load mapping from saved_mapping_<map_name>.json
-    """
     df.columns = df.columns.str.lower()
     mapping = load_saved_mapping(map_name)
-    if not mapping["contacts"]:
+    if not mapping.get("contacts"):
         mapping = suggest_field_mapping(df)
     result = []
     for _, row in df.iterrows():
