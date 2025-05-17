@@ -1,5 +1,3 @@
-# goose_parser_tools.py – updated for saved mapping support and per-entity mapping logic
-
 import os
 import json
 import pytesseract
@@ -100,6 +98,22 @@ def load_saved_mapping(name=None):
     return {"contacts": {}}
 
 def suggest_field_mapping(df):
+    try:
+        with open(os.path.join(MAPPING_FILE_DIR, 'static/realnex_fields.json')) as f:
+            reference_fields = json.load(f)
+    except Exception as e:
+        logging.warning(f"Could not load reference fields: {e}")
+        reference_fields = {}
+
+    mapping = {k: {} for k in reference_fields.keys()}
+    columns = df.columns.str.lower()
+
+    for entity, fields in reference_fields.items():
+        for field in fields:
+            for col in columns:
+                if field.lower().replace(" ", "") in col.replace(" ", ""):
+                    mapping[entity][field] = col
+    return mapping
     mapping = {"contacts": {}, "companies": {}, "properties": {}, "spaces": {}, "projects": {}}
     columns = df.columns.str.lower()
     if "name" in columns: mapping["contacts"]["fullName"] = "name"
