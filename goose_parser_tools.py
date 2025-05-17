@@ -8,7 +8,6 @@ import pandas as pd
 import logging
 import openai
 
-# Set OpenAI API key globally
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 def extract_text_from_image(image_path):
@@ -115,3 +114,13 @@ def map_fields(row, fields):
         if source_field.lower() in row and pd.notna(row[source_field.lower()]):
             mapped[target_field] = str(row[source_field.lower()])
     return mapped if mapped else None
+
+def auto_map_dataframe(df):
+    mapping = suggest_field_mapping(df)
+    mapped = []
+    for _, row in df.iterrows():
+        row_dict = {col.lower(): val for col, val in row.items()}
+        mapped_row = map_fields(row_dict, mapping["contacts"])
+        if mapped_row:
+            mapped.append(mapped_row)
+    return mapped
