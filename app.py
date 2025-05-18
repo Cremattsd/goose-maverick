@@ -8,7 +8,7 @@ from email.mime.text import MIMEText
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit
-from openai import OpenAI
+import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
 from werkzeug.utils import secure_filename
 from goose_parser_tools import (
