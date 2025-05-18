@@ -4,9 +4,24 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies for PyMuPDF (MuPDF, Leptonica, Tesseract) and build tools
 RUN apt-get update && apt-get install -y \
     curl \
+    build-essential \
+    make \
+    gcc \
+    g++ \
+    libmupdf-dev \
+    libfreetype6-dev \
+    libjpeg-dev \
+    zlib1g-dev \
+    libopenjp2-7-dev \
+    liblcms2-dev \
+    libtiff-dev \
+    libpng-dev \
+    libtesseract-dev \
+    libleptonica-dev \
+    tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js and npm
@@ -35,6 +50,9 @@ RUN npm run build
 
 # Copy the rest of the app
 COPY . .
+
+# Update pip to the latest version
+RUN pip install --upgrade pip
 
 # Install Python dependencies
 COPY requirements.txt .
