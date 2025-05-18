@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Goose-Maverick Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <link href="/css/tailwind.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+            font-family: 'Inter', sans-serif;
+            color: #1f2937;
+        }
+        .dashboard-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .dashboard-header {
+            background: linear-gradient(to right, #8b5cf6, #22d3ee);
+            color: white;
+            padding: 16px;
+            border-radius: 12px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .chart-container {
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+        }
+        .summary-container {
+            background: #fafafa;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .summary-container button {
+            background: #8b5cf6;
+            color: white;
+            padding: 10px 16px;
+            border-radius: 8px;
+            transition: background 0.3s ease, transform 0.1s ease;
+        }
+        .summary-container button:hover {
+            background: #a78bfa;
+            transform: scale(1.03);
+        }
+        .table-container {
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            overflow-x: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        th {
+            background: #f3f4f6;
+            color: #1f2937;
+        }
+        tr:hover {
+            background: #f9fafb;
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <div class="dashboard-header">
+            <h1 class="text-2xl font-bold">Goose-Maverick Sync Dashboard 🚀</h1>
+            <p>Track your RealNex imports with Top Gun precision!</p>
+        </div>
+        <div class="chart-container">
+            <h2 class="text-lg font-semibold mb-4">Entity Counts</h2>
+            <canvas id="entityChart"></canvas>
+        </div>
+        <div class="chart-container">
+            <h2 class="text-lg font-semibold mb-4">Success Rate</h2>
+            <canvas id="successChart"></canvas>
+        </div>
+        <div class="summary-container">
+            <h2 class="text-lg font-semibold mb-4">Import Summary</h2>
+            <button onclick="requestSummary()">Request Summary from Maverick</button>
+            <div id="summaryText" class="mt-4"></div>
+        </div>
+        <div class="table-container">
+            <h2 class="text-lg font-semibold mb-4">Recent Imports</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Entity</th>
+                        <th>Record Count</th>
+                        <th>Status</th>
+                        <th>Timestamp</th>
+                    </tr>
+                </thead>
+                <tbody id="recentImportsTable"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let entityChart, successChart;
+
+        async function fetchDashboardData() {
+            try {
+                const res = await fetch('/dashboard-data');
+                const data = await res.json();
+                if (data.error) throw new Error(data.error);
+
+                // Entity Counts Chart (Bar)
+                const entityCounts = data.summary.entity_counts;
+                const entityLabels = Object.keys(entityCounts);
+                const entityData = Object.values(entityCounts);
+                const ctxEntity = document.getElementById('entityChart').getContext('2d');
+                entityChart = new Chart(ctxEntity, {
+                    type: 'bar',
+                    data: {
+                        labels: entityLabels,
+                        datasets: [{
+                            label: 'Records Imported',
+                            data: entityData,
+                            backgroundColor: '#8b5cf6',
+                            borderColor: '#6d28d9',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        scales: {
+                            y: { beginAtZero: true }
+                        },
+                        plugins: {
+                            legend: { display: false },
+                            title: { display: true, text: 'Imported Records by Entity' }
+                        }
+                    }
+                });
+
+                // Success Rate Chart (Pie)
+                const successCount = data.summary.successful_imports;
+                const failureCount = data.summary.total_imports - successCount;
+                const ctxSuccess = document.getElementById('successChart').getContext('2d');
+                successChart = new Chart(ctxSuccess, {
+                    type: 'pie',
+                    data: {
+                        labels: ['Successful', 'Failed'],
+                        datasets: [{
+                            data: [successCount, failureCount],
+                            backgroundColor: ['#22c55e', '#ef4444'],
+                            borderColor: ['#1e3a8a', '#1e3a8a'],
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        plugins: {
+                            title: { display: true, text: 'Import Success Rate' }
+                        }
+                    }
+                });
+
+                // Recent Imports Table
+                const tableBody = document.getElementById('recentImportsTable');
+                tableBody.innerHTML = '';
+                data.imports.forEach(import => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${import.entity}</td>
+                        <td>${import.record_count}</td>
+                        <td>${import.success ? 'Success' : 'Failed'}</td>
+                        <td>${new Date(import.timestamp).toLocaleString()}</td>
+                    `;
+                    tableBody.appendChild(row);
+                });
+            } catch (e) {
+                console.error('Dashboard data error:', e);
+            }
+        }
+
+        async function requestSummary() {
+            try {
+                const token = localStorage.getItem('realNexApiKey') || '';
+                if (!token) throw new Error('No token found! Switch to Goose mode and enter your token.');
+                
+                const res = await fetch('/summarize', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                const summaryText = document.getElementById('summaryText');
+                summaryText.innerText = data.summary || data.error;
+            } catch (e) {
+                document.getElementById('summaryText').innerText = 'Turbulence: ' + e.message;
+            }
+        }
+
+        window.onload = fetchDashboardData;
+    </script>
+</body>
+</html>
