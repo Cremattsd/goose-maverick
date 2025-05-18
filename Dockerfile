@@ -4,7 +4,7 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies for PyMuPDF (MuPDF, Leptonica, Tesseract) and build tools
+# Install system dependencies for PyMuPDF (MuPDF, Leptonica, Tesseract), pdf2image (poppler-utils), and build tools
 RUN apt-get update && apt-get install -y \
     curl \
     build-essential \
@@ -22,6 +22,7 @@ RUN apt-get update && apt-get install -y \
     libtesseract-dev \
     libleptonica-dev \
     tesseract-ocr \
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js and npm
