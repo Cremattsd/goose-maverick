@@ -21,9 +21,9 @@ RUN npm install
 # Update Browserslist database to fix caniuse-lite warning
 RUN npx update-browserslist-db@latest
 
-# Copy Tailwind config and create input.css
+# Copy Tailwind config and static files (including input.css)
 COPY tailwind.config.js .
-RUN mkdir -p static/css && echo "@tailwind base;\n@tailwind components;\n@tailwind utilities;" > static/css/input.css
+COPY static/ static/
 
 # Build Tailwind CSS
 RUN npm run build
