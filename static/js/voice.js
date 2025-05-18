@@ -1,4 +1,3 @@
-// static/js/voice.js
 window.onload = function () {
   const recognition = new webkitSpeechRecognition();
   recognition.continuous = false;
