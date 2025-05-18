@@ -8,6 +8,7 @@
     <link href="/css/tailwind.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4/dist/socket.io.min.js"></script>
+    <script src="/js/voice.js"></script>
     <style>
         body {
             background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
@@ -28,19 +29,44 @@
         .chat-header {
             background: linear-gradient(to right, #8b5cf6, #22d3ee);
             color: white;
-            padding: 12px 16px;
+            padding: 8px 12px;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
         }
         .chat-header img, .chat-header svg {
-            width: 24px;
-            height: 24px;
-            margin-right: 8px;
+            width: 20px;
+            height: 20px;
+            margin-right: 6px;
             transition: transform 0.3s ease;
         }
         .chat-header img:hover, .chat-header svg:hover {
             transform: scale(1.1);
+        }
+        .chat-title-container {
+            display: flex;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        .button-container {
+            display: flex;
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            gap: 6px;
+            scrollbar-width: thin;
+            scrollbar-color: #a78bfa #ffffff;
+        }
+        .button-container::-webkit-scrollbar {
+            height: 4px;
+        }
+        .button-container::-webkit-scrollbar-track {
+            background: #ffffff;
+        }
+        .button-container::-webkit-scrollbar-thumb {
+            background: #a78bfa;
+            border-radius: 4px;
         }
         .chat-body {
             padding: 16px;
@@ -98,15 +124,31 @@
             background: #a78bfa;
             transform: scale(1.03);
         }
+        .voice-button {
+            background: #14b8a6;
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            margin-right: 8px;
+            transition: background 0.3s ease, transform 0.1s ease;
+        }
+        .voice-button:hover {
+            background: #2dd4bf;
+            transform: scale(1.03);
+        }
+        .voice-button.recording {
+            background: #ef4444;
+        }
         .switch-button, .clear-key-button, .dashboard-button, .toggle-events-button, .sync-mailchimp-button {
             background: #ffffff;
             color: #8b5cf6;
             border: 1px solid #8b5cf6;
-            padding: 4px 12px;
+            padding: 3px 10px;
             border-radius: 20px;
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 600;
             transition: background 0.3s ease, transform 0.1s ease;
+            white-space: nowrap;
         }
         .switch-button:hover, .clear-key-button:hover, .dashboard-button:hover, .toggle-events-button:hover, .sync-mailchimp-button:hover {
             background: #f3e8ff;
@@ -211,14 +253,14 @@
 
     <div class="chat-widget">
         <div class="chat-header">
-            <div class="flex items-center">
+            <div class="chat-title-container">
                 <img id="mode-icon" src="/maverick-icon.png" alt="Maverick Icon" onerror="this.style.display='none'; document.getElementById('maverick-svg').style.display='block';">
                 <svg id="maverick-svg" style="display: none;" viewBox="0 0 24 24" fill="white">
                     <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/>
                 </svg>
                 <span id="chat-title">Hey there! Chat with Maverick! 🚀</span>
             </div>
-            <div class="flex space-x-2">
+            <div class="button-container">
                 <a href="/dashboard" target="_blank" class="dashboard-button">Dashboard</a>
                 <button id="switch-mode" class="switch-button" onclick="toggleMode()">Switch to Goose</button>
                 <button id="clear-key" class="clear-key-button" onclick="clearStoredKey()" style="display: none;">Clear Key</button>
@@ -233,7 +275,8 @@
             <canvas id="sync-gauge" class="sync-gauge"></canvas>
         </div>
         <div class="chat-input">
-            <input type="text" id="chat-message" placeholder="Type your message..." onkeypress="if(event.key === 'Enter') sendMessage()">
+            <button id="start-voice" class="voice-button">🎙️</button>
+            <input type="text" id="chat-message" placeholder="Type or speak your message..." onkeypress="if(event.key === 'Enter') sendMessage()">
             <button onclick="sendMessage()">Send</button>
         </div>
     </div>
@@ -675,4 +718,386 @@
                 const formData = new FormData();
                 formData.append('file', file);
                 try {
-                    const
+                    const res = await fetch('/suggest-mapping', {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${token}` },
+                        body: formData
+                    });
+                    const data = await res.json();
+                    updateGauge(50);
+                    if (data.error) throw new Error(data.error);
+
+                    const mappingForm = document.createElement('div');
+                    mappingForm.className = 'dynamic-form';
+                    mappingForm.innerHTML = `
+                        <textarea id="mapping-json" rows="5">${JSON.stringify(data.suggestedMapping, null, 2)}</textarea>
+                        <button onclick="submitMapping()">Import</button>`;
+                    chatBody.innerHTML = '';
+                    chatBody.appendChild(mappingForm);
+                    chatBody.appendChild(document.getElementById('sync-gauge'));
+                    updateGauge(100);
+                    chatBody.scrollTop = chatBody.scrollHeight;
+                } catch (e) {
+                    const errorMessage = document.createElement('div');
+                    errorMessage.className = 'chat-message bg-red-100';
+                    errorMessage.innerText = 'Turbulence: ' + e.message;
+                    chatBody.innerHTML = '';
+                    chatBody.appendChild(errorMessage);
+                    chatBody.appendChild(document.getElementById('sync-gauge'));
+                    updateGauge(0);
+                    chatBody.scrollTop = chatBody.scrollHeight;
+                }
+            } else {
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('token', token);
+                formData.append('notes', 'Scanned via Goose');
+
+                try {
+                    const res = await fetch('/upload-business-card', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const data = await res.json();
+                    updateGauge(50);
+                    if (data.error) throw new Error(data.error);
+
+                    const message = document.createElement('div');
+                    message.className = 'chat-message bg-teal-100';
+                    message.innerText = data.message;
+                    chatBody.innerHTML = `
+                        <div class="drag-drop-area" id="drag-drop-area">
+                            Drop a photo, PDF, or Excel file here to scan or import—super easy! 🎉
+                            <div class="icon-container">
+                                <div class="icon-label">
+                                    <img src="/attachment-icon.png" alt="Attachment Icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                                    <svg style="display: none;" viewBox="0 0 24 24" fill="#8b5cf6">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 2l5 5h-5V4zM6 20V4h6v6h6v10H6z"/>
+                                    </svg>
+                                    Attachment
+                                </div>
+                                <div class="icon-label">
+                                    <img src="/business-card-icon.png" alt="Business Card Icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                                    <svg style="display: none;" viewBox="0 0 24 24" fill="#8b5cf6">
+                                        <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h16v12zM6 8h12v2H6V8zm0 4h12v2H6v-2z"/>
+                                    </svg>
+                                    Business Card
+                                </div>
+                                <div class="icon-label">
+                                    <img src="/photo-ocr-icon.png" alt="Photo OCR Icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                                    <svg style="display: none;" viewBox="0 0 24 24" fill="#8b5cf6">
+                                        <path d="M21 7h-6V5c0-1.1-.9-2-2-2H9c-1.1 0-2 .9-2 2v2H3c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h18c1.1 0 2-.9-2 2V9c0-1.1-.9-2-2-2zM9 5h4v2H9V5zm11 14H4V9h16v10z"/>
+                                    </svg>
+                                    Photo OCR
+                                </div>
+                            </div>
+                            <input type="file" id="chat-file" accept="image/*,.pdf,.xlsx" style="display: none;">
+                        </div>
+                        <canvas id="sync-gauge" class="sync-gauge"></canvas>`;
+                    chatBody.insertBefore(message, document.getElementById('sync-gauge'));
+                    updateGauge(100);
+                    setupDragDrop();
+                    chatBody.scrollTop = chatBody.scrollHeight;
+                } catch (e) {
+                    const errorMessage = document.createElement('div');
+                    errorMessage.className = 'chat-message bg-red-100';
+                    errorMessage.innerText = 'Turbulence: ' + e.message;
+                    chatBody.innerHTML = `
+                        <div class="drag-drop-area" id="drag-drop-area">
+                            Drop a photo, PDF, or Excel file here to scan or import—super easy! 🎉
+                            <div class="icon-container">
+                                <div class="icon-label">
+                                    <img src="/attachment-icon.png" alt="Attachment Icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                                    <svg style="display: none;" viewBox="0 0 24 24" fill="#8b5cf6">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 2l5 5h-5V4zM6 20V4h6v6h6v10H6z"/>
+                                    </svg>
+                                    Attachment
+                                </div>
+                                <div class="icon-label">
+                                    <img src="/business-card-icon.png" alt="Business Card Icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                                    <svg style="display: none;" viewBox="0 0 24 24" fill="#8b5cf6">
+                                        <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h16v12zM6 8h12v2H6V8zm0 4h12v2H6v-2z"/>
+                                    </svg>
+                                    Business Card
+                                </div>
+                                <div class="icon-label">
+                                    <img src="/photo-ocr-icon.png" alt="Photo OCR Icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                                    <svg style="display: none;" viewBox="0 0 24 24" fill="#8b5cf6">
+                                        <path d="M21 7h-6V5c0-1.1-.9-2-2-2H9c-1.1 0-2 .9-2 2v2H3c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h18c1.1 0 2-.9-2 2V9c0-1.1-.9-2-2-2zM9 5h4v2H9V5zm11 14H4V9h16v10z"/>
+                                    </svg>
+                                    Photo OCR
+                                </div>
+                            </div>
+                            <input type="file" id="chat-file" accept="image/*,.pdf,.xlsx" style="display: none;">
+                        </div>
+                        <canvas id="sync-gauge" class="sync-gauge"></canvas>`;
+                    chatBody.insertBefore(errorMessage, document.getElementById('sync-gauge'));
+                    updateGauge(0);
+                    setupDragDrop();
+                    chatBody.scrollTop = chatBody.scrollHeight;
+                }
+            }
+        }
+
+        async function submitMapping() {
+            const mappingJson = document.getElementById('mapping-json').value;
+            const chatBody = document.getElementById('chat-body');
+            const formData = new FormData();
+            formData.append('file', currentFile);
+            formData.append('token', token);
+            formData.append('mapping', mappingJson);
+
+            const spinner = document.createElement('div');
+            spinner.className = 'spinner';
+            spinner.style.display = 'block';
+            chatBody.innerHTML = '';
+            chatBody.appendChild(spinner);
+            chatBody.appendChild(document.getElementById('sync-gauge'));
+            updateGauge(10);
+
+            try {
+                const res = await fetch('/bulk-import', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+                updateGauge(50);
+                if (data.error) throw new Error(data.error);
+
+                const message = document.createElement('div');
+                message.className = 'chat-message bg-teal-100';
+                message.innerText = `Imported ${data.processed} records! Results: ${JSON.stringify(data.results, null, 2)}`;
+                chatBody.innerHTML = `
+                    <div class="drag-drop-area" id="drag-drop-area">
+                        Drop a photo, PDF, or Excel file here to scan or import—super easy! 🎉
+                        <div class="icon-container">
+                            <div class="icon-label">
+                                <img src="/attachment-icon.png" alt="Attachment Icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                                <svg style="display: none;" viewBox="0 0 24 24" fill="#8b5cf6">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 2l5 5h-5V4zM6 20V4h6v6h6v10H6z"/>
+                                </svg>
+                                Attachment
+                            </div>
+                            <div class="icon-label">
+                                <img src="/business-card-icon.png" alt="Business Card Icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                                <svg style="display: none;" viewBox="0 0 24 24" fill="#8b5cf6">
+                                    <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h16v12zM6 8h12v2H6V8zm0 4h12v2H6v-2z"/>
+                                </svg>
+                                Business Card
+                            </div>
+                            <div class="icon-label">
+                                <img src="/photo-ocr-icon.png" alt="Photo OCR Icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                                <svg style="display: none;" viewBox="0 0 24 24" fill="#8b5cf6">
+                                    <path d="M21 7h-6V5c0-1.1-.9-2-2-2H9c-1.1 0-2 .9-2 2v2H3c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h18c1.1 0 2-.9-2 2V9c0-1.1-.9-2-2-2zM9 5h4v2H9V5zm11 14H4V9h16v10z"/>
+                                </svg>
+                                Photo OCR
+                            </div>
+                        </div>
+                        <input type="file" id="chat-file" accept="image/*,.pdf,.xlsx" style="display: none;">
+                    </div>
+                    <canvas id="sync-gauge" class="sync-gauge"></canvas>`;
+                chatBody.insertBefore(message, document.getElementById('sync-gauge'));
+                updateGauge(100);
+                setupDragDrop();
+                chatBody.scrollTop = chatBody.scrollHeight;
+            } catch (e) {
+                const errorMessage = document.createElement('div');
+                errorMessage.className = 'chat-message bg-red-100';
+                errorMessage.innerText = 'Turbulence: ' + e.message;
+                chatBody.innerHTML = `
+                    <div class="drag-drop-area" id="drag-drop-area">
+                        Drop a photo, PDF, or Excel file here to scan or import—super easy! 🎉
+                        <div class="icon-container">
+                            <div class="icon-label">
+                                <img src="/attachment-icon.png" alt="Attachment Icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                                <svg style="display: none;" viewBox="0 0 24 24" fill="#8b5cf6">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 2l5 5h-5V4zM6 20V4h6v6h6v10H6z"/>
+                                </svg>
+                                Attachment
+                            </div>
+                            <div class="icon-label">
+                                <img src="/business-card-icon.png" alt="Business Card Icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                                <svg style="display: none;" viewBox="0 0 24 24" fill="#8b5cf6">
+                                    <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h16v12zM6 8h12v2H6V8zm0 4h12v2H6v-2z"/>
+                                </svg>
+                                Business Card
+                            </div>
+                            <div class="icon-label">
+                                <img src="/photo-ocr-icon.png" alt="Photo OCR Icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                                <svg style="display: none;" viewBox="0 0 24 24" fill="#8b5cf6">
+                                    <path d="M21 7h-6V5c0-1.1-.9-2-2-2H9c-1.1 0-2 .9-2 2v2H3c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h18c1.1 0 2-.9-2 2V9c0-1.1-.9-2-2-2zM9 5h4v2H9V5zm11 14H4V9h16v10z"/>
+                                </svg>
+                                Photo OCR
+                            </div>
+                        </div>
+                        <input type="file" id="chat-file" accept="image/*,.pdf,.xlsx" style="display: none;">
+                    </div>
+                    <canvas id="sync-gauge" class="sync-gauge"></canvas>`;
+                chatBody.insertBefore(errorMessage, document.getElementById('sync-gauge'));
+                updateGauge(0);
+                setupDragDrop();
+                chatBody.scrollTop = chatBody.scrollHeight;
+            }
+        }
+
+        async function validateToken() {
+            const tokenInput = document.getElementById('token-input');
+            const chatBody = document.getElementById('chat-body');
+            const clearKeyButton = document.getElementById('clear-key');
+            const toggleEventsButton = document.getElementById('toggle-events');
+            const syncMailchimpButton = document.getElementById('sync-mailchimp');
+            token = tokenInput.value.trim();
+
+            const spinner = document.createElement('div');
+            spinner.className = 'spinner';
+            spinner.style.display = 'block';
+            chatBody.innerHTML = '';
+            chatBody.appendChild(spinner);
+            chatBody.appendChild(document.getElementById('sync-gauge'));
+
+            try {
+                const res = await fetch('/validate-token', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token })
+                });
+                const data = await res.json();
+                if (data.valid) {
+                    localStorage.setItem('realNexApiKey', token);
+                    clearKeyButton.style.display = 'block';
+                    toggleEventsButton.style.display = 'block';
+                    syncMailchimpButton.style.display = 'block';
+                    chatBody.innerHTML = `
+                        <div class="drag-drop-area" id="drag-drop-area">
+                            Drop a photo, PDF, or Excel file here to scan or import—super easy! 🎉
+                            <div class="icon-container">
+                                <div class="icon-label">
+                                    <img src="/attachment-icon.png" alt="Attachment Icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                                    <svg style="display: none;" viewBox="0 0 24 24" fill="#8b5cf6">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 2l5 5h-5V4zM6 20V4h6v6h6v10H6z"/>
+                                    </svg>
+                                    Attachment
+                                </div>
+                                <div class="icon-label">
+                                    <img src="/business-card-icon.png" alt="Business Card Icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                                    <svg style="display: none;" viewBox="0 0 24 24" fill="#8b5cf6">
+                                        <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h16v12zM6 8h12v2H6V8zm0 4h12v2H6v-2z"/>
+                                    </svg>
+                                    Business Card
+                                </div>
+                                <div class="icon-label">
+                                    <img src="/photo-ocr-icon.png" alt="Photo OCR Icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                                    <svg style="display: none;" viewBox="0 0 24 24" fill="#8b5cf6">
+                                        <path d="M21 7h-6V5c0-1.1-.9-2-2-2H9c-1.1 0-2 .9-2 2v2H3c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h18c1.1 0 2-.9-2 2V9c0-1.1-.9-2-2-2zM9 5h4v2H9V5zm11 14H4V9h16v10z"/>
+                                    </svg>
+                                    Photo OCR
+                                </div>
+                            </div>
+                            <input type="file" id="chat-file" accept="image/*,.pdf,.xlsx" style="display: none;">
+                        </div>
+                        <canvas id="sync-gauge" class="sync-gauge"></canvas>`;
+                    setupDragDrop();
+                    setupGauge();
+                } else {
+                    const errorMessage = document.createElement('div');
+                    errorMessage.className = 'chat-message bg-red-100';
+                    errorMessage.innerText = 'Invalid token! Try again, Goose!';
+                    chatBody.innerHTML = `
+                        <div class="dynamic-form">
+                            <input type="text" id="token-input" placeholder="Enter your RealNex Bearer Token">
+                            <button onclick="validateToken()">Validate Token</button>
+                        </div>
+                        <canvas id="sync-gauge" class="sync-gauge"></canvas>`;
+                    chatBody.insertBefore(errorMessage, document.getElementById('sync-gauge'));
+                    setupGauge();
+                }
+                chatBody.scrollTop = chatBody.scrollHeight;
+            } catch (e) {
+                const errorMessage = document.createElement('div');
+                errorMessage.className = 'chat-message bg-red-100';
+                errorMessage.innerText = 'Turbulence: ' + e.message;
+                chatBody.innerHTML = `
+                    <div class="dynamic-form">
+                        <input type="text" id="token-input" placeholder="Enter your RealNex Bearer Token">
+                        <button onclick="validateToken()">Validate Token</button>
+                    </div>
+                    <canvas id="sync-gauge" class="sync-gauge"></canvas>`;
+                chatBody.insertBefore(errorMessage, document.getElementById('sync-gauge'));
+                setupGauge();
+                chatBody.scrollTop = chatBody.scrollHeight;
+            }
+        }
+
+        async function sendMessage() {
+            const messageInput = document.getElementById('chat-message');
+            const message = messageInput.value.trim();
+            const chatBody = document.getElementById('chat-body');
+            if (!message) return;
+
+            const userMessage = document.createElement('div');
+            userMessage.className = 'chat-message';
+            userMessage.innerText = message;
+            chatBody.insertBefore(userMessage, document.getElementById('sync-gauge'));
+
+            const spinner = document.createElement('div');
+            spinner.className = 'spinner';
+            spinner.style.display = 'block';
+            chatBody.insertBefore(spinner, document.getElementById('sync-gauge'));
+
+            try {
+                const res = await fetch('/ask', {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ message })
+                });
+                const data = await res.json();
+                spinner.remove();
+                const botMessage = document.createElement('div');
+                botMessage.className = 'chat-message bg-purple-100';
+                botMessage.innerText = data.answer || data.error;
+                chatBody.insertBefore(botMessage, document.getElementById('sync-gauge'));
+            } catch (e) {
+                spinner.remove();
+                const errorMessage = document.createElement('div');
+                errorMessage.className = 'chat-message bg-red-100';
+                errorMessage.innerText = 'Turbulence: ' + e.message;
+                chatBody.insertBefore(errorMessage, document.getElementById('sync-gauge'));
+            }
+            messageInput.value = '';
+            chatBody.scrollTop = chatBody.scrollHeight;
+        }
+
+        let gaugeChart;
+        function setupGauge() {
+            const ctx = document.getElementById('sync-gauge').getContext('2d');
+            gaugeChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    datasets: [{
+                        data: [0, 100],
+                        backgroundColor: ['#8b5cf6', '#e5e7eb'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    circumference: 180,
+                    rotation: 270,
+                    cutout: '80%',
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { enabled: false }
+                    }
+                }
+            });
+        }
+
+        function updateGauge(value) {
+            gaugeChart.data.datasets[0].data = [value, 100 - value];
+            gaugeChart.update();
+        }
+    </script>
+</body>
+</html>
