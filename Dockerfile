@@ -1,4 +1,4 @@
-# Use an official Python runtime as a parent image
+# Use a lightweight Python 3.11 base image
 FROM python:3.11-slim
 
 # Set working directory
@@ -6,7 +6,6 @@ WORKDIR /app
 
 # Install system dependencies for PyMuPDF (MuPDF, Leptonica, Tesseract), pdf2image (poppler-utils), build tools, and swig
 RUN apt-get update && apt-get install -y \
-    curl \
     build-essential \
     make \
     gcc \
@@ -24,15 +23,17 @@ RUN apt-get update && apt-get install -y \
     libleptonica-dev \
     tesseract-ocr \
     poppler-utils \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js and npm
+# Install Node.js 20.x and npm (use the latest npm version to avoid potential version issues)
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
-    && npm install -g npm@11.4.0
+    && npm install -g npm@latest
 
-# Copy package.json and install Node.js dependencies
-COPY package.json .
+# Copy Node.js dependency files and static assets first to leverage caching
+COPY package.json tailwind.config.js ./
+COPY static/ static/
 RUN npm install
 
 # Update Browserslist database to fix caniuse-lite warning
@@ -43,25 +44,21 @@ RUN mkdir -p static/js && \
     cp node_modules/chart.js/dist/chart.umd.js static/js/chart.js && \
     cp node_modules/socket.io-client/dist/socket.io.min.js static/js/socket.io.min.js
 
-# Copy Tailwind config and static files (including input.css)
-COPY tailwind.config.js .
-COPY static/ static/
-
 # Build Tailwind CSS
 RUN npm run build
-
-# Copy the rest of the app
-COPY . .
 
 # Update pip to the latest version
 RUN pip install --upgrade pip
 
-# Install Python dependencies
+# Copy Python requirements and install dependencies to leverage caching
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the rest of the application
+COPY . .
 
 # Expose the port (Render will override this with the PORT env variable)
 EXPOSE 5000
 
-# Command to run the app, using the PORT environment variable
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:$PORT app:app"]
+# Command to run the app, using the PORT environment variable with optimized gunicorn settings
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 app:app"]
