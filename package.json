@@ -6,6 +6,7 @@
   },
   "dependencies": {
     "tailwindcss": "^3.4.1",
-    "chart.js": "^4.4.1"
+    "chart.js": "^4.4.1",
+    "socket.io-client": "^4.7.5"
   }
 }
