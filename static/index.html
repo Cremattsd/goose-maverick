@@ -6,9 +6,16 @@
     <title>Goose & Maverick</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <link href="/css/tailwind.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4/dist/socket.io.min.js"></script>
+    <script src="/js/chart.js"></script>
+    <script src="/js/socket.io.min.js"></script>
     <script src="/js/voice.js"></script>
+    <script>
+        // Ensure io is defined globally from SocketIO
+        const io = window.SocketIO ? window.SocketIO.io : window.io;
+        if (!io) {
+            console.error("Socket.io 'io' function is not defined. Check if socket.io.min.js is loaded correctly.");
+        }
+    </script>
     <style>
         body {
             background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
@@ -552,7 +559,9 @@
                     <select id="mailchimp-audience" class="mb-2">
                         ${data.mailchimp_audiences.map(a => `<option value="${a.id}">${a.name}</option>`).join('')}
                     </select>
-                    <button onclick="performMailchimpSync()">Sync to Mailchimp</button>
+                    <button onclick="performMailchimpSync
+
+()">Sync to Mailchimp</button>
                 `;
                 chatBody.insertBefore(syncForm, document.getElementById('sync-gauge'));
                 chatBody.scrollTop = chatBody.scrollHeight;
