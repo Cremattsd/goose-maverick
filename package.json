@@ -2,9 +2,10 @@
   "name": "goose-maverick",
   "version": "1.0.0",
   "scripts": {
-    "build:css": "mkdir -p static && npx tailwindcss -i ./rc/input.css -o ./static/tailwind.css --minify"
+    "build": "npx tailwindcss -i ./static/css/input.css -o ./static/css/tailwind.css --minify"
   },
-  "devDependencies": {
-    "tailwindcss": "^3.3.2"
+  "dependencies": {
+    "tailwindcss": "^3.4.1",
+    "chart.js": "^4.4.1"
   }
 }
