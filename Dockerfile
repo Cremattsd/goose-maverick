@@ -21,6 +21,11 @@ RUN npm install
 # Update Browserslist database to fix caniuse-lite warning
 RUN npx update-browserslist-db@latest
 
+# Copy Chart.js and Socket.io to static/js for local use
+RUN mkdir -p static/js && \
+    cp node_modules/chart.js/dist/chart.umd.js static/js/chart.js && \
+    cp node_modules/socket.io-client/dist/socket.io.min.js static/js/socket.io.min.js
+
 # Copy Tailwind config and static files (including input.css)
 COPY tailwind.config.js .
 COPY static/ static/
