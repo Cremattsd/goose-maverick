@@ -1,35 +1,42 @@
-FROM python:3.9-slim
+# Use an official Python runtime as a parent image
+FROM python:3.11-slim
 
+# Set working directory
 WORKDIR /app
 
-# Install system dependencies and Node.js
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
-    tesseract-ocr \
-    libtesseract-dev \
-    poppler-utils \
-    imagemagick \
     curl \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js and npm
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && npm install -g npm@11.4.0
+
+# Copy package.json and install Node.js dependencies
+COPY package.json .
+RUN npm install
+
+# Update Browserslist database to fix caniuse-lite warning
+RUN npx update-browserslist-db@latest
+
+# Copy Tailwind config and create input.css
+COPY tailwind.config.js .
+RUN mkdir -p static/css && echo "@tailwind base;\n@tailwind components;\n@tailwind utilities;" > static/css/input.css
+
+# Build Tailwind CSS
+RUN npm run build
+
+# Copy the rest of the app
+COPY . .
 
 # Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy node modules and create input.css before npm install
-COPY package.json .
-COPY tailwind.config.js .
-
-# ⬇️ Create the missing input.css BEFORE build
-RUN mkdir -p static/css && echo -e "@tailwind base;\n@tailwind components;\n@tailwind utilities;" > static/css/input.css
-
-# Install and build
-RUN npm install && npm run build
-
-# Copy the rest of the app
-COPY . .
-
+# Expose the port
 EXPOSE 5000
 
+# Command to run the app
 CMD ["gunicorn", "--bind", "0.0.0.0:5000", "app:app"]
