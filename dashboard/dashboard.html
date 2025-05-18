@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Goose Sync Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <link href="/css/tailwind.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+            color: #1f2937;
+            padding: 2rem;
+        }
+        h1, h2 {
+            color: #1f2937;
+        }
+        .section {
+            margin-top: 2rem;
+            background: #ffffff;
+            padding: 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        }
+        .summary-card {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem;
+            background: #f9fafb;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+        .summary-card div {
+            flex: 1;
+            text-align: center;
+        }
+        .summary-card div h3 {
+            margin: 0;
+            font-size: 1rem;
+            color: #6b7280;
+        }
+        .summary-card div p {
+            margin: 0;
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #1f2937;
+        }
+        .chart-container {
+            max-width: 500px;
+            margin: 1rem auto;
+        }
+        .lead-scores {
+            margin-top: 1rem;
+        }
+        .lead-scores ul {
+            list-style: none;
+            padding: 0;
+        }
+        .lead-scores li {
+            padding: 0.5rem;
+            border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            justify-content: space-between;
+        }
+        .lead-scores li:last-child {
+            border-bottom: none;
+        }
+        .imports-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .imports-list ul {
+            list-style: none;
+            padding: 0;
+        }
+        .imports-list li {
+            padding: 0.5rem;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .imports-list li:last-child {
+            border-bottom: none;
+        }
+        .imports-list li.success {
+            color: #14b8a6;
+        }
+        .imports-list li.error {
+            color: #ef4444;
+        }
+        .summary-button {
+            background: #8b5cf6;
+            color: white;
+            padding: 10px 16px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            transition: background 0.3s ease, transform 0.1s ease;
+        }
+        .summary-button:hover {
+            background: #a78bfa;
+            transform: scale(1.03);
+        }
+        .summary-message {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: #f3e8ff;
+            border-radius: 8px;
+            color: #1f2937;
+        }
+    </style>
+</head>
+<body>
+    <h1>Goose Sync Dashboard</h1>
+    <div class="section">
+        <h2>Sync Summary</h2>
+        <div class="summary-card" id="summary-card">
+            <div>
+                <h3>Total Imports</h3>
+                <p id="total-imports">0</p>
+            </div>
+            <div>
+                <h3>Successful Imports</h3>
+                <p id="successful-imports">0</p>
+            </div>
+        </div>
+        <div class="chart-container">
+            <canvas id="entity-chart"></canvas>
+        </div>
+    </div>
+    <div class="section">
+        <h2>Top Leads (AI-Scored)</h2>
+        <div class="lead-scores" id="lead-scores">
+            <ul>
+                <li>No lead scores available yet.</li>
+            </ul>
+        </div>
+    </div>
+    <div class="section">
+        <h2>Latest Uploads</h2>
+        <div class="imports-list" id="imports-list">
+            <ul>
+                <li>No imports yet.</li>
+            </ul>
+        </div>
+    </div>
+    <div class="section">
+        <h2>Summary</h2>
+        <button class="summary-button" onclick="requestSummary()">Request Summary</button>
+        <div id="summary-message" class="summary-message" style="display: none;"></div>
+    </div>
+
+    <script>
+        let token = localStorage.getItem('realNexApiKey') || '';
+
+        window.onload = function() {
+            if (!token) {
+                alert('Please enter your RealNex Bearer Token in Goose mode first!');
+                window.location.href = '/';
+                return;
+            }
+            fetchDashboardData();
+        };
+
+        async function fetchDashboardData() {
+            try {
+                const res = await fetch('/dashboard-data', {
+                    method: 'GET',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                if (data.error) throw new Error(data.error);
+
+                // Update summary
+                document.getElementById('total-imports').innerText = data.summary.total_imports;
+                document.getElementById('successful-imports').innerText = data.summary.successful_imports;
+
+                // Update imports list
+                const importsList = document.getElementById('imports-list').querySelector('ul');
+                importsList.innerHTML = '';
+                if (data.imports.length === 0) {
+                    importsList.innerHTML = '<li>No imports yet.</li>';
+                } else {
+                    data.imports.forEach(imp => {
+                        const li = document.createElement('li');
+                        li.className = imp.success ? 'success' : 'error';
+                        li.innerText = `${imp.entity} (${imp.record_count} records) - ${imp.success ? '✅ Synced' : '❌ Failed'} at ${new Date(imp.timestamp).toLocaleString()}`;
+                        importsList.appendChild(li);
+                    });
+                }
+
+                // Update lead scores
+                const leadScores = document.getElementById('lead-scores').
