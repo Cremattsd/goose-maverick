@@ -4,13 +4,14 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies for PyMuPDF (MuPDF, Leptonica, Tesseract), pdf2image (poppler-utils), and build tools
+# Install system dependencies for PyMuPDF (MuPDF, Leptonica, Tesseract), pdf2image (poppler-utils), build tools, and swig
 RUN apt-get update && apt-get install -y \
     curl \
     build-essential \
     make \
     gcc \
     g++ \
+    swig \
     libmupdf-dev \
     libfreetype6-dev \
     libjpeg-dev \
@@ -59,8 +60,8 @@ RUN pip install --upgrade pip
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Expose the port
+# Expose the port (Render will override this with the PORT env variable)
 EXPOSE 5000
 
-# Command to run the app
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "app:app"]
+# Command to run the app, using the PORT environment variable
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:$PORT app:app"]
