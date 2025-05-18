@@ -13,28 +13,42 @@
             background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
             color: #1f2937;
             padding: 2rem;
+            margin: 0;
         }
         h1, h2 {
             color: #1f2937;
+        }
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            text-align: center;
+            background: linear-gradient(to right, #8b5cf6, #22d3ee);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 2rem;
         }
         .section {
             margin-top: 2rem;
             background: #ffffff;
             padding: 1.5rem;
             border-radius: 12px;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease;
+        }
+        .section:hover {
+            transform: translateY(-5px);
         }
         .summary-card {
             display: flex;
-            justify-content: space-between;
+            justify-content: space-around;
             align-items: center;
             padding: 1rem;
             background: #f9fafb;
             border-radius: 8px;
             margin-bottom: 1rem;
+            border: 1px solid #e5e7eb;
         }
         .summary-card div {
-            flex: 1;
             text-align: center;
         }
         .summary-card div h3 {
@@ -47,10 +61,15 @@
             font-size: 1.5rem;
             font-weight: 600;
             color: #1f2937;
+            transition: color 0.3s ease;
+        }
+        .summary-card div p:hover {
+            color: #8b5cf6;
         }
         .chart-container {
             max-width: 500px;
             margin: 1rem auto;
+            position: relative;
         }
         .lead-scores {
             margin-top: 1rem;
@@ -60,25 +79,53 @@
             padding: 0;
         }
         .lead-scores li {
-            padding: 0.5rem;
+            padding: 0.75rem;
             border-bottom: 1px solid #e5e7eb;
             display: flex;
             justify-content: space-between;
+            align-items: center;
+            transition: background 0.3s ease;
+        }
+        .lead-scores li:hover {
+            background: #f3e8ff;
         }
         .lead-scores li:last-child {
             border-bottom: none;
         }
+        .lead-score {
+            font-weight: 600;
+            color: #14b8a6;
+        }
         .imports-list {
             max-height: 300px;
             overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: #8b5cf6 #f9fafb;
+        }
+        .imports-list::-webkit-scrollbar {
+            width: 6px;
+        }
+        .imports-list::-webkit-scrollbar-track {
+            background: #f9fafb;
+        }
+        .imports-list::-webkit-scrollbar-thumb {
+            background: #8b5cf6;
+            border-radius: 4px;
         }
         .imports-list ul {
             list-style: none;
             padding: 0;
         }
         .imports-list li {
-            padding: 0.5rem;
+            padding: 0.75rem;
             border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background 0.3s ease;
+        }
+        .imports-list li:hover {
+            background: #f9fafb;
         }
         .imports-list li:last-child {
             border-bottom: none;
@@ -88,19 +135,25 @@
         }
         .imports-list li.error {
             color: #ef4444;
+            font-weight: 600;
+        }
+        .imports-list li.error::before {
+            content: "⚠️ Danger Zone: ";
+            font-weight: 700;
         }
         .summary-button {
-            background: #8b5cf6;
+            background: linear-gradient(to right, #8b5cf6, #22d3ee);
             color: white;
-            padding: 10px 16px;
+            padding: 10px 20px;
             border-radius: 8px;
             border: none;
             cursor: pointer;
-            transition: background 0.3s ease, transform 0.1s ease;
+            font-weight: 600;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
         }
         .summary-button:hover {
-            background: #a78bfa;
-            transform: scale(1.03);
+            transform: scale(1.05);
+            box-shadow: 0 4px 15px rgba(139, 92, 246, 0.3);
         }
         .summary-message {
             margin-top: 1rem;
@@ -108,11 +161,47 @@
             background: #f3e8ff;
             border-radius: 8px;
             color: #1f2937;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.5s ease, transform 0.5s ease;
+        }
+        .summary-message.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .spinner {
+            display: none;
+            border: 4px solid #f3f4f6;
+            border-top: 4px solid #8b5cf6;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            margin: 10px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        @media (max-width: 600px) {
+            .summary-card {
+                flex-direction: column;
+                gap: 1rem;
+            }
+            .chart-container {
+                max-width: 100%;
+            }
+            h1 {
+                font-size: 1.8rem;
+            }
+            .section {
+                padding: 1rem;
+            }
         }
     </style>
 </head>
 <body>
-    <h1>Goose Sync Dashboard</h1>
+    <h1>Goose Sync Dashboard 🛩️</h1>
     <div class="section">
         <h2>Sync Summary</h2>
         <div class="summary-card" id="summary-card">
@@ -124,9 +213,16 @@
                 <h3>Successful Imports</h3>
                 <p id="successful-imports">0</p>
             </div>
+            <div>
+                <h3>Success Rate</h3>
+                <p id="success-rate">0%</p>
+            </div>
         </div>
         <div class="chart-container">
             <canvas id="entity-chart"></canvas>
+        </div>
+        <div class="chart-container">
+            <canvas id="success-rate-chart"></canvas>
         </div>
     </div>
     <div class="section">
@@ -135,6 +231,9 @@
             <ul>
                 <li>No lead scores available yet.</li>
             </ul>
+        </div>
+        <div class="chart-container">
+            <canvas id="lead-score-chart"></canvas>
         </div>
     </div>
     <div class="section">
@@ -146,13 +245,15 @@
         </div>
     </div>
     <div class="section">
-        <h2>Summary</h2>
-        <button class="summary-button" onclick="requestSummary()">Request Summary</button>
-        <div id="summary-message" class="summary-message" style="display: none;"></div>
+        <h2>Maverick’s Mission Report</h2>
+        <button class="summary-button" onclick="requestSummary()">Request Mission Summary</button>
+        <div id="summary-spinner" class="spinner"></div>
+        <div id="summary-message" class="summary-message"></div>
     </div>
 
     <script>
         let token = localStorage.getItem('realNexApiKey') || '';
+        let entityChart, successRateChart, leadScoreChart;
 
         window.onload = function() {
             if (!token) {
@@ -160,8 +261,131 @@
                 window.location.href = '/';
                 return;
             }
+            setupCharts();
             fetchDashboardData();
         };
+
+        function setupCharts() {
+            const entityCtx = document.getElementById('entity-chart').getContext('2d');
+            entityChart = new Chart(entityCtx, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Entities Synced',
+                        data: [],
+                        backgroundColor: '#8b5cf6',
+                        borderColor: '#6d28d9',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Number of Records'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Entity Type'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    animation: {
+                        duration: 1500,
+                        easing: 'easeOutBounce'
+                    }
+                }
+            });
+
+            const successRateCtx = document.getElementById('success-rate-chart').getContext('2d');
+            successRateChart = new Chart(successRateCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Successful', 'Failed'],
+                    datasets: [{
+                        data: [0, 0],
+                        backgroundColor: ['#14b8a6', '#ef4444'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: (context) => {
+                                    const label = context.label || '';
+                                    const value = context.raw || 0;
+                                    return `${label}: ${value} imports`;
+                                }
+                            }
+                        }
+                    },
+                    animation: {
+                        duration: 1500,
+                        easing: 'easeInOutQuart'
+                    }
+                }
+            });
+
+            const leadScoreCtx = document.getElementById('lead-score-chart').getContext('2d');
+            leadScoreChart = new Chart(leadScoreCtx, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Lead Scores',
+                        data: [],
+                        backgroundColor: '#22d3ee',
+                        borderColor: '#0891b2',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            max: 100,
+                            title: {
+                                display: true,
+                                text: 'Lead Score (0-100)'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Contact'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    animation: {
+                        duration: 1500,
+                        easing: 'easeOutBack'
+                    }
+                }
+            });
+        }
 
         async function fetchDashboardData() {
             try {
@@ -175,6 +399,25 @@
                 // Update summary
                 document.getElementById('total-imports').innerText = data.summary.total_imports;
                 document.getElementById('successful-imports').innerText = data.summary.successful_imports;
+                const successRate = data.summary.total_imports > 0 ? 
+                    Math.round((data.summary.successful_imports / data.summary.total_imports) * 100) : 0;
+                document.getElementById('success-rate').innerText = `${successRate}%`;
+
+                // Update entity chart
+                const entityCounts = data.imports.reduce((acc, imp) => {
+                    acc[imp.entity] = (acc[imp.entity] || 0) + imp.record_count;
+                    return acc;
+                }, {});
+                entityChart.data.labels = Object.keys(entityCounts);
+                entityChart.data.datasets[0].data = Object.values(entityCounts);
+                entityChart.update();
+
+                // Update success rate chart
+                successRateChart.data.datasets[0].data = [
+                    data.summary.successful_imports,
+                    data.summary.total_imports - data.summary.successful_imports
+                ];
+                successRateChart.update();
 
                 // Update imports list
                 const importsList = document.getElementById('imports-list').querySelector('ul');
@@ -185,10 +428,63 @@
                     data.imports.forEach(imp => {
                         const li = document.createElement('li');
                         li.className = imp.success ? 'success' : 'error';
-                        li.innerText = `${imp.entity} (${imp.record_count} records) - ${imp.success ? '✅ Synced' : '❌ Failed'} at ${new Date(imp.timestamp).toLocaleString()}`;
+                        li.innerHTML = `
+                            <span>${imp.entity} (${imp.record_count} records)</span>
+                            <span>${imp.success ? '✅ Synced' : '❌ Failed'} at ${new Date(imp.timestamp).toLocaleString()}</span>`;
                         importsList.appendChild(li);
                     });
                 }
 
                 // Update lead scores
-                const leadScores = document.getElementById('lead-scores').
+                const leadScores = document.getElementById('lead-scores').querySelector('ul');
+                leadScores.innerHTML = '';
+                if (data.lead_scores.length === 0) {
+                    leadScores.innerHTML = '<li>No lead scores available yet.</li>';
+                } else {
+                    data.lead_scores.forEach(lead => {
+                        const li = document.createElement('li');
+                        li.innerHTML = `
+                            <span>${lead.name} (${lead.email})</span>
+                            <span class="lead-score">${lead.score}/100</span>`;
+                        leadScores.appendChild(li);
+                    });
+
+                    // Update lead score chart
+                    leadScoreChart.data.labels = data.lead_scores.map(lead => lead.name);
+                    leadScoreChart.data.datasets[0].data = data.lead_scores.map(lead => lead.score);
+                    leadScoreChart.update();
+                }
+            } catch (e) {
+                alert(`Turbulence in the Danger Zone: ${e.message}`);
+            }
+        }
+
+        async function requestSummary() {
+            const summaryMessage = document.getElementById('summary-message');
+            const spinner = document.getElementById('summary-spinner');
+            summaryMessage.style.display = 'none';
+            summaryMessage.classList.remove('visible');
+            spinner.style.display = 'block';
+
+            try {
+                const res = await fetch('/summarize', {
+                    method: 'GET',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                if (data.error) throw new Error(data.error);
+
+                spinner.style.display = 'none';
+                summaryMessage.innerText = data.summary || 'Maverick has no mission report yet—keep flying, Goose!';
+                summaryMessage.style.display = 'block';
+                summaryMessage.classList.add('visible');
+            } catch (e) {
+                spinner.style.display = 'none';
+                summaryMessage.innerText = `Danger Zone: ${e.message}`;
+                summaryMessage.style.display = 'block';
+                summaryMessage.classList.add('visible');
+            }
+        }
+    </script>
+</body>
+</html>
