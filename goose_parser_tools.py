@@ -1,5 +1,3 @@
-# goose_parser_tools.py – updated for saved mapping support and per-entity mapping logic
-
 import os
 import json
 import pytesseract
@@ -9,13 +7,10 @@ import exifread
 import re
 import pandas as pd
 import logging
-import openai
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+logging.basicConfig(level=logging.INFO, filename='app.log', format='%(asctime)s - %(levelname)s - %(message)s')
 
-MAPPING_FILE_DIR = '.'
-
-# === OCR FUNCTIONS ===
+# OCR Functions
 def extract_text_from_image(image_path):
     try:
         img = Image.open(image_path)
@@ -32,7 +27,7 @@ def extract_text_from_pdf(pdf_path):
         logging.error(f"PDF OCR error: {str(e)}")
         return ""
 
-# === GEO FUNCTIONS ===
+# Geo Functions
 def dms_to_decimal(dms, ref):
     try:
         degrees = float(dms[0].num) / float(dms[0].den)
@@ -61,60 +56,60 @@ def extract_exif_location(image_path):
         logging.error(f"EXIF read error: {str(e)}")
     return None
 
-# === TEXT UTILITIES ===
+# Text Utilities
 def is_business_card(text):
     return any(keyword in text.lower() for keyword in ['email', 'phone', 'www', '@', 'com', 'inc', 'llc'])
 
 def parse_ocr_text(text):
-    parsed = {"fullName": "", "email": "", "work": "", "company": ""}
+    parsed = {"firstName": "", "lastName": "", "email": "", "workPhone": "", "company": "", "notes": ""}
     lines = text.split('\n')
     email_re = r'[\w\.-]+@[\w\.-]+\.\w+'
     phone_re = r'(\+?\d{1,2}[-.\s]?)?(\(?\d{3}\)?[-.\s]?)?\d{3}[-.\s]?\d{4}'
+    name_parts = []
 
     for line in lines:
         line = line.strip()
         if not parsed["email"]:
             match = re.search(email_re, line)
-            if match: parsed["email"] = match.group(); continue
-        if not parsed["work"]:
+            if match:
+                parsed["email"] = match.group()
+                continue
+        if not parsed["workPhone"]:
             match = re.search(phone_re, line)
-            if match: parsed["work"] = match.group(); continue
+            if match:
+                parsed["workPhone"] = match.group()
+                continue
         if not parsed["company"] and any(x in line.lower() for x in ['inc', 'llc', 'corp']):
             parsed["company"] = line
             continue
-        if not parsed["fullName"] and line.replace(" ", "").isalpha():
-            parsed["fullName"] = line
-            continue
+        if line.replace(" ", "").isalpha():
+            name_parts.append(line)
+    if name_parts:
+        parsed["firstName"] = name_parts[0]
+        if len(name_parts) > 1:
+            parsed["lastName"] = name_parts[-1]
     return parsed
 
-# === FIELD MAPPING ===
-def load_saved_mapping(name=None):
-    try:
-        filename = f"saved_mapping_{name}.json" if name else "saved_mapping.json"
-        filepath = os.path.join(MAPPING_FILE_DIR, filename)
-        if os.path.exists(filepath):
-            with open(filepath, 'r') as f:
-                return json.load(f)
-    except Exception as e:
-        logging.error(f"Mapping load error: {str(e)}")
-    return {"contacts": {}}
-
-def suggest_field_mapping(df):
-    try:
-        with open(os.path.join(MAPPING_FILE_DIR, 'static/realnex_fields.json')) as f:
-            reference_fields = json.load(f)
-    except Exception as e:
-        logging.warning(f"Could not load reference fields: {e}")
-        reference_fields = {}
-
-    mapping = {k: {} for k in reference_fields.keys()}
+# Field Mapping
+def suggest_field_mapping(df, field_definitions):
+    mapping = {entity: {} for entity in field_definitions.keys()}
     columns = df.columns.str.lower()
+    matched_columns = set()  # Track matched columns to avoid duplicates
+    BATCH_SIZE = 500  # Process fields in batches
 
-    for entity, fields in reference_fields.items():
-        for field in fields:
-            for col in columns:
-                if field.lower().replace(" ", "") in col.replace(" ", ""):
-                    mapping[entity][field] = col
+    for entity, fields in field_definitions.items():
+        for i in range(0, len(fields), BATCH_SIZE):
+            batch = fields[i:i + BATCH_SIZE]
+            for field in batch:
+                field_name = field.get("name", "").lower()
+                for col in columns:
+                    if col in matched_columns:
+                        continue
+                    if (field_name.replace(" ", "") in col.replace(" ", "") or 
+                        col in field_name.replace(" ", "")):
+                        mapping[entity][field_name] = col
+                        matched_columns.add(col)
+                        break  # Early exit once a match is found
     return mapping
 
 def map_fields(row, fields):
@@ -124,15 +119,3 @@ def map_fields(row, fields):
         if pd.notna(val):
             mapped[target] = str(val)
     return mapped if mapped else None
-
-def auto_map_dataframe(df, map_name=None):
-    df.columns = df.columns.str.lower()
-    mapping = load_saved_mapping(map_name)
-    if not mapping.get("contacts"):
-        mapping = suggest_field_mapping(df)
-    result = []
-    for _, row in df.iterrows():
-        mapped = map_fields(row, mapping.get("contacts", {}))
-        if mapped:
-            result.append(mapped)
-    return result
