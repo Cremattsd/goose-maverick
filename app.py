@@ -74,7 +74,9 @@ cursor.execute('''CREATE TABLE IF NOT EXISTS user_settings (
     constant_contact_access_token TEXT,
     realnex_group TEXT,
     mailchimp_list_id TEXT,
-    constant_contact_list_id TEXT
+    constant_contact_list_id TEXT,
+    event_trigger_priority TEXT,
+    event_trigger_alarm INTEGER
 )''')
 cursor.execute('''CREATE TABLE IF NOT EXISTS lead_scores (
     user_id TEXT,
@@ -301,9 +303,17 @@ async def score_leads(token, user_id):
         logging.error(f"Lead scoring error for user {user_id}: {str(e)}")
         socketio.emit('notification', {'message': f"Turbulence: Lead scoring failed! {str(e)}"}, namespace='/chat')
 
-async def poll_events(token, user_id, email, priority_filter, alarm_filter, due_date_days):
+async def poll_events(token, user_id, email):
     global LAST_EVENT_COUNT
     LAST_EVENT_COUNT[user_id] = LAST_EVENT_COUNT.get(user_id, 0)
+    cursor.execute("SELECT due_date_days, event_trigger_priority, event_trigger_alarm FROM user_settings WHERE user_id = ?", (user_id,))
+    settings = cursor.fetchone()
+    if not settings:
+        logging.warning(f"No settings for user {user_id}")
+        return
+    due_date_days, trigger_priority, trigger_alarm = settings
+    trigger_alarm = bool(trigger_alarm)
+
     while EVENT_POLLING_ENABLED.get(user_id, False):
         try:
             status, events = await realnex_get(f"Events?$filter=userId eq {user_id}", token, is_odata=True)
@@ -320,8 +330,8 @@ async def poll_events(token, user_id, email, priority_filter, alarm_filter, due_
                 has_alarm = event.get('hasAlarm', False)
 
                 due_soon = event_due_date <= due_threshold
-                priority_match = (priority_filter.lower() == 'any' or event_priority.lower() == priority_filter.lower())
-                alarm_match = (not alarm_filter or has_alarm)
+                priority_match = (trigger_priority.lower() == 'any' or event_priority.lower() == trigger_priority.lower())
+                alarm_match = (not trigger_alarm or has_alarm)
 
                 if due_soon and priority_match and alarm_match:
                     new_events.append(event)
@@ -430,6 +440,9 @@ async def save_settings():
         realnex_group = data.get('realnex_group', '').strip()
         mailchimp_list_id = data.get('mailchimp_list_id', '').strip()
         constant_contact_list_id = data.get('constant_contact_list_id', '').strip()
+        due_date_days = int(data.get('due_date_days', 7))
+        event_trigger_priority = data.get('event_trigger_priority', 'any').strip().lower()
+        event_trigger_alarm = data.get('event_trigger_alarm', False)
         token = request.headers.get("Authorization", "").replace("Bearer ", "")
         if not token:
             socketio.emit('notification', {'message': 'No token, Maverick! Lock in! 🔒'}, namespace='/chat')
@@ -438,13 +451,15 @@ async def save_settings():
         user_id = await get_user_id(token)
         cursor.execute('''INSERT OR REPLACE INTO user_settings 
                           (user_id, smtp_email, smtp_password, mailchimp_api_key, constant_contact_api_key, 
-                           constant_contact_access_token, realnex_group, mailchimp_list_id, constant_contact_list_id) 
-                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                           constant_contact_access_token, realnex_group, mailchimp_list_id, constant_contact_list_id,
+                           due_date_days, event_trigger_priority, event_trigger_alarm) 
+                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                        (user_id, smtp_email, smtp_password, mailchimp_api_key, constant_contact_api_key,
-                        constant_contact_access_token, realnex_group, mailchimp_list_id, constant_contact_list_id))
+                        constant_contact_access_token, realnex_group, mailchimp_list_id, constant_contact_list_id,
+                        due_date_days, event_trigger_priority, 1 if event_trigger_alarm else 0))
         conn.commit()
-        socketio.emit('notification', {'message': 'Settings saved! Ready to sync and send alerts! 🔔'}, namespace='/chat')
-        return jsonify({"message": "Settings saved! Ready to sync and send alerts! 🔔"})
+        socketio.emit('notification', {'message': 'Settings saved! Ready to sync and trigger alerts! 🔔'}, namespace='/chat')
+        return jsonify({"message": "Settings saved! Ready to sync and trigger alerts! 🔔"})
     except Exception as e:
         logging.error(f"Save settings error: {str(e)}")
         socketio.emit('notification', {'message': f"Turbulence: Save settings failed! {str(e)}"}, namespace='/chat')
@@ -596,7 +611,7 @@ async def ask():
             token = request.headers.get("Authorization", "").replace("Bearer ", "")
             if not token:
                 socketio.emit('notification', {'message': 'No token, Maverick! Lock in! 🔒'}, namespace='/chat')
-                return jsonify({"answer": "No token, Maverick! Lock in! 🔒"})
+            return jsonify({"answer": "No token, Maverick! Lock in! 🔒"})
             status, deals = await realnex_get("SaleComps?$top=3", token, is_odata=True)
             return jsonify({"answer": f"Latest deals: {json.dumps(deals, indent=2)}" if status == 200 else "Turbulence fetching deals!"})
         if user_message == "!events":
@@ -869,9 +884,6 @@ async def toggle_events():
         data = request.json
         enable = data.get('enable', False)
         email = data.get('email', '').strip()
-        priority_filter = data.get('priority_filter', 'high').lower()
-        alarm_filter = data.get('alarm_filter', False)
-        due_date_days = data.get('due_date_days', 7)
         token = request.headers.get("Authorization", "").replace("Bearer ", "")
         if not token:
             socketio.emit('notification', {'message': 'No token, Maverick! Lock in! 🔒'}, namespace='/chat')
@@ -882,27 +894,30 @@ async def toggle_events():
 
         user_id = await get_user_id(token)
         if enable:
-            cursor.execute("SELECT smtp_email, smtp_password FROM user_settings WHERE user_id = ?", (user_id,))
+            cursor.execute("SELECT smtp_email, smtp_password, event_trigger_priority, event_trigger_alarm FROM user_settings WHERE user_id = ?", (user_id,))
             settings = cursor.fetchone()
             if not settings or not settings[0] or not settings[1]:
                 socketio.emit('notification', {'message': 'No SMTP credentials set! Visit Settings to configure. ⚙️'}, namespace='/chat')
                 return jsonify({"error": "No SMTP credentials set! Visit Settings to configure. ⚙️"}), 400
+            if not settings[2] and not settings[3]:
+                socketio.emit('notification', {'message': 'No event triggers set! Configure priority or alarm in Settings. ⚙️'}, namespace='/chat')
+                return jsonify({"error": "No event triggers set! Configure priority or alarm in Settings. ⚙️"}), 400
 
         EVENT_POLLING_ENABLED[user_id] = enable
         cursor.execute('''INSERT OR REPLACE INTO user_settings 
-                          (user_id, email, event_alerts_enabled, priority_filter, alarm_filter, due_date_days) 
-                          VALUES (?, ?, ?, ?, ?, ?)''',
-                       (user_id, email, 1 if enable else 0, priority_filter, 1 if alarm_filter else 0, due_date_days))
+                          (user_id, email, event_alerts_enabled) 
+                          VALUES (?, ?, ?)''',
+                       (user_id, email, 1 if enable else 0))
         conn.commit()
 
         if enable and user_id not in EVENT_POLLING_THREADS:
             EVENT_POLLING_THREADS[user_id] = threading.Thread(
-                target=lambda: asyncio.run(poll_events(token, user_id, email, priority_filter, alarm_filter, due_date_days))
+                target=lambda: asyncio.run(poll_events(token, user_id, email))
             )
             EVENT_POLLING_THREADS[user_id].daemon = True
             EVENT_POLLING_THREADS[user_id].start()
-            socketio.emit('notification', {'message': f"Event alerts enabled! Filtering for priority '{priority_filter}', alarms: {alarm_filter}, due within {due_date_days} days. 🔔"}, namespace='/chat')
-            return jsonify({"message": f"Event alerts enabled! Filtering for priority '{priority_filter}', alarms: {alarm_filter}, due within {due_date_days} days. 🔔"})
+            socketio.emit('notification', {'message': f"Event alerts enabled! Triggered alerts will fire to {email}. 🔔"}, namespace='/chat')
+            return jsonify({"message": f"Event alerts enabled! Triggered alerts will fire to {email}. 🔔"})
         elif not enable and user_id in EVENT_POLLING_THREADS:
             EVENT_POLLING_ENABLED[user_id] = False
             EVENT_POLLING_THREADS.pop(user_id, None)
@@ -918,9 +933,9 @@ async def toggle_events():
 
 HELP_MESSAGE = """
 🎯 *Goose-Maverick: Tech Stack & Usage Guide* 🎯
-- *Backend*: Flask (Python) with async httpx powers API routes (/ask, /upload-business-card, /bulk-import). Our jet engine!
-- *Frontend*: Tailwind CSS for slick styling, Chart.js for gauges and dashboards, vanilla JS for drag-and-drop and voice input in a floating chat widget. The cockpit!
-- *Parsing*: Goose uses pandas for Excel, pytesseract/pdf2image/Pillow for OCR, exifread for geolocation. Data radar locked!
+- *Backend*: Flask (Python) with async httpx powers API routes (/ask, /upload-business-card, /bulk-import). Jet engine, bro!
+- *Frontend*: Tailwind CSS for slick styling, Chart.js for dope dashboards, vanilla JS for drag-and-drop and voice input. Cockpit vibes!
+- *Parsing*: Goose uses pandas for Excel, pytesseract/pdf2image/Pillow for OCR, exifread for geolocation. Radar locked!
 - *APIs*: RealNex V1 OData (/CrmOData) fetches user IDs and events; non-OData (/CrmContacts) syncs data. OpenAI (GPT-4o) runs chat, summaries, and lead scoring, ready for Grok 3!
 - *Caching*: Redis for lightning-fast API and field definition access.
 - *Field Matching*: Pulls schemas from /api/v1/Crm/definitions or realnex_fields.json (4000+ fields!) to auto-match Contacts, Properties, Spaces, SaleComps.
@@ -928,20 +943,20 @@ HELP_MESSAGE = """
 - *Integrations*: Sync RealNex contacts to Mailchimp/Constant Contact lists via /sync-contacts, configured in /settings.
 - *New Features*: 
   - Dashboard at /dashboard shows import stats and AI-powered lead scores with Chart.js!
-  - Toggle event polling with email alerts (set SMTP in /settings) or WebSocket in Goose mode, with filters for due dates, priority, and alarms.
+  - Event triggers in /settings: set priority (e.g., High) or alarm to get emailed when events are due (SMTP or WebSocket).
   - Real-time notifications in the chat widget via WebSocket!
   - Voice-to-text input via /transcribe for hands-free commands!
-  - Sync contacts to Mailchimp/Constant Contact from selected RealNex groups.
+  - Sync contacts to Mailchimp/Constant Contact with “Sync Now” button.
 - *Usage*:
   1. Switch to Goose mode, enter your RealNex Bearer token (from RealNex dashboard).
-  2. Visit /settings to configure SMTP email/password, Mailchimp/Constant Contact API keys, and select RealNex group and marketing lists for syncing.
+  2. Visit /settings to configure SMTP email/password, Mailchimp/Constant Contact API keys, RealNex group, marketing lists, and event triggers (priority, alarm, due date days).
   3. Drag-and-drop photos (.png, .jpg), PDFs, or Excel (.xlsx) into the chat widget.
   4. For photos/PDFs, add notes and sync as Contacts or Properties. Photos geo-match to Properties/Spaces.
   5. For Excel, review/edit suggested field mappings, then import.
   6. Chat with Maverick via text or voice for help, CRM queries (‘Show my events’), or commands like `!maverick`!
   7. Visit /dashboard to see import stats, lead scores, and request a summary.
-  8. Toggle event polling in Goose mode for alerts, with filters.
-  9. Use /sync-contacts to push RealNex contacts to Mailchimp/Constant Contact.
+  8. Toggle event polling in Goose mode for alerts, with triggers set in /settings.
+  9. Click “Sync Now” to push RealNex contacts to Mailchimp/Constant Contact.
 - *Commands*: `!help` (this guide), `!maverick` (surprise), `!eject` (easter egg), `!deals` (SaleComps), `!events` (your events), `!clearturbulence` (victory!).
 - *Deploy*: Dockerized, deployed to Render (mattys-drag-drop-app.onrender.com). Built to soar!
 Ask ‘How do I sync SaleComps?’ or ‘How does geolocation work?’ for more! 😎
