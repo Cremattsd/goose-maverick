@@ -28,6 +28,8 @@ import pandas as pd
 import threading
 import time
 
+# Note: Compatible with requirements.txt (Flask==2.3.3, Werkzeug==2.3.7, openai==1.3.0, httpx==0.24.1, redis==5.0.3)
+
 app = Flask(__name__, static_folder='static', static_url_path='')
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*")
@@ -170,15 +172,16 @@ async def match_property_by_geolocation(lat, lon, token):
     return result
 
 def send_email_alert(subject, body, to_email):
-    try:
-        smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-        smtp_port = int(os.getenv("SMTP_PORT", 587))
-        smtp_user = os.getenv("SMTP_USER")
-        smtp_password = os.getenv("SMTP_PASSWORD")
-        if not smtp_user or not smtp_password:
-            logging.error("SMTP credentials not set")
-            return
+    smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+    smtp_port = int(os.getenv("SMTP_PORT", 587))
+    smtp_user = os.getenv("SMTP_USER")
+    smtp_password = os.getenv("SMTP_PASSWORD")
+    if not smtp_user or not smtp_password:
+        logging.warning("SMTP credentials not set, falling back to WebSocket notification")
+        socketio.emit('notification', {'message': f"{subject}: {body}"}, namespace='/chat')
+        return
 
+    try:
         msg = MIMEText(body)
         msg['Subject'] = subject
         msg['From'] = smtp_user
@@ -286,7 +289,6 @@ async def poll_events(token, user_id, email, priority_filter, alarm_filter, due_
                     f"Maverick here! {message}\n\n{json.dumps(new_events[-new_event_count:], indent=2)}",
                     email
                 )
-                socketio.emit('notification', {'message': message}, namespace='/chat')
                 LAST_EVENT_COUNT[user_id] = event_count
 
             await score_leads(token, user_id)
@@ -302,7 +304,7 @@ def index():
 
 @app.route('/dashboard')
 def dashboard():
-    return send_from_directory('static', 'dashboard.html')
+    return send_from_directory('static/dashboard', 'index.html')
 
 @app.route('/<path:path>')
 def serve_static(path):
@@ -335,7 +337,6 @@ async def transcribe():
             socketio.emit('notification', {'message': 'No transcription provided, Goose! 🎙️'}, namespace='/chat')
             return jsonify({"error": "No transcription provided"}), 400
 
-        # Forward to /ask route logic
         if transcription == "!help" or "tech stack" in transcription or "how to use" in transcription:
             return jsonify({"answer": HELP_MESSAGE})
         if transcription == "!maverick":
@@ -712,14 +713,14 @@ HELP_MESSAGE = """
 🎯 *Goose-Maverick: Tech Stack & Usage Guide* 🎯
 - *Backend*: Flask (Python) with async httpx powers API routes (/ask, /upload-business-card, /bulk-import). Our jet engine!
 - *Frontend*: Tailwind CSS for slick styling, Chart.js for gauges and dashboards, vanilla JS for drag-and-drop and voice input in a floating chat widget. The cockpit!
-- *Parsing*: Goose uses pandas for Excel, pytesseract/pdf2image/Pillow for OCR, EXIF for geolocation. Data radar locked!
+- *Parsing*: Goose uses pandas for Excel, pytesseract/pdf2image/Pillow for OCR, exifread for geolocation. Data radar locked!
 - *APIs*: RealNex V1 OData (/CrmOData) fetches user IDs and events; non-OData (/CrmContacts) syncs data. OpenAI (GPT-4o) runs chat, summaries, and lead scoring, ready for Grok 3!
 - *Caching*: Redis for lightning-fast API and field definition access.
 - *Field Matching*: Pulls schemas from /api/v1/Crm/definitions or realnex_fields.json (4000+ fields!) to auto-match Contacts, Properties, Spaces, SaleComps.
 - *Geolocation*: Photos’ EXIF data matches Properties/Spaces via latitude/longitude in OData queries.
 - *New Features*: 
   - Dashboard at /dashboard shows import stats and AI-powered lead scores with Chart.js!
-  - Toggle event polling with email alerts in Goose mode, with filters for due dates, priority, and alarms.
+  - Toggle event polling with email alerts (or WebSocket if no SMTP) in Goose mode, with filters for due dates, priority, and alarms.
   - Real-time notifications in the chat widget via WebSocket!
   - Voice-to-text input via /transcribe for hands-free commands!
 - *Usage*:
@@ -729,7 +730,7 @@ HELP_MESSAGE = """
   4. For Excel, review/edit suggested field mappings, then import.
   5. Chat with Maverick via text or voice for help, CRM queries (‘Show my events’), or commands like `!maverick`!
   6. Visit /dashboard to see import stats, lead scores, and request a summary.
-  7. Toggle event polling in Goose mode for email alerts on new RealNex events, with filters.
+  7. Toggle event polling in Goose mode for alerts, with filters.
 - *Commands*: `!help` (this guide), `!maverick` (surprise), `!eject` (easter egg), `!deals` (SaleComps), `!events` (your events), `!clearturbulence` (victory!).
 - *Deploy*: Dockerized, deployed to Render (mattys-drag-drop-app.onrender.com). Built to soar!
 Ask ‘How do I sync SaleComps?’ or ‘How does geolocation work?’ for more! 😎
