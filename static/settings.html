@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Goose-Maverick Settings</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto p-4">
+        <h1 class="text-3xl font-bold text-center text-blue-600">Goose-Maverick Settings</h1>
+        <div class="mt-4 max-w-md mx-auto bg-white p-6 rounded-lg shadow">
+            <h2 class="text-xl font-semibold text-gray-700">SMTP Settings</h2>
+            <p class="text-gray-600 mb-4">Enter your email and password for event alerts (Gmail or Outlook).</p>
+            <div class="mb-4">
+                <label class="block text-gray-700">SMTP Email</label>
+                <input id="smtp_email" type="email" class="w-full p-2 border rounded" placeholder="your.email@gmail.com">
+            </div>
+            <div class="mb-4">
+                <label class="block text-gray-700">SMTP Password</label>
+                <input id="smtp_password" type="password" class="w-full p-2 border rounded" placeholder="Your app password">
+            </div>
+            <button onclick="saveSettings()" class="w-full p-2 bg-blue-600 text-white rounded hover:bg-blue-700">Save Settings</button>
+            <a href="/" class="block text-center mt-4 text-blue-600 hover:underline">Back to Chat</a>
+        </div>
+        <div id="error" class="hidden fixed top-4 right-4 p-4 bg-red-500 text-white rounded-lg shadow-lg animate-bounce"></div>
+    </div>
+    <script>
+    async function fetchWithErrorHandling(url, options) {
+        try {
+            const response = await fetch(url, options);
+            if (!response.ok) {
+                showError(response.status === 404 ? `Whoops, ${url} is off the radar! Try another route, Goose! 😎` : `Turbulence: ${response.statusText}`);
+                return null;
+            }
+            return await response.json();
+        } catch (error) {
+            showError(`Mayday! ${error.message}`);
+            return null;
+        }
+    }
+
+    function showError(message) {
+        const errorDiv = document.getElementById('error');
+        errorDiv.textContent = message;
+        errorDiv.classList.remove('hidden');
+        setTimeout(() => errorDiv.classList.add('hidden'), 5000);
+    }
+
+    async function saveSettings() {
+        const smtp_email = document.getElementById('smtp_email').value;
+        const smtp_password = document.getElementById('smtp_password').value;
+        const token = localStorage.getItem('token');
+        if (!smtp_email) {
+            showError('No SMTP email provided! 📧');
+            return;
+        }
+
+        const response = await fetchWithErrorHandling('/save-settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+            body: JSON.stringify({ smtp_email, smtp_password })
+        });
+        if (response) {
+            showError(response.message); // Shows success message as notification
+        }
+    }
+    </script>
+    <style>
+    .animate-bounce {
+        animation: bounce 0.5s ease infinite;
+    }
+    @keyframes bounce {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-10px); }
+    }
+    </style>
+</body>
+</html>
