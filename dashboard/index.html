@@ -1,137 +1,203 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Goose Sync Dashboard</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <style>
-    body {
-      font-family: sans-serif;
-      background: #f3f4f6;
-      padding: 40px;
-    }
-    .card {
-      background: white;
-      padding: 20px;
-      border-radius: 12px;
-      box-shadow: 0 0 12px rgba(0,0,0,0.05);
-      margin-bottom: 24px;
-    }
-    .title {
-      font-size: 1.25rem;
-      font-weight: bold;
-      margin-bottom: 10px;
-    }
-    #error-list {
-      color: #b91c1c;
-      font-family: monospace;
-      white-space: pre-wrap;
-    }
-    .ocr-entry {
-      margin-bottom: 1rem;
-      padding: 0.75rem;
-      background: #f9fafb;
-      border-left: 4px solid #6366f1;
-    }
-  </style>
-</head>
-<body>
-
-  <h1>📊 Goose Sync Dashboard</h1>
-
-  <div class="card">
-    <div class="title">📁 Upload Stats</div>
-    <p><strong>Files Uploaded:</strong> <span id="filesUploaded">-</span></p>
-    <p><strong>Last Upload Time:</strong> <span id="lastUploadTime">-</span></p>
-    <p><strong>Scanned Data Points:</strong> <span id="scannedPoints">-</span></p>
-  </div>
-
-  <div class="card">
-    <div class="title">📈 Scans Over Time</div>
-    <canvas id="scanChart" height="100"></canvas>
-  </div>
-
-  <div class="card">
-    <div class="title">🧠 Latest Scanned Text</div>
-    <div id="ocr-list">Loading scanned entries...</div>
-  </div>
-
-  <div class="card">
-    <div class="title">🚨 Recent Errors</div>
-    <pre id="error-list">Loading errors...</pre>
-  </div>
-
-  <script>
-    async function loadStats() {
-      const statsRes = await fetch('/dashboard/stats');
-      const stats = await statsRes.json();
-
-      document.getElementById('filesUploaded').textContent = stats.filesUploaded;
-      document.getElementById('lastUploadTime').textContent = stats.lastUploadTime;
-      document.getElementById('scannedPoints').textContent = stats.scannedPoints;
-
-      // Load scanned data
-      const ocrRes = await fetch('/dashboard/data');
-      const ocrData = await ocrRes.json();
-      displayOCR(ocrData);
-      drawChart(ocrData);
-    }
-
-    async function loadErrors() {
-      const res = await fetch('/dashboard/errors');
-      const data = await res.json();
-      document.getElementById('error-list').textContent = data.errors.join('');
-    }
-
-    function displayOCR(entries) {
-      const container = document.getElementById('ocr-list');
-      container.innerHTML = '';
-      entries.slice(-5).reverse().forEach(entry => {
-        const div = document.createElement('div');
-        div.className = 'ocr-entry';
-        div.innerHTML = `<strong>${entry.filename}</strong> <br><small>${new Date(entry.timestamp).toLocaleString()}</small><br>${entry.text}`;
-        container.appendChild(div);
-      });
-    }
-
-    function drawChart(entries) {
-      const daily = {};
-      entries.forEach(e => {
-        const date = new Date(e.timestamp).toISOString().slice(0, 10);
-        daily[date] = (daily[date] || 0) + 1;
-      });
-
-      const labels = Object.keys(daily).sort();
-      const values = labels.map(k => daily[k]);
-
-      const ctx = document.getElementById('scanChart').getContext('2d');
-      new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels,
-          datasets: [{
-            label: 'Scans per Day',
-            data: values,
-            fill: true,
-            borderColor: '#4f46e5',
-            backgroundColor: 'rgba(99,102,241,0.1)',
-            tension: 0.3
-          }]
-        },
-        options: {
-          responsive: true,
-          plugins: {
-            legend: { display: false }
-          },
-          scales: {
-            y: { beginAtZero: true }
-          }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Goose-Maverick Mission Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Montserrat', sans-serif;
+            background: linear-gradient(135deg, #1a202c 0%, #2d3748 100%);
+            min-height: 100vh;
+            overflow: hidden;
         }
-      });
-    }
+        .jet-engine::after {
+            content: '';
+            position: absolute;
+            bottom: -10px;
+            left: 0;
+            right: 0;
+            height: 10px;
+            background: linear-gradient(90deg, transparent, #f6ad55, transparent);
+            opacity: 0.7;
+            animation: engineGlow 1.5s infinite;
+        }
+        @keyframes engineGlow {
+            0%, 100% { opacity: 0.7; transform: translateX(-10%); }
+            50% { opacity: 1; transform: translateX(10%); }
+        }
+        .radar-ping {
+            position: absolute;
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            border: 2px solid #48bb78;
+            opacity: 0;
+            animation: radarPing 4s infinite;
+        }
+        @keyframes radarPing {
+            0% { transform: scale(0); opacity: 0.8; }
+            100% { transform: scale(2); opacity: 0; }
+        }
+        .glow-effect {
+            transition: all 0.3s ease;
+            box-shadow: 0 0 15px rgba(246, 173, 85, 0.5);
+        }
+        .glow-effect:hover {
+            box-shadow: 0 0 25px rgba(246, 173, 85, 0.8);
+            transform: translateY(-2px);
+        }
+        .card {
+            background: rgba(45, 55, 72, 0.9);
+            border: 1px solid #f6ad55;
+            border-radius: 15px;
+            padding: 20px;
+            color: #e2e8f0;
+            animation: fadeIn 0.5s ease;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="relative">
+    <!-- Background Radar Pings -->
+    <div class="radar-ping absolute top-10 left-10"></div>
+    <div class="radar-ping absolute bottom-10 right-10" style="animation-delay: 2s;"></div>
 
-    loadStats();
-    loadErrors();
-  </script>
+    <!-- Main Container -->
+    <div class="container mx-auto p-6 relative z-10">
+        <!-- Header -->
+        <header class="flex items-center justify-center mb-6">
+            <img src="https://img.icons8.com/ios-filled/50/f6ad55/fighter-jet.png" alt="Jet Icon" class="mr-2">
+            <h1 class="text-4xl font-bold text-white">Goose-Maverick Mission Dashboard</h1>
+        </header>
+
+        <!-- Dashboard Content -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Lead Scores Chart -->
+            <div class="card">
+                <h2 class="text-2xl font-bold text-orange-500 mb-4">Top Lead Scores</h2>
+                <canvas id="leadScoresChart" class="w-full h-64"></canvas>
+            </div>
+
+            <!-- Import Stats Chart -->
+            <div class="card">
+                <h2 class="text-2xl font-bold text-orange-500 mb-4">Import Stats</h2>
+                <canvas id="importStatsChart" class="w-full h-64"></canvas>
+            </div>
+
+            <!-- Summary Card -->
+            <div class="card md:col-span-2">
+                <h2 class="text-2xl font-bold text-orange-500 mb-4">Mission Summary</h2>
+                <p id="summary" class="text-gray-300">Requesting mission summary... 🛫</p>
+                <button onclick="getSummary()" class="mt-4 p-3 bg-orange-500 text-white rounded-lg glow-effect jet-engine">Request Summary</button>
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <div class="flex justify-center mt-6">
+            <a href="/" class="p-3 bg-gray-600 text-white rounded-lg glow-effect jet-engine text-center">Back to Cockpit</a>
+        </div>
+
+        <!-- Notification Toast -->
+        <div id="notification" class="hidden fixed top-4 right-4 p-4 bg-red-500 text-white rounded-lg shadow-lg animate-bounce"></div>
+    </div>
+
+    <script>
+        async function fetchWithErrorHandling(url, options) {
+            try {
+                const response = await fetch(url, options);
+                if (!response.ok) {
+                    showNotification(response.status === 404 ? `Whoops, ${url} is off the radar! Try another route, Goose! 😎` : `Turbulence: ${response.statusText}`);
+                    return null;
+                }
+                return await response.json();
+            } catch (error) {
+                showNotification(`Mayday! ${error.message}`);
+                return null;
+            }
+        }
+
+        function showNotification(message) {
+            const notificationDiv = document.getElementById('notification');
+            notificationDiv.textContent = message;
+            notificationDiv.classList.remove('hidden');
+            setTimeout(() => notificationDiv.classList.add('hidden'), 5000);
+        }
+
+        async function loadDashboardData() {
+            const token = localStorage.getItem('token');
+            const response = await fetchWithErrorHandling('/dashboard-data', {
+                method: 'GET',
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            if (response) {
+                // Lead Scores Chart
+                const leadScoresCtx = document.getElementById('leadScoresChart').getContext('2d');
+                new Chart(leadScoresCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: response.lead_scores.map(score => score.contact_id),
+                        datasets: [{
+                            label: 'Lead Score',
+                            data: response.lead_scores.map(score => score.score),
+                            backgroundColor: '#f6ad55',
+                            borderColor: '#f6ad55',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        scales: {
+                            y: { beginAtZero: true, max: 100, title: { display: true, text: 'Score', color: '#e2e8f0' } },
+                            x: { title: { display: true, text: 'Contact ID', color: '#e2e8f0' } }
+                        },
+                        plugins: {
+                            legend: { labels: { color: '#e2e8f0' } }
+                        }
+                    }
+                });
+
+                // Import Stats Chart
+                const importStatsCtx = document.getElementById('importStatsChart').getContext('2d');
+                const entityCounts = response.summary.entity_counts;
+                new Chart(importStatsCtx, {
+                    type: 'pie',
+                    data: {
+                        labels: Object.keys(entityCounts),
+                        datasets: [{
+                            label: 'Imports',
+                            data: Object.values(entityCounts),
+                            backgroundColor: ['#f6ad55', '#48bb78', '#ed64a6', '#4a5568'],
+                            borderColor: '#1a202c',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        plugins: {
+                            legend: { labels: { color: '#e2e8f0' } }
+                        }
+                    }
+                });
+            }
+        }
+
+        async function getSummary() {
+            const token = localStorage.getItem('token');
+            const response = await fetchWithErrorHandling('/summarize', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            if (response) {
+                document.getElementById('summary').textContent = response.summary;
+            }
+        }
+
+        window.onload = loadDashboardData;
+    </script>
 </body>
 </html>
