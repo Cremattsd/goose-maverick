@@ -11,6 +11,9 @@ from flask_cors import CORS
 from flask_socketio import SocketIO, emit
 import openai
 import asyncio
+import requests
+from mailchimp_marketing import Client as MailchimpClient
+from mailchimp_marketing.api_client import ApiClientError
 openai.api_key = os.getenv("OPENAI_API_KEY")
 from tenacity import retry, stop_after_attempt, wait_exponential
 from werkzeug.utils import secure_filename
@@ -27,8 +30,6 @@ from datetime import datetime, timedelta
 import pandas as pd
 import threading
 import time
-
-# Note: Compatible with requirements.txt (Flask==2.3.3, Werkzeug==2.3.7, openai==1.3.0, httpx==0.24.1, redis==5.0.3)
 
 app = Flask(__name__, static_folder='static', static_url_path='')
 CORS(app)
@@ -65,7 +66,15 @@ cursor.execute('''CREATE TABLE IF NOT EXISTS user_settings (
     event_alerts_enabled INTEGER,
     priority_filter TEXT,
     alarm_filter INTEGER,
-    due_date_days INTEGER
+    due_date_days INTEGER,
+    smtp_email TEXT,
+    smtp_password TEXT,
+    mailchimp_api_key TEXT,
+    constant_contact_api_key TEXT,
+    constant_contact_access_token TEXT,
+    realnex_group TEXT,
+    mailchimp_list_id TEXT,
+    constant_contact_list_id TEXT
 )''')
 cursor.execute('''CREATE TABLE IF NOT EXISTS lead_scores (
     user_id TEXT,
@@ -105,7 +114,7 @@ async def load_field_definitions(token):
             response = await http_client.get(f"{REALNEX_API_BASE}/Crm/definitions/{table}", headers=headers)
             response.raise_for_status()
             FIELD_DEFINITIONS[table] = response.json()
-        redis_client.setex(cache_key, 3600, json.dumps(FIELD_DEFINITIONS))  # Cache for 1 hour
+        redis_client.setex(cache_key, 3600, json.dumps(FIELD_DEFINITIONS))
     except Exception as e:
         logging.warning(f"API failed, loading realnex_fields.json: {str(e)}")
         with open("realnex_fields.json", "r") as f:
@@ -123,7 +132,7 @@ async def realnex_post(endpoint, token, data):
     response = await http_client.post(f"{REALNEX_API_BASE}{endpoint}", headers=headers, json=data)
     response.raise_for_status()
     result = response.json() if response.content else {}
-    redis_client.setex(cache_key, 300, json.dumps(result))  # Cache for 5 minutes
+    redis_client.setex(cache_key, 300, json.dumps(result))
     return response.status_code, result
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
@@ -138,7 +147,7 @@ async def realnex_get(endpoint, token, is_odata=False):
     response = await http_client.get(f"{base}/{endpoint}", headers=headers)
     response.raise_for_status()
     result = response.json().get('value', response.json())
-    redis_client.setex(cache_key, 300, json.dumps(result))  # Cache for 5 minutes
+    redis_client.setex(cache_key, 300, json.dumps(result))
     return response.status_code, result
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
@@ -152,7 +161,7 @@ async def get_user_id(token):
     response = await http_client.get(f"{REALNEX_API_BASE}/Client?api-version=1.0", headers=headers)
     response.raise_for_status()
     user_id = response.json().get('key')
-    redis_client.setex(cache_key, 3600, user_id)  # Cache for 1 hour
+    redis_client.setex(cache_key, 3600, user_id)
     return user_id
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
@@ -168,32 +177,69 @@ async def match_property_by_geolocation(lat, lon, token):
     response.raise_for_status()
     properties = response.json().get('value', [])
     result = properties[0].get('crm_property_key') if properties else None
-    redis_client.setex(cache_key, 300, json.dumps(result))  # Cache for 5 minutes
+    redis_client.setex(cache_key, 300, json.dumps(result))
     return result
 
-def send_email_alert(subject, body, to_email):
-    smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-    smtp_port = int(os.getenv("SMTP_PORT", 587))
-    smtp_user = os.getenv("SMTP_USER")
-    smtp_password = os.getenv("SMTP_PASSWORD")
-    if not smtp_user or not smtp_password:
-        logging.warning("SMTP credentials not set, falling back to WebSocket notification")
+async def get_realnex_groups(token):
+    try:
+        status, groups = await realnex_get("Groups?$select=groupId,name", token, is_odata=True)
+        if status == 200:
+            return [{"id": g["groupId"], "name": g["name"]} for g in groups]
+        return []
+    except Exception as e:
+        logging.error(f"Fetch RealNex groups error: {str(e)}")
+        return []
+
+async def get_mailchimp_lists(mailchimp_api_key):
+    try:
+        mailchimp = MailchimpClient()
+        mailchimp.set_config({"api_key": mailchimp_api_key, "server": mailchimp_api_key.split('-')[-1]})
+        lists = mailchimp.lists.get_all_lists().get('lists', [])
+        return [{"id": lst["id"], "name": lst["name"]} for lst in lists]
+    except ApiClientError as e:
+        logging.error(f"Fetch Mailchimp lists error: {str(e)}")
+        return []
+
+async def get_constant_contact_lists(constant_contact_api_key, constant_contact_access_token):
+    try:
+        headers = {"Authorization": f"Bearer {constant_contact_access_token}", "Accept": "application/json"}
+        response = requests.get(
+            "https://api.cc.email/v3/contact_lists",
+            headers=headers,
+            params={"api_key": constant_contact_api_key}
+        )
+        response.raise_for_status()
+        lists = response.json().get('lists', [])
+        return [{"id": lst["list_id"], "name": lst["name"]} for lst in lists]
+    except requests.RequestException as e:
+        logging.error(f"Fetch Constant Contact lists error: {str(e)}")
+        return []
+
+def send_email_alert(subject, body, to_email, user_id):
+    cursor.execute("SELECT smtp_email, smtp_password FROM user_settings WHERE user_id = ?", (user_id,))
+    settings = cursor.fetchone()
+    if not settings or not settings[0] or not settings[1]:
+        logging.warning(f"No SMTP credentials for user {user_id}, falling back to WebSocket")
         socketio.emit('notification', {'message': f"{subject}: {body}"}, namespace='/chat')
         return
+
+    smtp_email, smtp_password = settings
+    smtp_server = "smtp.gmail.com" if smtp_email.endswith("@gmail.com") else "smtp-mail.outlook.com"
+    smtp_port = 587
 
     try:
         msg = MIMEText(body)
         msg['Subject'] = subject
-        msg['From'] = smtp_user
+        msg['From'] = smtp_email
         msg['To'] = to_email
 
         with smtplib.SMTP(smtp_server, smtp_port) as server:
             server.starttls()
-            server.login(smtp_user, smtp_password)
-            server.sendmail(smtp_user, to_email, msg.as_string())
-        logging.info(f"Email sent to {to_email}")
+            server.login(smtp_email, smtp_password)
+            server.sendmail(smtp_email, to_email, msg.as_string())
+        logging.info(f"Email sent to {to_email} for user {user_id}")
     except Exception as e:
-        logging.error(f"Email alert failed: {str(e)}")
+        logging.error(f"Email alert failed for user {user_id}: {str(e)}")
         socketio.emit('notification', {'message': f"Turbulence: Email alert failed! {str(e)}"}, namespace='/chat')
 
 async def score_leads(token, user_id):
@@ -287,12 +333,13 @@ async def poll_events(token, user_id, email, priority_filter, alarm_filter, due_
                 send_email_alert(
                     "RealNex Event Due Alert",
                     f"Maverick here! {message}\n\n{json.dumps(new_events[-new_event_count:], indent=2)}",
-                    email
+                    email,
+                    user_id
                 )
                 LAST_EVENT_COUNT[user_id] = event_count
 
             await score_leads(token, user_id)
-            await asyncio.sleep(300)  # Poll every 5 minutes
+            await asyncio.sleep(300)
         except Exception as e:
             logging.error(f"Event polling error for user {user_id}: {str(e)}")
             socketio.emit('notification', {'message': f"Turbulence: Event polling failed! {str(e)}"}, namespace='/chat')
@@ -305,6 +352,10 @@ def index():
 @app.route('/dashboard')
 def dashboard():
     return send_from_directory('static/dashboard', 'index.html')
+
+@app.route('/settings')
+def settings():
+    return send_from_directory('static', 'settings.html')
 
 @app.route('/<path:path>')
 def serve_static(path):
@@ -328,6 +379,156 @@ async def validate_token():
         logging.error(f"Token validation error: {str(e)}")
         socketio.emit('notification', {'message': f"Turbulence: Token validation failed! {str(e)}"}, namespace='/chat')
         return jsonify({"valid": False, "error": str(e)}), 500
+
+@app.route('/get-realnex-groups', methods=['GET'])
+async def get_realnex_groups_route():
+    try:
+        token = request.headers.get("Authorization", "").replace("Bearer ", "")
+        if not token:
+            socketio.emit('notification', {'message': 'No token, Maverick! Lock in! 🔒'}, namespace='/chat')
+            return jsonify({"error": "No token, Maverick! Lock in! 🔒"}), 401
+        groups = await get_realnex_groups(token)
+        return jsonify({"groups": groups})
+    except Exception as e:
+        logging.error(f"Get RealNex groups error: {str(e)}")
+        socketio.emit('notification', {'message': f"Turbulence: Get groups failed! {str(e)}"}, namespace='/chat')
+        return jsonify({"error": f"Turbulence: {str(e)}"}), 500
+
+@app.route('/get-marketing-lists', methods=['GET'])
+async def get_marketing_lists():
+    try:
+        token = request.headers.get("Authorization", "").replace("Bearer ", "")
+        if not token:
+            socketio.emit('notification', {'message': 'No token, Maverick! Lock in! 🔒'}, namespace='/chat')
+            return jsonify({"error": "No token, Maverick! Lock in! 🔒"}), 401
+        user_id = await get_user_id(token)
+        cursor.execute("SELECT mailchimp_api_key, constant_contact_api_key, constant_contact_access_token FROM user_settings WHERE user_id = ?", (user_id,))
+        settings = cursor.fetchone()
+        mailchimp_lists = []
+        constant_contact_lists = []
+        if settings:
+            mailchimp_api_key, constant_contact_api_key, constant_contact_access_token = settings
+            if mailchimp_api_key:
+                mailchimp_lists = await get_mailchimp_lists(mailchimp_api_key)
+            if constant_contact_api_key and constant_contact_access_token:
+                constant_contact_lists = await get_constant_contact_lists(constant_contact_api_key, constant_contact_access_token)
+        return jsonify({"mailchimp_lists": mailchimp_lists, "constant_contact_lists": constant_contact_lists})
+    except Exception as e:
+        logging.error(f"Get marketing lists error: {str(e)}")
+        socketio.emit('notification', {'message': f"Turbulence: Get lists failed! {str(e)}"}, namespace='/chat')
+        return jsonify({"error": f"Turbulence: {str(e)}"}), 500
+
+@app.route('/save-settings', methods=['POST'])
+async def save_settings():
+    try:
+        data = request.json
+        smtp_email = data.get('smtp_email', '').strip()
+        smtp_password = data.get('smtp_password', '').strip()
+        mailchimp_api_key = data.get('mailchimp_api_key', '').strip()
+        constant_contact_api_key = data.get('constant_contact_api_key', '').strip()
+        constant_contact_access_token = data.get('constant_contact_access_token', '').strip()
+        realnex_group = data.get('realnex_group', '').strip()
+        mailchimp_list_id = data.get('mailchimp_list_id', '').strip()
+        constant_contact_list_id = data.get('constant_contact_list_id', '').strip()
+        token = request.headers.get("Authorization", "").replace("Bearer ", "")
+        if not token:
+            socketio.emit('notification', {'message': 'No token, Maverick! Lock in! 🔒'}, namespace='/chat')
+            return jsonify({"error": "No token, Maverick! Lock in! 🔒"}), 401
+
+        user_id = await get_user_id(token)
+        cursor.execute('''INSERT OR REPLACE INTO user_settings 
+                          (user_id, smtp_email, smtp_password, mailchimp_api_key, constant_contact_api_key, 
+                           constant_contact_access_token, realnex_group, mailchimp_list_id, constant_contact_list_id) 
+                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                       (user_id, smtp_email, smtp_password, mailchimp_api_key, constant_contact_api_key,
+                        constant_contact_access_token, realnex_group, mailchimp_list_id, constant_contact_list_id))
+        conn.commit()
+        socketio.emit('notification', {'message': 'Settings saved! Ready to sync and send alerts! 🔔'}, namespace='/chat')
+        return jsonify({"message": "Settings saved! Ready to sync and send alerts! 🔔"})
+    except Exception as e:
+        logging.error(f"Save settings error: {str(e)}")
+        socketio.emit('notification', {'message': f"Turbulence: Save settings failed! {str(e)}"}, namespace='/chat')
+        return jsonify({"error": f"Turbulence: {str(e)}"}), 500
+
+@app.route('/sync-contacts', methods=['POST'])
+async def sync_contacts():
+    try:
+        token = request.headers.get("Authorization", "").replace("Bearer ", "")
+        if not token:
+            socketio.emit('notification', {'message': 'No token, Maverick! Lock in! 🔒'}, namespace='/chat')
+            return jsonify({"error": "No token, Maverick! Lock in! 🔒"}), 401
+        user_id = await get_user_id(token)
+        cursor.execute("SELECT realnex_group, mailchimp_api_key, mailchimp_list_id, constant_contact_api_key, constant_contact_access_token, constant_contact_list_id FROM user_settings WHERE user_id = ?", (user_id,))
+        settings = cursor.fetchone()
+        if not settings or not settings[0]:
+            socketio.emit('notification', {'message': 'No RealNex group selected! Visit Settings. ⚙️'}, namespace='/chat')
+            return jsonify({"error": "No RealNex group selected! Visit Settings. ⚙️"}), 400
+
+        realnex_group, mailchimp_api_key, mailchimp_list_id, constant_contact_api_key, constant_contact_access_token, constant_contact_list_id = settings
+        status, contacts = await realnex_get(f"Contacts?$filter=groupId eq '{realnex_group}'&$top=50", token, is_odata=True)
+        if status != 200:
+            socketio.emit('notification', {'message': 'Turbulence fetching RealNex contacts!'}, namespace='/chat')
+            return jsonify({"error": "Turbulence fetching RealNex contacts!"}), 500
+
+        synced = 0
+        results = []
+        for contact in contacts:
+            email = contact.get('email', '')
+            if not email:
+                continue
+            contact_data = {
+                "email_address": email,
+                "first_name": contact.get('firstName', ''),
+                "last_name": contact.get('lastName', ''),
+                "status": "subscribed"
+            }
+
+            if mailchimp_api_key and mailchimp_list_id:
+                try:
+                    mailchimp = MailchimpClient()
+                    mailchimp.set_config({"api_key": mailchimp_api_key, "server": mailchimp_api_key.split('-')[-1]})
+                    mailchimp.lists.add_list_member(mailchimp_list_id, contact_data)
+                    results.append({"type": "Mailchimp", "status": 200, "email": email})
+                    synced += 1
+                except ApiClientError as e:
+                    logging.error(f"Mailchimp sync error for {email}: {str(e)}")
+                    results.append({"type": "Mailchimp", "status": 500, "email": email, "error": str(e)})
+
+            if constant_contact_api_key and constant_contact_access_token and constant_contact_list_id:
+                try:
+                    headers = {"Authorization": f"Bearer {constant_contact_access_token}", "Accept": "application/json"}
+                    cc_contact = {
+                        "email_address": {"address": email, "permission_to_send": "implicit"},
+                        "first_name": contact.get('firstName', ''),
+                        "last_name": contact.get('lastName', ''),
+                        "list_memberships": [constant_contact_list_id]
+                    }
+                    response = requests.post(
+                        "https://api.cc.email/v3/contacts",
+                        headers=headers,
+                        json=cc_contact,
+                        params={"api_key": constant_contact_api_key}
+                    )
+                    response.raise_for_status()
+                    results.append({"type": "ConstantContact", "status": 201, "email": email})
+                    synced += 1
+                except requests.RequestException as e:
+                    logging.error(f"Constant Contact sync error for {email}: {str(e)}")
+                    results.append({"type": "ConstantContact", "status": 500, "email": email, "error": str(e)})
+
+        cursor.execute("INSERT INTO imports (entity, record_count, success, timestamp) VALUES (?, ?, ?, ?)",
+                       ("Sync", synced, 1 if synced > 0 else 0, datetime.now().isoformat()))
+        conn.commit()
+
+        socketio.emit('notification', {'message': f"Synced {synced} contacts to marketing lists! 🚀"}, namespace='/chat')
+        return jsonify({"synced": synced, "results": results})
+    except Exception as e:
+        logging.error(f"Sync contacts error: {str(e)}")
+        cursor.execute("INSERT INTO imports (entity, record_count, success, timestamp) VALUES (?, ?, ?, ?)",
+                       ("Sync", 0, 0, datetime.now().isoformat()))
+        conn.commit()
+        socketio.emit('notification', {'message': f"Turbulence: Sync failed! {str(e)}"}, namespace='/chat')
+        return jsonify({"error": f"Turbulence: {str(e)}"}), 500
 
 @app.route('/transcribe', methods=['POST'])
 async def transcribe():
@@ -680,8 +881,14 @@ async def toggle_events():
             return jsonify({"message": "No email provided for alerts! 📧"}), 400
 
         user_id = await get_user_id(token)
-        EVENT_POLLING_ENABLED[user_id] = enable
+        if enable:
+            cursor.execute("SELECT smtp_email, smtp_password FROM user_settings WHERE user_id = ?", (user_id,))
+            settings = cursor.fetchone()
+            if not settings or not settings[0] or not settings[1]:
+                socketio.emit('notification', {'message': 'No SMTP credentials set! Visit Settings to configure. ⚙️'}, namespace='/chat')
+                return jsonify({"error": "No SMTP credentials set! Visit Settings to configure. ⚙️"}), 400
 
+        EVENT_POLLING_ENABLED[user_id] = enable
         cursor.execute('''INSERT OR REPLACE INTO user_settings 
                           (user_id, email, event_alerts_enabled, priority_filter, alarm_filter, due_date_days) 
                           VALUES (?, ?, ?, ?, ?, ?)''',
@@ -718,19 +925,23 @@ HELP_MESSAGE = """
 - *Caching*: Redis for lightning-fast API and field definition access.
 - *Field Matching*: Pulls schemas from /api/v1/Crm/definitions or realnex_fields.json (4000+ fields!) to auto-match Contacts, Properties, Spaces, SaleComps.
 - *Geolocation*: Photos’ EXIF data matches Properties/Spaces via latitude/longitude in OData queries.
+- *Integrations*: Sync RealNex contacts to Mailchimp/Constant Contact lists via /sync-contacts, configured in /settings.
 - *New Features*: 
   - Dashboard at /dashboard shows import stats and AI-powered lead scores with Chart.js!
-  - Toggle event polling with email alerts (or WebSocket if no SMTP) in Goose mode, with filters for due dates, priority, and alarms.
+  - Toggle event polling with email alerts (set SMTP in /settings) or WebSocket in Goose mode, with filters for due dates, priority, and alarms.
   - Real-time notifications in the chat widget via WebSocket!
   - Voice-to-text input via /transcribe for hands-free commands!
+  - Sync contacts to Mailchimp/Constant Contact from selected RealNex groups.
 - *Usage*:
   1. Switch to Goose mode, enter your RealNex Bearer token (from RealNex dashboard).
-  2. Drag-and-drop photos (.png, .jpg), PDFs, or Excel (.xlsx) into the chat widget.
-  3. For photos/PDFs, add notes and sync as Contacts or Properties. Photos geo-match to Properties/Spaces.
-  4. For Excel, review/edit suggested field mappings, then import.
-  5. Chat with Maverick via text or voice for help, CRM queries (‘Show my events’), or commands like `!maverick`!
-  6. Visit /dashboard to see import stats, lead scores, and request a summary.
-  7. Toggle event polling in Goose mode for alerts, with filters.
+  2. Visit /settings to configure SMTP email/password, Mailchimp/Constant Contact API keys, and select RealNex group and marketing lists for syncing.
+  3. Drag-and-drop photos (.png, .jpg), PDFs, or Excel (.xlsx) into the chat widget.
+  4. For photos/PDFs, add notes and sync as Contacts or Properties. Photos geo-match to Properties/Spaces.
+  5. For Excel, review/edit suggested field mappings, then import.
+  6. Chat with Maverick via text or voice for help, CRM queries (‘Show my events’), or commands like `!maverick`!
+  7. Visit /dashboard to see import stats, lead scores, and request a summary.
+  8. Toggle event polling in Goose mode for alerts, with filters.
+  9. Use /sync-contacts to push RealNex contacts to Mailchimp/Constant Contact.
 - *Commands*: `!help` (this guide), `!maverick` (surprise), `!eject` (easter egg), `!deals` (SaleComps), `!events` (your events), `!clearturbulence` (victory!).
 - *Deploy*: Dockerized, deployed to Render (mattys-drag-drop-app.onrender.com). Built to soar!
 Ask ‘How do I sync SaleComps?’ or ‘How does geolocation work?’ for more! 😎
