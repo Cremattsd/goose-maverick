@@ -1,53 +1,24 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Goose-Maverick Dashboard</title>
+    <title>Goose-Maverick Chatbot</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body class="bg-gray-100">
     <div class="container mx-auto p-4">
-        <h1 class="text-3xl font-bold text-center text-blue-600">Goose-Maverick Dashboard</h1>
-        <canvas id="leadScoresChart" class="mt-4" width="400" height="200"></canvas>
+        <h1 class="text-3xl font-bold text-center text-blue-600">Goose-Maverick Chatbot</h1>
+        <div class="mt-4">
+            <input id="message" type="text" class="p-2 border rounded w-full" placeholder="Ask Maverick...">
+            <div class="flex space-x-2 mt-2">
+                <button onclick="sendMessage()" class="p-2 bg-blue-600 text-white rounded">Send</button>
+                <button onclick="startVoice()" class="p-2 bg-green-600 text-white rounded">🎙️ Voice</button>
+                <a href="/settings" class="p-2 bg-gray-600 text-white rounded text-center">⚙️ Settings</a>
+            </div>
+        </div>
+        <div id="response" class="mt-4 p-4 bg-white rounded shadow"></div>
+        <div id="error" class="hidden fixed top-4 right-4 p-4 bg-red-500 text-white rounded-lg shadow-lg animate-bounce"></div>
     </div>
     <script>
-    async function loadDashboard() {
-        const token = localStorage.getItem('token');
-        if (!token) {
-            showError('No token, Maverick! Lock in! 🔒');
-            return;
-        }
-        const response = await fetchWithErrorHandling('/dashboard-data', {
-            headers: { 'Authorization': 'Bearer ' + token }
-        });
-        if (response) {
-            const ctx = document.getElementById('leadScoresChart').getContext('2d');
-            new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: response.lead_scores.map(score => score.contact_id.slice(0, 8)),
-                    datasets: [{
-                        label: 'Lead Scores',
-                        data: response.lead_scores.map(score => score.score),
-                        backgroundColor: '#1e90ff',
-                        borderColor: '#104e8b',
-                        borderWidth: 1
-                    }]
-                },
-                options: {
-                    scales: {
-                        y: { beginAtZero: true, max: 100, title: { display: true, text: 'Score' } },
-                        x: { title: { display: true, text: 'Contact ID' } }
-                    },
-                    plugins: {
-                        legend: { display: true },
-                        title: { display: true, text: 'Top Lead Scores' }
-                    }
-                }
-            });
-        }
-    }
-
     async function fetchWithErrorHandling(url, options) {
         try {
             const response = await fetch(url, options);
@@ -63,14 +34,43 @@
     }
 
     function showError(message) {
-        const div = document.createElement('div');
-        div.className = 'fixed top-4 right-4 p-4 bg-red-500 text-white rounded-lg shadow-lg animate-bounce';
-        div.textContent = message;
-        document.body.appendChild(div);
-        setTimeout(() => div.remove(), 5000);
+        const errorDiv = document.getElementById('error');
+        errorDiv.textContent = message;
+        errorDiv.classList.remove('hidden');
+        setTimeout(() => errorDiv.classList.add('hidden'), 5000);
     }
 
-    window.onload = loadDashboard;
+    async function sendMessage() {
+        const message = document.getElementById('message').value;
+        const token = localStorage.getItem('token');
+        const response = await fetchWithErrorHandling('/ask', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+            body: JSON.stringify({ message })
+        });
+        if (response) {
+            document.getElementById('response').textContent = response.answer;
+        }
+    }
+
+    function startVoice() {
+        const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+        recognition.lang = 'en-US';
+        recognition.onresult = async (event) => {
+            const transcription = event.results[0][0].transcript;
+            const token = localStorage.getItem('token');
+            const response = await fetchWithErrorHandling('/transcribe', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                body: JSON.stringify({ transcription })
+            });
+            if (response) {
+                document.getElementById('response').textContent = response.answer;
+            }
+        };
+        recognition.onerror = (event) => showError(`Voice error: ${event.error}`);
+        recognition.start();
+    }
     </script>
     <style>
     .animate-bounce {
