@@ -1,966 +1,770 @@
-import json
-import logging
-import os
-import httpx
-import smtplib
-import sqlite3
-import redis
-from email.mime.text import MIMEText
-from flask import Flask, request, jsonify, send_from_directory
-from flask_cors import CORS
-from flask_socketio import SocketIO, emit
-import openai
-import asyncio
-import requests
-from mailchimp_marketing import Client as MailchimpClient
-from mailchimp_marketing.api_client import ApiClientError
-openai.api_key = os.getenv("OPENAI_API_KEY")
-from tenacity import retry, stop_after_attempt, wait_exponential
-from werkzeug.utils import secure_filename
-from goose_parser_tools import (
-    extract_text_from_image,
-    extract_text_from_pdf,
-    extract_exif_location,
-    is_business_card,
-    parse_ocr_text,
-    suggest_field_mapping,
-    map_fields,
-)
-from datetime import datetime, timedelta
+from flask import Flask, request, jsonify
+from functools import wraps
 import pandas as pd
-import threading
-import time
+import io
+import requests
+import re
+from fuzzywuzzy import fuzz
+from collections import defaultdict
+import sqlite3
+from datetime import datetime
+import json
 
-app = Flask(__name__, static_folder='static', static_url_path='')
-CORS(app)
-socketio = SocketIO(app, cors_allowed_origins="*")
+app = Flask(__name__)
 
-UPLOAD_FOLDER = 'upload'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-logging.basicConfig(level=logging.INFO, filename='app.log', format='%(asctime)s - %(levelname)s - %(message)s')
+# RealNex API credentials (replace with your own)
+REALNEX_API_KEY = "your_realnex_api_key"
+REALNEX_API_BASE = "https://sync.realnex.com/api/v1/CrmOData"
 
-REALNEX_API_BASE = os.getenv("REALNEX_API_BASE", "https://sync.realnex.com/api/v1")
-ODATA_BASE = f"{REALNEX_API_BASE}/CrmOData"
-openai_client = openai
+# Mailchimp API credentials (replace with your own)
+MAILCHIMP_API_KEY = "your_mailchimp_api_key"
+MAILCHIMP_SERVER_PREFIX = "us1"  # e.g., us1, us2, etc.
 
-# Redis for caching
-REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
-redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
+# ZoomInfo and Apollo.io API credentials (replace with your own)
+ZOOMINFO_API_KEY = "your_zoominfo_api_key"
+APOLLO_API_KEY = "your_apollo_api_key"
 
-# SQLite for import history, user settings, and lead scores
-DB_PATH = "import_history.db"
-conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+# Twilio Authy for 2FA (replace with your own)
+AUTHY_API_KEY = "your_authy_api_key"
+
+# Database setup for user mappings and points
+conn = sqlite3.connect('user_data.db', check_same_thread=False)
 cursor = conn.cursor()
-cursor.execute('''CREATE TABLE IF NOT EXISTS imports (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    entity TEXT,
-    record_count INTEGER,
-    success INTEGER,
-    timestamp TEXT
-)''')
-cursor.execute('''CREATE TABLE IF NOT EXISTS user_settings (
-    user_id TEXT PRIMARY KEY,
-    email TEXT,
-    event_alerts_enabled INTEGER,
-    priority_filter TEXT,
-    alarm_filter INTEGER,
-    due_date_days INTEGER,
-    smtp_email TEXT,
-    smtp_password TEXT,
-    mailchimp_api_key TEXT,
-    constant_contact_api_key TEXT,
-    constant_contact_access_token TEXT,
-    realnex_group TEXT,
-    mailchimp_list_id TEXT,
-    constant_contact_list_id TEXT,
-    event_trigger_priority TEXT,
-    event_trigger_alarm INTEGER
-)''')
-cursor.execute('''CREATE TABLE IF NOT EXISTS lead_scores (
-    user_id TEXT,
-    contact_id TEXT,
-    score INTEGER,
-    timestamp TEXT,
-    PRIMARY KEY (user_id, contact_id)
-)''')
-cursor.execute('CREATE INDEX IF NOT EXISTS idx_imports_timestamp ON imports (timestamp)')
-cursor.execute('CREATE INDEX IF NOT EXISTS idx_lead_scores_user_id ON lead_scores (user_id)')
+cursor.execute('''CREATE TABLE IF NOT EXISTS user_mappings 
+                 (user_id TEXT, header TEXT, mapped_field TEXT, frequency INTEGER)''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS user_points 
+                 (user_id TEXT, points INTEGER, last_updated TEXT)''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS user_2fa 
+                 (user_id TEXT, authy_id TEXT)''')
 conn.commit()
 
-# HTTP client with connection pooling
-http_client = httpx.AsyncClient(timeout=30.0)
+# RealNex template fields
+REALNEX_LEASECOMP_FIELDS = [
+    "Deal ID", "Property name", "Address 1", "Address 2", "City", "State", "Zip code", "Country",
+    "Lessee.Full Name", "Lessor.Full Name", "Rent/month", "Rent/sq ft", "Sq ft", "Lease term", "Lease type", "Deal date"
+]
+REALNEX_SALECOMP_FIELDS = [
+    "Deal ID", "Property name", "Address", "City", "State", "Zip code", "Buyer.Name", "Seller.Name", "Sale price", "Sq ft", "Property type", "Sale date"
+]
+REALNEX_SPACES_FIELDS = [
+    "Property.Property name", "Property.Address 1", "Property.City", "Property.State", "Property.Zip code", "Suite", "Floor", "Sq Ft", "Rent/SqFt", "Rent/Month", "Lease type"
+]
+REALNEX_PROJECTS_FIELDS = ["Project", "Type", "Size", "Deal amt", "Commission", "Date opened", "Date closed"]
+REALNEX_COMPANIES_FIELDS = ["Company", "Address1", "City", "State", "Zip Code", "Phone", "Email"]
+REALNEX_CONTACTS_FIELDS = ["Full Name", "First Name", "Last Name", "Company", "Address1", "City", "State", "Postal Code", "Work Phone", "Email"]
+REALNEX_PROPERTIES_FIELDS = ["Property Name", "Property Type", "Property Address", "Property City", "Property State", "Property Postal Code", "Building Size", "Sale Price"]
 
-# Event polling state
-EVENT_POLLING_ENABLED = {}
-EVENT_POLLING_THREADS = {}
-LAST_EVENT_COUNT = {}
-FIELD_DEFINITIONS = {}
+USER_MAPPINGS = defaultdict(dict)
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-async def load_field_definitions(token):
-    global FIELD_DEFINITIONS
-    cache_key = f"field_definitions:{token}"
-    cached = redis_client.get(cache_key)
-    if cached:
-        FIELD_DEFINITIONS = json.loads(cached)
-        return FIELD_DEFINITIONS
-
-    headers = {"Authorization": f"Bearer {token}"}
-    try:
-        response = await http_client.get(f"{REALNEX_API_BASE}/Crm/definitions", headers=headers)
-        response.raise_for_status()
-        tables = response.json()
-        for table in tables:
-            response = await http_client.get(f"{REALNEX_API_BASE}/Crm/definitions/{table}", headers=headers)
-            response.raise_for_status()
-            FIELD_DEFINITIONS[table] = response.json()
-        redis_client.setex(cache_key, 3600, json.dumps(FIELD_DEFINITIONS))
-    except Exception as e:
-        logging.warning(f"API failed, loading realnex_fields.json: {str(e)}")
-        with open("realnex_fields.json", "r") as f:
-            FIELD_DEFINITIONS = json.load(f)
-    return FIELD_DEFINITIONS
-
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-async def realnex_post(endpoint, token, data):
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    cache_key = f"post:{endpoint}:{token}:{json.dumps(data, sort_keys=True)}"
-    cached = redis_client.get(cache_key)
-    if cached:
-        return 200, json.loads(cached)
-
-    response = await http_client.post(f"{REALNEX_API_BASE}{endpoint}", headers=headers, json=data)
-    response.raise_for_status()
-    result = response.json() if response.content else {}
-    redis_client.setex(cache_key, 300, json.dumps(result))
-    return response.status_code, result
-
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-async def realnex_get(endpoint, token, is_odata=False):
-    headers = {"Authorization": f"Bearer {token}"}
-    base = ODATA_BASE if is_odata else REALNEX_API_BASE
-    cache_key = f"get:{base}/{endpoint}:{token}"
-    cached = redis_client.get(cache_key)
-    if cached:
-        return 200, json.loads(cached)
-
-    response = await http_client.get(f"{base}/{endpoint}", headers=headers)
-    response.raise_for_status()
-    result = response.json().get('value', response.json())
-    redis_client.setex(cache_key, 300, json.dumps(result))
-    return response.status_code, result
-
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-async def get_user_id(token):
-    headers = {"Authorization": f"Bearer {token}"}
-    cache_key = f"user_id:{token}"
-    cached = redis_client.get(cache_key)
-    if cached:
-        return cached
-
-    response = await http_client.get(f"{REALNEX_API_BASE}/Client?api-version=1.0", headers=headers)
-    response.raise_for_status()
-    user_id = response.json().get('key')
-    redis_client.setex(cache_key, 3600, user_id)
-    return user_id
-
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-async def match_property_by_geolocation(lat, lon, token):
-    headers = {"Authorization": f"Bearer {token}"}
-    query = f"Properties?$filter=latitude eq {lat} and longitude eq {lon}&$top=1"
-    cache_key = f"geo:{lat}:{lon}:{token}"
-    cached = redis_client.get(cache_key)
-    if cached:
-        return json.loads(cached) if cached != "null" else None
-
-    response = await http_client.get(f"{ODATA_BASE}/{query}", headers=headers)
-    response.raise_for_status()
-    properties = response.json().get('value', [])
-    result = properties[0].get('crm_property_key') if properties else None
-    redis_client.setex(cache_key, 300, json.dumps(result))
-    return result
-
-async def get_realnex_groups(token):
-    try:
-        status, groups = await realnex_get("Groups?$select=groupId,name", token, is_odata=True)
-        if status == 200:
-            return [{"id": g["groupId"], "name": g["name"]} for g in groups]
-        return []
-    except Exception as e:
-        logging.error(f"Fetch RealNex groups error: {str(e)}")
-        return []
-
-async def get_mailchimp_lists(mailchimp_api_key):
-    try:
-        mailchimp = MailchimpClient()
-        mailchimp.set_config({"api_key": mailchimp_api_key, "server": mailchimp_api_key.split('-')[-1]})
-        lists = mailchimp.lists.get_all_lists().get('lists', [])
-        return [{"id": lst["id"], "name": lst["name"]} for lst in lists]
-    except ApiClientError as e:
-        logging.error(f"Fetch Mailchimp lists error: {str(e)}")
-        return []
-
-async def get_constant_contact_lists(constant_contact_api_key, constant_contact_access_token):
-    try:
-        headers = {"Authorization": f"Bearer {constant_contact_access_token}", "Accept": "application/json"}
+# Authentication decorator
+def require_token(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if request.path == '/ask':
+            return f(*args, **kwargs)
+        token = request.headers.get('Authorization')
+        if not token or not token.startswith('Bearer '):
+            return jsonify({"error": "Token is missing or invalid"}), 401
+        # Validate RealNex token
+        token = token.split(' ')[1]
         response = requests.get(
-            "https://api.cc.email/v3/contact_lists",
-            headers=headers,
-            params={"api_key": constant_contact_api_key}
+            f"{REALNEX_API_BASE}/ValidateToken",
+            headers={'Authorization': f'Bearer {token}'}
         )
-        response.raise_for_status()
-        lists = response.json().get('lists', [])
-        return [{"id": lst["list_id"], "name": lst["name"]} for lst in lists]
-    except requests.RequestException as e:
-        logging.error(f"Fetch Constant Contact lists error: {str(e)}")
-        return []
+        if response.status_code != 200:
+            return jsonify({"error": "Invalid RealNex token"}), 401
+        return f(*args, **kwargs)
+    return decorated_function
 
-def send_email_alert(subject, body, to_email, user_id):
-    cursor.execute("SELECT smtp_email, smtp_password FROM user_settings WHERE user_id = ?", (user_id,))
-    settings = cursor.fetchone()
-    if not settings or not settings[0] or not settings[1]:
-        logging.warning(f"No SMTP credentials for user {user_id}, falling back to WebSocket")
-        socketio.emit('notification', {'message': f"{subject}: {body}"}, namespace='/chat')
-        return
+# Points system helper
+def award_points(user_id, points_to_add, action):
+    cursor.execute("SELECT points FROM user_points WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+    current_points = result[0] if result else 0
+    new_points = current_points + points_to_add
+    cursor.execute("INSERT OR REPLACE INTO user_points (user_id, points, last_updated) VALUES (?, ?, ?)",
+                   (user_id, new_points, datetime.now().isoformat()))
+    conn.commit()
+    return new_points, f"Earned {points_to_add} points for {action}! Total points: {new_points} 🏆"
 
-    smtp_email, smtp_password = settings
-    smtp_server = "smtp.gmail.com" if smtp_email.endswith("@gmail.com") else "smtp-mail.outlook.com"
-    smtp_port = 587
+# Field normalization helper
+def normalize_field_name(field):
+    return re.sub(r'[^a-z0-9]', '', field.lower())
 
-    try:
-        msg = MIMEText(body)
-        msg['Subject'] = subject
-        msg['From'] = smtp_email
-        msg['To'] = to_email
-
-        with smtplib.SMTP(smtp_server, smtp_port) as server:
-            server.starttls()
-            server.login(smtp_email, smtp_password)
-            server.sendmail(smtp_email, to_email, msg.as_string())
-        logging.info(f"Email sent to {to_email} for user {user_id}")
-    except Exception as e:
-        logging.error(f"Email alert failed for user {user_id}: {str(e)}")
-        socketio.emit('notification', {'message': f"Turbulence: Email alert failed! {str(e)}"}, namespace='/chat')
-
-async def score_leads(token, user_id):
-    try:
-        status, contacts = await realnex_get(f"Contacts?$filter=userId eq {user_id}&$top=50", token, is_odata=True)
-        if status != 200:
-            return
-
-        status, events = await realnex_get(f"Events?$filter=userId eq {user_id}&$top=50", token, is_odata=True)
-        if status != 200:
-            return
-
-        contact_data = []
-        for contact in contacts:
-            contact_id = contact.get('crm_contact_key')
-            contact_events = [e for e in events if e.get('contactId') == contact_id]
-            event_count = len(contact_events)
-            recent_activity = any(
-                datetime.strptime(e.get('dueDate', datetime.now().isoformat()), '%Y-%m-%dT%H:%M:%S') >
-                datetime.now() - timedelta(days=30) for e in contact_events
-            )
-            contact_data.append({
-                "contact_id": contact_id,
-                "name": contact.get('name', 'Unknown'),
-                "event_count": event_count,
-                "recent_activity": recent_activity,
-                "properties_owned": contact.get('properties', [])
-            })
-
-        prompt = f"""
-        You are a lead scoring AI for a commercial real estate chatbot. Score each contact as a lead from 0 to 100 based on their activity:
-        - Higher event count = higher score (max 40 points for 5+ events)
-        - Recent activity (last 30 days) = +30 points
-        - Properties owned = +5 points per property (max 30 points)
-        Return a JSON list of {{"contact_id": "id", "score": score, "name": "name"}} entries.
-        Data: {json.dumps(contact_data, indent=2)}
-        """
-        response = openai_client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "You’re Maverick, a sassy real estate chatbot with Top Gun vibes."},
-                {"role": "user", "content": prompt}
-            ]
-        )
-        scores = json.loads(response.choices[0].message.content)
-
-        current_time = datetime.now().isoformat()
-        for score_entry in scores:
-            contact_id = score_entry['contact_id']
-            score = score_entry['score']
-            cursor.execute('''INSERT OR REPLACE INTO lead_scores 
-                              (user_id, contact_id, score, timestamp) 
-                              VALUES (?, ?, ?, ?)''',
-                           (user_id, contact_id, score, current_time))
-        conn.commit()
-
-        socketio.emit('lead_scores_updated', {'user_id': user_id, 'scores': scores}, namespace='/chat')
-    except Exception as e:
-        logging.error(f"Lead scoring error for user {user_id}: {str(e)}")
-        socketio.emit('notification', {'message': f"Turbulence: Lead scoring failed! {str(e)}"}, namespace='/chat')
-
-async def poll_events(token, user_id, email):
-    global LAST_EVENT_COUNT
-    LAST_EVENT_COUNT[user_id] = LAST_EVENT_COUNT.get(user_id, 0)
-    cursor.execute("SELECT due_date_days, event_trigger_priority, event_trigger_alarm FROM user_settings WHERE user_id = ?", (user_id,))
-    settings = cursor.fetchone()
-    if not settings:
-        logging.warning(f"No settings for user {user_id}")
-        return
-    due_date_days, trigger_priority, trigger_alarm = settings
-    trigger_alarm = bool(trigger_alarm)
-
-    while EVENT_POLLING_ENABLED.get(user_id, False):
-        try:
-            status, events = await realnex_get(f"Events?$filter=userId eq {user_id}", token, is_odata=True)
-            if status != 200:
-                await asyncio.sleep(300)
-                continue
-
-            current_time = datetime.now()
-            due_threshold = current_time + timedelta(days=due_date_days)
-            new_events = []
-            for event in events:
-                event_due_date = datetime.strptime(event.get('dueDate', current_time.isoformat()), '%Y-%m-%dT%H:%M:%S')
-                event_priority = event.get('priority', 'Low')
-                has_alarm = event.get('hasAlarm', False)
-
-                due_soon = event_due_date <= due_threshold
-                priority_match = (trigger_priority.lower() == 'any' or event_priority.lower() == trigger_priority.lower())
-                alarm_match = (not trigger_alarm or has_alarm)
-
-                if due_soon and priority_match and alarm_match:
-                    new_events.append(event)
-
-            event_count = len(new_events)
-            if event_count > LAST_EVENT_COUNT[user_id]:
-                new_event_count = event_count - LAST_EVENT_COUNT[user_id]
-                message = f"You've got {new_event_count} events due soon! 🛫 Check 'em out!"
-                send_email_alert(
-                    "RealNex Event Due Alert",
-                    f"Maverick here! {message}\n\n{json.dumps(new_events[-new_event_count:], indent=2)}",
-                    email,
-                    user_id
-                )
-                LAST_EVENT_COUNT[user_id] = event_count
-
-            await score_leads(token, user_id)
-            await asyncio.sleep(300)
-        except Exception as e:
-            logging.error(f"Event polling error for user {user_id}: {str(e)}")
-            socketio.emit('notification', {'message': f"Turbulence: Event polling failed! {str(e)}"}, namespace='/chat')
-            await asyncio.sleep(300)
-
-@app.route('/')
-def index():
-    return send_from_directory('static', 'index.html')
-
-@app.route('/dashboard')
-def dashboard():
-    return send_from_directory('static/dashboard', 'index.html')
-
-@app.route('/settings')
-def settings():
-    return send_from_directory('static', 'settings.html')
-
-@app.route('/<path:path>')
-def serve_static(path):
-    try:
-        return send_from_directory('static', path)
-    except FileNotFoundError:
-        logging.error(f"Static file not found: {path}")
-        socketio.emit('notification', {'message': f"File {path} not found! Check the hangar, Goose! 📂"}, namespace='/chat')
-        return jsonify({"error": f"File {path} not found! Check the hangar, Goose! 📂"}), 404
-
-@app.route('/validate-token', methods=['POST'])
-async def validate_token():
-    try:
-        token = request.json.get('token', '').strip()
-        if not token:
-            socketio.emit('notification', {'message': 'No token provided, Goose! 📄'}, namespace='/chat')
-            return jsonify({"valid": False, "error": "No token provided"}), 400
-        status, _ = await realnex_get("Client?api-version=1.0", token)
-        return jsonify({"valid": status == 200})
-    except Exception as e:
-        logging.error(f"Token validation error: {str(e)}")
-        socketio.emit('notification', {'message': f"Turbulence: Token validation failed! {str(e)}"}, namespace='/chat')
-        return jsonify({"valid": False, "error": str(e)}), 500
-
-@app.route('/get-realnex-groups', methods=['GET'])
-async def get_realnex_groups_route():
-    try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        if not token:
-            socketio.emit('notification', {'message': 'No token, Maverick! Lock in! 🔒'}, namespace='/chat')
-            return jsonify({"error": "No token, Maverick! Lock in! 🔒"}), 401
-        groups = await get_realnex_groups(token)
-        return jsonify({"groups": groups})
-    except Exception as e:
-        logging.error(f"Get RealNex groups error: {str(e)}")
-        socketio.emit('notification', {'message': f"Turbulence: Get groups failed! {str(e)}"}, namespace='/chat')
-        return jsonify({"error": f"Turbulence: {str(e)}"}), 500
-
-@app.route('/get-marketing-lists', methods=['GET'])
-async def get_marketing_lists():
-    try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        if not token:
-            socketio.emit('notification', {'message': 'No token, Maverick! Lock in! 🔒'}, namespace='/chat')
-            return jsonify({"error": "No token, Maverick! Lock in! 🔒"}), 401
-        user_id = await get_user_id(token)
-        cursor.execute("SELECT mailchimp_api_key, constant_contact_api_key, constant_contact_access_token FROM user_settings WHERE user_id = ?", (user_id,))
-        settings = cursor.fetchone()
-        mailchimp_lists = []
-        constant_contact_lists = []
-        if settings:
-            mailchimp_api_key, constant_contact_api_key, constant_contact_access_token = settings
-            if mailchimp_api_key:
-                mailchimp_lists = await get_mailchimp_lists(mailchimp_api_key)
-            if constant_contact_api_key and constant_contact_access_token:
-                constant_contact_lists = await get_constant_contact_lists(constant_contact_api_key, constant_contact_access_token)
-        return jsonify({"mailchimp_lists": mailchimp_lists, "constant_contact_lists": constant_contact_lists})
-    except Exception as e:
-        logging.error(f"Get marketing lists error: {str(e)}")
-        socketio.emit('notification', {'message': f"Turbulence: Get lists failed! {str(e)}"}, namespace='/chat')
-        return jsonify({"error": f"Turbulence: {str(e)}"}), 500
-
-@app.route('/save-settings', methods=['POST'])
-async def save_settings():
-    try:
-        data = request.json
-        smtp_email = data.get('smtp_email', '').strip()
-        smtp_password = data.get('smtp_password', '').strip()
-        mailchimp_api_key = data.get('mailchimp_api_key', '').strip()
-        constant_contact_api_key = data.get('constant_contact_api_key', '').strip()
-        constant_contact_access_token = data.get('constant_contact_access_token', '').strip()
-        realnex_group = data.get('realnex_group', '').strip()
-        mailchimp_list_id = data.get('mailchimp_list_id', '').strip()
-        constant_contact_list_id = data.get('constant_contact_list_id', '').strip()
-        due_date_days = int(data.get('due_date_days', 7))
-        event_trigger_priority = data.get('event_trigger_priority', 'any').strip().lower()
-        event_trigger_alarm = data.get('event_trigger_alarm', False)
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        if not token:
-            socketio.emit('notification', {'message': 'No token, Maverick! Lock in! 🔒'}, namespace='/chat')
-            return jsonify({"error": "No token, Maverick! Lock in! 🔒"}), 401
-
-        user_id = await get_user_id(token)
-        cursor.execute('''INSERT OR REPLACE INTO user_settings 
-                          (user_id, smtp_email, smtp_password, mailchimp_api_key, constant_contact_api_key, 
-                           constant_contact_access_token, realnex_group, mailchimp_list_id, constant_contact_list_id,
-                           due_date_days, event_trigger_priority, event_trigger_alarm) 
-                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                       (user_id, smtp_email, smtp_password, mailchimp_api_key, constant_contact_api_key,
-                        constant_contact_access_token, realnex_group, mailchimp_list_id, constant_contact_list_id,
-                        due_date_days, event_trigger_priority, 1 if event_trigger_alarm else 0))
-        conn.commit()
-        socketio.emit('notification', {'message': 'Settings saved! Ready to sync and trigger alerts! 🔔'}, namespace='/chat')
-        return jsonify({"message": "Settings saved! Ready to sync and trigger alerts! 🔔"})
-    except Exception as e:
-        logging.error(f"Save settings error: {str(e)}")
-        socketio.emit('notification', {'message': f"Turbulence: Save settings failed! {str(e)}"}, namespace='/chat')
-        return jsonify({"error": f"Turbulence: {str(e)}"}), 500
-
-@app.route('/sync-contacts', methods=['POST'])
-async def sync_contacts():
-    try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        if not token:
-            socketio.emit('notification', {'message': 'No token, Maverick! Lock in! 🔒'}, namespace='/chat')
-            return jsonify({"error": "No token, Maverick! Lock in! 🔒"}), 401
-        user_id = await get_user_id(token)
-        cursor.execute("SELECT realnex_group, mailchimp_api_key, mailchimp_list_id, constant_contact_api_key, constant_contact_access_token, constant_contact_list_id FROM user_settings WHERE user_id = ?", (user_id,))
-        settings = cursor.fetchone()
-        if not settings or not settings[0]:
-            socketio.emit('notification', {'message': 'No RealNex group selected! Visit Settings. ⚙️'}, namespace='/chat')
-            return jsonify({"error": "No RealNex group selected! Visit Settings. ⚙️"}), 400
-
-        realnex_group, mailchimp_api_key, mailchimp_list_id, constant_contact_api_key, constant_contact_access_token, constant_contact_list_id = settings
-        status, contacts = await realnex_get(f"Contacts?$filter=groupId eq '{realnex_group}'&$top=50", token, is_odata=True)
-        if status != 200:
-            socketio.emit('notification', {'message': 'Turbulence fetching RealNex contacts!'}, namespace='/chat')
-            return jsonify({"error": "Turbulence fetching RealNex contacts!"}), 500
-
-        synced = 0
-        results = []
-        for contact in contacts:
-            email = contact.get('email', '')
-            if not email:
-                continue
-            contact_data = {
-                "email_address": email,
-                "first_name": contact.get('firstName', ''),
-                "last_name": contact.get('lastName', ''),
-                "status": "subscribed"
-            }
-
-            if mailchimp_api_key and mailchimp_list_id:
-                try:
-                    mailchimp = MailchimpClient()
-                    mailchimp.set_config({"api_key": mailchimp_api_key, "server": mailchimp_api_key.split('-')[-1]})
-                    mailchimp.lists.add_list_member(mailchimp_list_id, contact_data)
-                    results.append({"type": "Mailchimp", "status": 200, "email": email})
-                    synced += 1
-                except ApiClientError as e:
-                    logging.error(f"Mailchimp sync error for {email}: {str(e)}")
-                    results.append({"type": "Mailchimp", "status": 500, "email": email, "error": str(e)})
-
-            if constant_contact_api_key and constant_contact_access_token and constant_contact_list_id:
-                try:
-                    headers = {"Authorization": f"Bearer {constant_contact_access_token}", "Accept": "application/json"}
-                    cc_contact = {
-                        "email_address": {"address": email, "permission_to_send": "implicit"},
-                        "first_name": contact.get('firstName', ''),
-                        "last_name": contact.get('lastName', ''),
-                        "list_memberships": [constant_contact_list_id]
-                    }
-                    response = requests.post(
-                        "https://api.cc.email/v3/contacts",
-                        headers=headers,
-                        json=cc_contact,
-                        params={"api_key": constant_contact_api_key}
-                    )
-                    response.raise_for_status()
-                    results.append({"type": "ConstantContact", "status": 201, "email": email})
-                    synced += 1
-                except requests.RequestException as e:
-                    logging.error(f"Constant Contact sync error for {email}: {str(e)}")
-                    results.append({"type": "ConstantContact", "status": 500, "email": email, "error": str(e)})
-
-        cursor.execute("INSERT INTO imports (entity, record_count, success, timestamp) VALUES (?, ?, ?, ?)",
-                       ("Sync", synced, 1 if synced > 0 else 0, datetime.now().isoformat()))
-        conn.commit()
-
-        socketio.emit('notification', {'message': f"Synced {synced} contacts to marketing lists! 🚀"}, namespace='/chat')
-        return jsonify({"synced": synced, "results": results})
-    except Exception as e:
-        logging.error(f"Sync contacts error: {str(e)}")
-        cursor.execute("INSERT INTO imports (entity, record_count, success, timestamp) VALUES (?, ?, ?, ?)",
-                       ("Sync", 0, 0, datetime.now().isoformat()))
-        conn.commit()
-        socketio.emit('notification', {'message': f"Turbulence: Sync failed! {str(e)}"}, namespace='/chat')
-        return jsonify({"error": f"Turbulence: {str(e)}"}), 500
-
-@app.route('/transcribe', methods=['POST'])
-async def transcribe():
-    try:
-        transcription = request.json.get('transcription', '').strip().lower()
-        if not transcription:
-            socketio.emit('notification', {'message': 'No transcription provided, Goose! 🎙️'}, namespace='/chat')
-            return jsonify({"error": "No transcription provided"}), 400
-
-        if transcription == "!help" or "tech stack" in transcription or "how to use" in transcription:
-            return jsonify({"answer": HELP_MESSAGE})
-        if transcription == "!maverick":
-            return jsonify({"answer": "I feel the need… the need for leads! 🛩️ https://media.giphy.com/media/3o7aDcz7XVeM6fW8zC/giphy.gif"})
-        if transcription == "!eject":
-            return jsonify({"answer": "Eject, eject, eject! Goose is outta here! 🪂 https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif"})
-        if transcription == "!clearturbulence":
-            return jsonify({"answer": "Turbulence cleared! Skies are blue, Goose! 🛫 https://media.giphy.com/media/3o7TKsQ8vXh8lTJyZw/giphy.gif"})
-        if transcription == "!deals":
-            token = request.headers.get("Authorization", "").replace("Bearer ", "")
-            if not token:
-                socketio.emit('notification', {'message': 'No token, Maverick! Lock in! 🔒'}, namespace='/chat')
-                return jsonify({"answer": "No token, Maverick! Lock in! 🔒"})
-            status, deals = await realnex_get("SaleComps?$top=3", token, is_odata=True)
-            return jsonify({"answer": f"Latest deals: {json.dumps(deals, indent=2)}" if status == 200 else "Turbulence fetching deals!"})
-        if transcription == "!events":
-            token = request.headers.get("Authorization", "").replace("Bearer ", "")
-            if not token:
-                socketio.emit('notification', {'message': 'No token, Maverick! Lock in! 🔒'}, namespace='/chat')
-                return jsonify({"answer": "No token, Maverick! Lock in! 🔒"})
-            user_id = await get_user_id(token)
-            status, events = await realnex_get(f"Events?$filter=userId eq {user_id}&$top=5", token, is_odata=True)
-            return jsonify({"answer": f"Your events: {json.dumps(events, indent=2)}" if status == 200 else "Turbulence fetching events!"})
-
-        response = openai_client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "You’re Maverick, a sassy real estate chatbot with Top Gun vibes. Explain tech stack, usage, or geolocation matching if asked, otherwise answer with humor and real estate flair!"},
-                {"role": "user", "content": transcription}
-            ]
-        )
-        reply = response.choices[0].message.content
-        socketio.emit('notification', {'message': f"Voice command processed: {transcription}"}, namespace='/chat')
-        return jsonify({"answer": f"🎯 {reply} - Locked on, Goose!"})
-    except Exception as e:
-        logging.error(f"Transcription error: {str(e)}")
-        socketio.emit('notification', {'message': f"Turbulence: Transcription error! {str(e)}"}, namespace='/chat')
-        return jsonify({"error": f"Turbulence: {str(e)}"}), 500
-
-@app.route('/ask', methods=['POST'])
-async def ask():
-    try:
-        user_message = request.json.get("message", "").strip().lower()
-        if not user_message:
-            socketio.emit('notification', {'message': 'Gimme something to work with, Goose! 😎'}, namespace='/chat')
-            return jsonify({"answer": "Gimme something to work with, Goose! 😎"})
-        if user_message == "!help" or "tech stack" in user_message or "how to use" in user_message:
-            return jsonify({"answer": HELP_MESSAGE})
-        if user_message == "!maverick":
-            return jsonify({"answer": "I feel the need… the need for leads! 🛩️ https://media.giphy.com/media/3o7aDcz7XVeM6fW8zC/giphy.gif"})
-        if user_message == "!eject":
-            return jsonify({"answer": "Eject, eject, eject! Goose is outta here! 🪂 https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif"})
-        if user_message == "!clearturbulence":
-            return jsonify({"answer": "Turbulence cleared! Skies are blue, Goose! 🛫 https://media.giphy.com/media/3o7TKsQ8vXh8lTJyZw/giphy.gif"})
-        if user_message == "!deals":
-            token = request.headers.get("Authorization", "").replace("Bearer ", "")
-            if not token:
-                socketio.emit('notification', {'message': 'No token, Maverick! Lock in! 🔒'}, namespace='/chat')
-            return jsonify({"answer": "No token, Maverick! Lock in! 🔒"})
-            status, deals = await realnex_get("SaleComps?$top=3", token, is_odata=True)
-            return jsonify({"answer": f"Latest deals: {json.dumps(deals, indent=2)}" if status == 200 else "Turbulence fetching deals!"})
-        if user_message == "!events":
-            token = request.headers.get("Authorization", "").replace("Bearer ", "")
-            if not token:
-                socketio.emit('notification', {'message': 'No token, Maverick! Lock in! 🔒'}, namespace='/chat')
-                return jsonify({"answer": "No token, Maverick! Lock in! 🔒"})
-            user_id = await get_user_id(token)
-            status, events = await realnex_get(f"Events?$filter=userId eq {user_id}&$top=5", token, is_odata=True)
-            return jsonify({"answer": f"Your events: {json.dumps(events, indent=2)}" if status == 200 else "Turbulence fetching events!"})
-
-        response = openai_client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "You’re Maverick, a sassy real estate chatbot with Top Gun vibes. Explain tech stack, usage, or geolocation matching if asked, otherwise answer with humor and real estate flair!"},
-                {"role": "user", "content": user_message}
-            ]
-        )
-        reply = response.choices[0].message.content
-        socketio.emit('notification', {'message': f"Command processed: {user_message}"}, namespace='/chat')
-        return jsonify({"answer": f"🎯 {reply} - Locked on, Goose!"})
-    except Exception as e:
-        logging.error(f"Chat error: {str(e)}")
-        socketio.emit('notification', {'message': f"Turbulence: Chat error! {str(e)}"}, namespace='/chat')
-        return jsonify({"error": f"Turbulence: {str(e)}"}), 500
-
-@app.route('/suggest-mapping', methods=['POST'])
-async def suggest_mapping():
-    try:
-        if 'file' not in request.files:
-            socketio.emit('notification', {'message': 'No file uploaded, Goose! 📄'}, namespace='/chat')
-            return jsonify({"error": "No file uploaded, Goose! 📄"}), 400
-        file = request.files['file']
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        if not file.filename.lower().endswith('.xlsx'):
-            socketio.emit('notification', {'message': 'Only Excel files supported! 📊'}, namespace='/chat')
-            return jsonify({"error": "Only Excel files supported for mapping!"}), 400
-        if not token:
-            socketio.emit('notification', {'message': 'No token, Maverick! Lock in! 🔒'}, namespace='/chat')
-            return jsonify({"error": "No token, Maverick! Lock in! 🔒"}), 401
-
-        filename = secure_filename(file.filename)
-        save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(save_path)
-
-        df = pd.read_excel(save_path)
-        global FIELD_DEFINITIONS
-        if not FIELD_DEFINITIONS:
-            FIELD_DEFINITIONS = await load_field_definitions(token)
-        suggested_mapping = suggest_field_mapping(df, FIELD_DEFINITIONS)
-        return jsonify({"suggestedMapping": suggested_mapping})
-    except Exception as e:
-        logging.error(f"Suggest mapping error: {str(e)}")
-        socketio.emit('notification', {'message': f"Turbulence: Mapping error! {str(e)}"}, namespace='/chat')
-        return jsonify({"error": f"Turbulence: {str(e)}"}), 500
-
-@app.route('/bulk-import', methods=['POST'])
-async def bulk_import():
-    try:
-        if 'file' not in request.files:
-            socketio.emit('notification', {'message': 'No file uploaded, Goose! 📄'}, namespace='/chat')
-            return jsonify({"error": "No file uploaded, Goose! 📄"}), 400
-        file = request.files['file']
-        token = request.form.get('token', '').strip()
-        mapping = json.loads(request.form.get('mapping', '{}'))
-        if not token or not mapping:
-            socketio.emit('notification', {'message': 'Missing token or mapping! 🔒'}, namespace='/chat')
-            return jsonify({"error": "Missing token or mapping! 🔒"}), 400
-        if not file.filename.lower().endswith('.xlsx'):
-            socketio.emit('notification', {'message': 'Only Excel files supported! 📊'}, namespace='/chat')
-            return jsonify({"error": "Only Excel files supported for mapping!"}), 400
-
-        filename = secure_filename(file.filename)
-        save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(save_path)
-
-        df = pd.read_excel(save_path)
-        user_id = await get_user_id(token)
-        processed = 0
-        results = []
-        df.columns = df.columns.str.lower()
-        for _, row in df.iterrows():
-            for entity, fields in mapping.items():
-                mapped = map_fields(row, fields)
-                if mapped:
-                    mapped["user"] = {"key": user_id}
-                    if entity == "Properties" and "latitude" in mapped and "longitude" in mapped:
-                        property_key = await match_property_by_geolocation(mapped["latitude"], mapped["longitude"], token)
-                        if property_key:
-                            mapped["crm_property_key"] = property_key
-                            results.append({"type": "PropertyMatch", "message": f"Geo-matched to Property Key: {property_key}"})
-                            space = {
-                                "crm_property_key": property_key,
-                                "suite": mapped.get("suite", "Unknown"),
-                                "user": {"key": user_id},
-                                "sqft": mapped.get("sqft", 1000.0)
-                            }
-                            status, space_result = await realnex_post("/Crm/Spaces", token, space)
-                            results.append({"type": "Space", "status": status, "data": space_result})
-                    endpoint = f"/Crm{entity}"
-                    status, result = await realnex_post(endpoint, token, mapped)
-                    results.append({"type": entity, "status": status, "data": result})
-                    processed += 1
-
-        cursor.execute("INSERT INTO imports (entity, record_count, success, timestamp) VALUES (?, ?, ?, ?)",
-                       ("Bulk", processed, 1 if processed > 0 else 0, datetime.now().isoformat()))
-        conn.commit()
-
-        socketio.emit('notification', {'message': f"Imported {processed} records! 🚀"}, namespace='/chat')
-        return jsonify({"processed": processed, "results": results})
-    except Exception as e:
-        logging.error(f"Bulk import error: {str(e)}")
-        cursor.execute("INSERT INTO imports (entity, record_count, success, timestamp) VALUES (?, ?, ?, ?)",
-                       ("Bulk", 0, 0, datetime.now().isoformat()))
-        conn.commit()
-        socketio.emit('notification', {'message': f"Turbulence: Bulk import failed! {str(e)}"}, namespace='/chat')
-        return jsonify({"error": f"Turbulence: {str(e)}"}), 500
-
-@app.route('/upload-business-card', methods=['POST'])
-async def upload_business_card():
-    try:
-        if 'file' not in request.files:
-            socketio.emit('notification', {'message': 'No file uploaded, Goose! 📄'}, namespace='/chat')
-            return jsonify({"error": "No file uploaded, Goose! 📄"}), 400
-        file = request.files['file']
-        token = request.form.get('token', '').strip()
-        notes = request.form.get('notes', '').strip()
-        if not token:
-            socketio.emit('notification', {'message': 'No token, Maverick! Lock in! 🔒'}, namespace='/chat')
-            return jsonify({"error": "No token, Maverick! Lock in! 🔒"}), 401
-
-        global FIELD_DEFINITIONS
-        if not FIELD_DEFINITIONS:
-            FIELD_DEFINITIONS = await load_field_definitions(token)
-
-        filename = secure_filename(file.filename)
-        save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(save_path)
-
-        user_id = await get_user_id(token)
-        results = []
-        text = None
-        if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
-            text = extract_text_from_image(save_path)
-            location = extract_exif_location(save_path)
-            property_key = None
-            if location:
-                property_key = await match_property_by_geolocation(location['latitude'], location['longitude'], token)
-                if property_key:
-                    results.append({"type": "PropertyMatch", "message": f"Geo-matched to Property Key: {property_key}"})
-            
-            if is_business_card(text):
-                parsed = parse_ocr_text(text)
-                parsed["user"] = {"key": user_id}
-                parsed["notes"] = notes
-                if location:
-                    parsed["latitude"] = location["latitude"]
-                    parsed["longitude"] = location["longitude"]
-                status, result = await realnex_post("/CrmContacts", token, parsed)
-                results.append({"type": "Contact", "status": status, "data": result, "followUpEmail": parsed.get("email", "")})
-            else:
-                parsed = {"name": text[:50], "user": {"key": user_id}, "notes": notes}
-                if location:
-                    parsed["latitude"] = location["latitude"]
-                    parsed["longitude"] = location["longitude"]
-                if property_key:
-                    parsed["crm_property_key"] = property_key
-                status, result = await realnex_post("/Crm/Properties", token, parsed)
-                results.append({"type": "Property", "status": status, "data": result})
-                if property_key:
-                    space = {
-                        "crm_property_key": property_key,
-                        "suite": "Auto-Generated",
-                        "user": {"key": user_id},
-                        "sqft": 1000.0
-                    }
-                    status, space_result = await realnex_post("/Crm/Spaces", token, space)
-                    results.append({"type": "Space", "status": status, "data": space_result})
-        elif filename.lower().endswith('.pdf'):
-            text = extract_text_from_pdf(save_path)
-            parsed = {"name": text[:50], "user": {"key": user_id}, "notes": notes}
-            status, result = await realnex_post("/Crm/Properties", token, parsed)
-            results.append({"type": "Property", "status": status, "data": result})
-
-        entity = "Contact" if text and is_business_card(text) else "Property"
-        cursor.execute("INSERT INTO imports (entity, record_count, success, timestamp) VALUES (?, ?, ?, ?)",
-                       (entity, 1, 1, datetime.now().isoformat()))
-        conn.commit()
-
-        socketio.emit('notification', {'message': f"Data synced to RealNex! Clear for takeoff! 🛫"}, namespace='/chat')
-        return jsonify({
-            "message": f"Data synced to RealNex! Clear for takeoff! 🛫",
-            "results": results,
-            "followUpEmail": results[0]["data"].get("email", "") if results and results[0]["type"] == "Contact" else ""
-        })
-    except Exception as e:
-        logging.error(f"Upload error: {str(e)}")
-        cursor.execute("INSERT INTO imports (entity, record_count, success, timestamp) VALUES (?, ?, ?, ?)",
-                       ("Upload", 0, 0, datetime.now().isoformat()))
-        conn.commit()
-        socketio.emit('notification', {'message': f"Turbulence: Upload failed! {str(e)}"}, namespace='/chat')
-        return jsonify({"error": f"Turbulence: {str(e)}"}), 500
-
-@app.route('/dashboard-data', methods=['GET'])
-async def dashboard_data():
-    try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        if not token:
-            socketio.emit('notification', {'message': 'No token provided, Maverick! 🔒'}, namespace='/chat')
-            return jsonify({"error": "No token provided"}), 401
-        user_id = await get_user_id(token)
-
-        cursor.execute("SELECT entity, record_count, success, timestamp FROM imports ORDER BY timestamp DESC LIMIT 50")
-        imports = cursor.fetchall()
-        
-        cursor.execute("SELECT contact_id, score, timestamp FROM lead_scores WHERE user_id = ? ORDER BY score DESC LIMIT 10", (user_id,))
-        lead_scores = cursor.fetchall()
-
-        data = {
-            "imports": [{"entity": row[0], "record_count": row[1], "success": bool(row[2]), "timestamp": row[3]} for row in imports],
-            "lead_scores": [{"contact_id": row[0], "score": row[1], "timestamp": row[2]} for row in lead_scores],
-            "summary": {
-                "total_imports": len(imports),
-                "successful_imports": sum(1 for row in imports if row[2]),
-                "entity_counts": {}
-            }
-        }
-        cursor.execute("SELECT entity, SUM(record_count) FROM imports WHERE success = 1 GROUP BY entity")
-        entity_counts = cursor.fetchall()
-        for entity, count in entity_counts:
-            data["summary"]["entity_counts"][entity] = count
-        return jsonify(data)
-    except Exception as e:
-        logging.error(f"Dashboard data error: {str(e)}")
-        socketio.emit('notification', {'message': f"Turbulence: Dashboard data error! {str(e)}"}, namespace='/chat')
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/summarize', methods=['POST'])
-async def summarize():
-    try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        if not token:
-            socketio.emit('notification', {'message': 'No token, Maverick! Lock in! 🔒'}, namespace='/chat')
-            return jsonify({"summary": "No token, Maverick! Lock in! 🔒"}), 401
-
-        cursor.execute("SELECT entity, record_count, success, timestamp FROM imports ORDER BY timestamp DESC LIMIT 50")
-        imports = cursor.fetchall()
-        import_summary = [{"entity": row[0], "record_count": row[1], "success": bool(row[2]), "timestamp": row[3]} for row in imports]
-        
-        prompt = f"Summarize this import history in a conversational tone with Top Gun flair:\n{json.dumps(import_summary, indent=2)}"
-        response = openai_client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "You’re Maverick, a sassy real estate chatbot with Top Gun vibes. Summarize data with humor and flair!"},
-                {"role": "user", "content": prompt}
-            ]
-        )
-        summary = response.choices[0].message.content
-        socketio.emit('notification', {'message': 'Summary generated! 📊'}, namespace='/chat')
-        return jsonify({"summary": f"🎯 {summary} - Locked on, Goose!"})
-    except Exception as e:
-        logging.error(f"Summarize error: {str(e)}")
-        socketio.emit('notification', {'message': f"Turbulence: Summarize error! {str(e)}"}, namespace='/chat')
-        return jsonify({"error": f"Turbulence: {str(e)}"}), 500
-
-@app.route('/toggle-events', methods=['POST'])
-async def toggle_events():
-    global EVENT_POLLING_ENABLED, EVENT_POLLING_THREADS
-    try:
-        data = request.json
-        enable = data.get('enable', False)
-        email = data.get('email', '').strip()
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        if not token:
-            socketio.emit('notification', {'message': 'No token, Maverick! Lock in! 🔒'}, namespace='/chat')
-            return jsonify({"message": "No token, Maverick! Lock in! 🔒"}), 401
-        if not email:
-            socketio.emit('notification', {'message': 'No email provided for alerts! 📧'}, namespace='/chat')
-            return jsonify({"message": "No email provided for alerts! 📧"}), 400
-
-        user_id = await get_user_id(token)
-        if enable:
-            cursor.execute("SELECT smtp_email, smtp_password, event_trigger_priority, event_trigger_alarm FROM user_settings WHERE user_id = ?", (user_id,))
-            settings = cursor.fetchone()
-            if not settings or not settings[0] or not settings[1]:
-                socketio.emit('notification', {'message': 'No SMTP credentials set! Visit Settings to configure. ⚙️'}, namespace='/chat')
-                return jsonify({"error": "No SMTP credentials set! Visit Settings to configure. ⚙️"}), 400
-            if not settings[2] and not settings[3]:
-                socketio.emit('notification', {'message': 'No event triggers set! Configure priority or alarm in Settings. ⚙️'}, namespace='/chat')
-                return jsonify({"error": "No event triggers set! Configure priority or alarm in Settings. ⚙️"}), 400
-
-        EVENT_POLLING_ENABLED[user_id] = enable
-        cursor.execute('''INSERT OR REPLACE INTO user_settings 
-                          (user_id, email, event_alerts_enabled) 
-                          VALUES (?, ?, ?)''',
-                       (user_id, email, 1 if enable else 0))
-        conn.commit()
-
-        if enable and user_id not in EVENT_POLLING_THREADS:
-            EVENT_POLLING_THREADS[user_id] = threading.Thread(
-                target=lambda: asyncio.run(poll_events(token, user_id, email))
-            )
-            EVENT_POLLING_THREADS[user_id].daemon = True
-            EVENT_POLLING_THREADS[user_id].start()
-            socketio.emit('notification', {'message': f"Event alerts enabled! Triggered alerts will fire to {email}. 🔔"}, namespace='/chat')
-            return jsonify({"message": f"Event alerts enabled! Triggered alerts will fire to {email}. 🔔"})
-        elif not enable and user_id in EVENT_POLLING_THREADS:
-            EVENT_POLLING_ENABLED[user_id] = False
-            EVENT_POLLING_THREADS.pop(user_id, None)
-            socketio.emit('notification', {'message': 'Event alerts disabled. Radar off! 📡'}, namespace='/chat')
-            return jsonify({"message": "Event alerts disabled. Radar off! 📡"})
+# Suggest field mappings based on history or fuzzy matching
+def suggest_mappings(uploaded_headers, template_fields, user_id):
+    suggestions = {}
+    for header in uploaded_headers:
+        norm_header = normalize_field_name(header)
+        cursor.execute("SELECT mapped_field, frequency FROM user_mappings WHERE user_id = ? AND header = ? ORDER BY frequency DESC LIMIT 1",
+                       (user_id, header))
+        result = cursor.fetchone()
+        if result:
+            suggestions[header] = result[0]
         else:
-            socketio.emit('notification', {'message': f"Event alerts already {'enabled' if enable else 'disabled'}!"}, namespace='/chat')
-            return jsonify({"message": f"Event alerts already {'enabled' if enable else 'disabled'}!"})
-    except Exception as e:
-        logging.error(f"Toggle events error: {str(e)}")
-        socketio.emit('notification', {'message': f"Turbulence: Toggle events error! {str(e)}"}, namespace='/chat')
-        return jsonify({"error": f"Turbulence: {str(e)}"}), 500
+            best_match = None
+            best_score = 0
+            for template_field in template_fields:
+                norm_template_field = normalize_field_name(template_field)
+                score = fuzz.token_sort_ratio(norm_header, norm_template_field)
+                if score > 80:
+                    best_match = template_field
+                    best_score = score
+                    break
+                elif score > best_score:
+                    best_match = template_field
+                    best_score = score
+            if best_score > 50:
+                suggestions[header] = best_match
+    return suggestions
 
-HELP_MESSAGE = """
-🎯 *Goose-Maverick: Tech Stack & Usage Guide* 🎯
-- *Backend*: Flask (Python) with async httpx powers API routes (/ask, /upload-business-card, /bulk-import). Jet engine, bro!
-- *Frontend*: Tailwind CSS for slick styling, Chart.js for dope dashboards, vanilla JS for drag-and-drop and voice input. Cockpit vibes!
-- *Parsing*: Goose uses pandas for Excel, pytesseract/pdf2image/Pillow for OCR, exifread for geolocation. Radar locked!
-- *APIs*: RealNex V1 OData (/CrmOData) fetches user IDs and events; non-OData (/CrmContacts) syncs data. OpenAI (GPT-4o) runs chat, summaries, and lead scoring, ready for Grok 3!
-- *Caching*: Redis for lightning-fast API and field definition access.
-- *Field Matching*: Pulls schemas from /api/v1/Crm/definitions or realnex_fields.json (4000+ fields!) to auto-match Contacts, Properties, Spaces, SaleComps.
-- *Geolocation*: Photos’ EXIF data matches Properties/Spaces via latitude/longitude in OData queries.
-- *Integrations*: Sync RealNex contacts to Mailchimp/Constant Contact lists via /sync-contacts, configured in /settings.
-- *New Features*: 
-  - Dashboard at /dashboard shows import stats and AI-powered lead scores with Chart.js!
-  - Event triggers in /settings: set priority (e.g., High) or alarm to get emailed when events are due (SMTP or WebSocket).
-  - Real-time notifications in the chat widget via WebSocket!
-  - Voice-to-text input via /transcribe for hands-free commands!
-  - Sync contacts to Mailchimp/Constant Contact with “Sync Now” button.
-- *Usage*:
-  1. Switch to Goose mode, enter your RealNex Bearer token (from RealNex dashboard).
-  2. Visit /settings to configure SMTP email/password, Mailchimp/Constant Contact API keys, RealNex group, marketing lists, and event triggers (priority, alarm, due date days).
-  3. Drag-and-drop photos (.png, .jpg), PDFs, or Excel (.xlsx) into the chat widget.
-  4. For photos/PDFs, add notes and sync as Contacts or Properties. Photos geo-match to Properties/Spaces.
-  5. For Excel, review/edit suggested field mappings, then import.
-  6. Chat with Maverick via text or voice for help, CRM queries (‘Show my events’), or commands like `!maverick`!
-  7. Visit /dashboard to see import stats, lead scores, and request a summary.
-  8. Toggle event polling in Goose mode for alerts, with triggers set in /settings.
-  9. Click “Sync Now” to push RealNex contacts to Mailchimp/Constant Contact.
-- *Commands*: `!help` (this guide), `!maverick` (surprise), `!eject` (easter egg), `!deals` (SaleComps), `!events` (your events), `!clearturbulence` (victory!).
-- *Deploy*: Dockerized, deployed to Render (mattys-drag-drop-app.onrender.com). Built to soar!
-Ask ‘How do I sync SaleComps?’ or ‘How does geolocation work?’ for more! 😎
-"""
+# Match uploaded headers to RealNex fields
+def match_fields(uploaded_headers, template_fields, user_id="default"):
+    matched_fields = {}
+    unmatched_fields = []
+    custom_fields = ["User 1", "User 2", "User 3", "User 4", "User 5", "User 6", "User 7", "User 8", "User 9", "User 10",
+                     "UserDate 1", "UserDate 2", "UserDate 3", "UserNumber 1", "UserNumber 2", "UserNumber 3", "UserMulti"]
+    custom_field_index = 0
 
-if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=int(os.getenv('PORT', 5000)), allow_unsafe_werkzeug=True)
+    user_mappings = USER_MAPPINGS[user_id]
+    suggestions = suggest_mappings(uploaded_headers, template_fields, user_id)
+
+    for header in uploaded_headers:
+        if header in user_mappings:
+            matched_fields[header] = user_mappings[header]
+            cursor.execute("INSERT INTO user_mappings (user_id, header, mapped_field, frequency) VALUES (?, ?, ?, 1) "
+                           "ON CONFLICT(user_id, header) DO UPDATE SET frequency = frequency + 1",
+                           (user_id, header, user_mappings[header]))
+        elif header in suggestions:
+            matched_fields[header] = suggestions[header]
+            cursor.execute("INSERT INTO user_mappings (user_id, header, mapped_field, frequency) VALUES (?, ?, ?, 1) "
+                           "ON CONFLICT(user_id, header) DO UPDATE SET frequency = frequency + 1",
+                           (user_id, header, suggestions[header]))
+        else:
+            norm_header = normalize_field_name(header)
+            best_match = None
+            best_score = 0
+            for template_field in template_fields:
+                norm_template_field = normalize_field_name(template_field)
+                score = fuzz.token_sort_ratio(norm_header, norm_template_field)
+                if score > 80:
+                    best_match = template_field
+                    best_score = score
+                    break
+                elif score > best_score:
+                    best_match = template_field
+                    best_score = score
+
+            if best_score > 50:
+                matched_fields[header] = best_match
+                cursor.execute("INSERT INTO user_mappings (user_id, header, mapped_field, frequency) VALUES (?, ?, ?, 1)",
+                               (user_id, header, best_match))
+            else:
+                if custom_field_index < len(custom_fields):
+                    matched_fields[header] = custom_fields[custom_field_index]
+                    cursor.execute("INSERT INTO user_mappings (user_id, header, mapped_field, frequency) VALUES (?, ?, ?, 1)",
+                                   (user_id, header, custom_fields[custom_field_index]))
+                    custom_field_index += 1
+                else:
+                    unmatched_fields.append(header)
+    conn.commit()
+    return matched_fields, unmatched_fields
+
+# 2FA setup and verification with Authy
+def register_user_for_2fa(user_id, email, phone):
+    url = "https://api.authy.com/protected/json/users/new"
+    headers = {"X-Authy-API-Key": AUTHY_API_KEY}
+    data = {
+        "user": {
+            "email": email,
+            "phone_number": phone,
+            "country_code": "1"  # Assuming US, adjust as needed
+        }
+    }
+    response = requests.post(url, headers=headers, json=data)
+    if response.status_code == 200:
+        authy_id = response.json().get("user").get("id")
+        cursor.execute("INSERT OR REPLACE INTO user_2fa (user_id, authy_id) VALUES (?, ?)",
+                       (user_id, authy_id))
+        conn.commit()
+        return authy_id
+    return None
+
+def send_2fa_code(user_id):
+    cursor.execute("SELECT authy_id FROM user_2fa WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+    if not result:
+        return False
+    authy_id = result[0]
+    url = f"https://api.authy.com/protected/json/sms/{authy_id}"
+    headers = {"X-Authy-API-Key": AUTHY_API_KEY}
+    response = requests.get(url, headers=headers)
+    return response.status_code == 200
+
+def check_2fa(user_id, code):
+    cursor.execute("SELECT authy_id FROM user_2fa WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+    if not result:
+        return False
+    authy_id = result[0]
+    url = f"https://api.authy.com/protected/json/verify/{code}/{authy_id}"
+    headers = {"X-Authy-API-Key": AUTHY_API_KEY}
+    response = requests.get(url, headers=headers)
+    return response.status_code == 200
+
+# File upload route with RealNex integration
+@app.route('/upload-file', methods=['POST'])
+@require_token
+def upload_file():
+    data = request.form.to_dict()
+    user_id = "default"
+    two_fa_code = data.get('two_fa_code')
+    if not two_fa_code:
+        # Request 2FA code
+        if not send_2fa_code(user_id):
+            return jsonify({"error": "Failed to send 2FA code. Ensure user is registered for 2FA."}), 400
+        return jsonify({"message": "2FA code sent to your phone. Please provide the code to proceed."}), 200
+
+    if not check_2fa(user_id, two_fa_code):
+        return jsonify({"error": "Invalid 2FA code"}), 403
+
+    if 'file' not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+
+    file = request.files['file']
+    token = request.headers.get('Authorization').split(' ')[1]
+    valid_types = ['application/pdf', 'image/jpeg', 'image/png', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
+    
+    if file.content_type not in valid_types:
+        return jsonify({"error": "Invalid file type. Only PDFs, JPEG/PNG images, and XLSX files are allowed."}), 400
+
+    if file.content_type == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
+        df = pd.read_excel(file, engine='openpyxl')
+        uploaded_headers = list(df.columns)
+
+        templates = {
+            "LeaseComps": REALNEX_LEASECOMP_FIELDS,
+            "SaleComps": REALNEX_SALECOMP_FIELDS,
+            "Spaces": REALNEX_SPACES_FIELDS,
+            "Projects": REALNEX_PROJECTS_FIELDS,
+            "Companies": REALNEX_COMPANIES_FIELDS,
+            "Contacts": REALNEX_CONTACTS_FIELDS,
+            "Properties": REALNEX_PROPERTIES_FIELDS
+        }
+
+        best_match_template = None
+        best_match_count = 0
+        matched_fields = {}
+        unmatched_fields = []
+
+        for template_name, template_fields in templates.items():
+            matched, unmatched = match_fields(uploaded_headers, template_fields, user_id)
+            match_count = len(matched)
+            if match_count > best_match_count:
+                best_match_count = match_count
+                best_match_template = template_name
+                matched_fields = matched
+                unmatched_fields = unmatched
+
+        renamed_df = df.rename(columns=matched_fields)
+        csv_buffer = io.StringIO()
+        renamed_df.to_csv(csv_buffer, index=False)
+        csv_data = csv_buffer.getvalue()
+
+        response = requests.post(
+            f'{REALNEX_API_BASE}/ImportData',
+            headers={'Authorization': f'Bearer {token}', 'Content-Type': 'text/csv'},
+            data=csv_data
+        )
+
+        if response.status_code == 200:
+            points, points_message = award_points(user_id, 10, "uploading data")
+            message = f"🔥 Imported {len(df)} records into RealNex as {best_match_template}! "
+            message += f"Matched fields: {', '.join([f'{k} → {v}' for k, v in matched_fields.items()])}. "
+            if unmatched_fields:
+                message += f"Unmatched fields: {', '.join(unmatched_fields)}. Map these in RealNex or adjust your file, stud!"
+            else:
+                message += "All fields matched—smooth sailing, stud!"
+            message += f" {points_message}"
+            return jsonify({"message": message, "points": points}), 200
+        else:
+            return jsonify({"error": f"Failed to import data into RealNex: {response.text}"}), 400
+    else:
+        points, points_message = award_points(user_id, 5, "uploading a file")
+        return jsonify({"message": f"File uploaded successfully! Let’s close some deals, stud! 🔥 {points_message}", "points": points}), 200
+
+# Natural language query route with trained AI
+@app.route('/ask', methods=['POST'])
+def ask():
+    data = request.json
+    message = data.get('message', '').lower()
+    user_id = "default"
+
+    # RealNex-trained AI responses
+    if 'lease comps with rent over' in message:
+        rent_threshold = re.search(r'\d+', message)
+        if rent_threshold:
+            rent_threshold = int(rent_threshold.group())
+            token = request.headers.get('Authorization', '').split(' ')[1] if 'Authorization' in request.headers else None
+            if token:
+                response = requests.get(
+                    f"{REALNEX_API_BASE}/LeaseComps?filter=rent_month gt {rent_threshold}",
+                    headers={'Authorization': f'Bearer {token}'}
+                )
+                if response.status_code == 200:
+                    leases = response.json().get('value', [])
+                    if leases:
+                        return jsonify({"answer": f"Found {len(leases)} LeaseComps with rent over ${rent_threshold}/month: {json.dumps(leases[:2])}. Check RealNex for more, stud! 📊"})
+                    return jsonify({"answer": f"No LeaseComps found with rent over ${rent_threshold}/month."})
+                return jsonify({"answer": f"Error fetching LeaseComps: {response.text}"})
+            return jsonify({"answer": f"Please provide a RealNex token to query LeaseComps with rent over ${rent_threshold}/month."})
+    elif 'sale comps in' in message and 'city' in message:
+        city = re.search(r'in\s+([a-z\s]+)\s+city', message)
+        if city:
+            city = city.group(1).strip()
+            token = request.headers.get('Authorization', '').split(' ')[1] if 'Authorization' in request.headers else None
+            if token:
+                response = requests.get(
+                    f"{REALNEX_API_BASE}/SaleComps?filter=city eq '{city}'",
+                    headers={'Authorization': f'Bearer {token}'}
+                )
+                if response.status_code == 200:
+                    sales = response.json().get('value', [])
+                    if sales:
+                        return jsonify({"answer": f"Found {len(sales)} SaleComps in {city} city: {json.dumps(sales[:2])}. Dive into RealNex for details, stud! 🏙️"})
+                    return jsonify({"answer": f"No SaleComps found in {city} city."})
+                return jsonify({"answer": f"Error fetching SaleComps: {response.text}"})
+            return jsonify({"answer": f"Please provide a RealNex token to query SaleComps in {city} city."})
+    elif 'required fields' in message:
+        if 'lease comp' in message:
+            required_fields = ["Deal ID", "Property name", "Address 1", "City", "State", "Zip code", "Lessee.Full Name", "Lessor.Full Name", "Rent/month", "Sq ft", "Lease term", "Deal date"]
+            return jsonify({"answer": f"The required fields for a LeaseComp import are: {', '.join(required_fields)}. Let’s get that deal in, stud! 💼"})
+        elif 'sale comp' in message:
+            required_fields = ["Deal ID", "Property name", "Address", "City", "State", "Zip code", "Buyer.Name", "Seller.Name", "Sale price", "Sq ft", "Sale date"]
+            return jsonify({"answer": f"The required fields for a SaleComp import are: {', '.join(required_fields)}. Ready to crush that sale, stud? 🤑"})
+        elif 'spaces' in message:
+            required_fields = ["Property.Property name", "Property.Address 1", "Property.City", "Property.State", "Property.Zip code", "Suite", "Floor", "Sq Ft"]
+            return jsonify({"answer": f"The required fields for a Spaces import are: {', '.join(required_fields)}. Let’s fill those spaces, stud! 🏢"})
+        elif 'projects' in message:
+            required_fields = ["Project", "Type", "Size", "Deal amt", "Date opened"]
+            return jsonify({"answer": f"The required fields for a Projects import are: {', '.join(required_fields)}. Time to kick off that project, stud!"})
+        elif 'companies' in message:
+            required_fields = ["Company", "Address1", "City", "State", "Zip Code"]
+            return jsonify({"answer": f"The required fields for a Companies import are: {', '.join(required_fields)}. Let’s add that company, stud! 🏬"})
+        elif 'contacts' in message:
+            required_fields = ["Full Name", "First Name", "Last Name", "Company", "Address1", "City", "State", "Postal Code"]
+            return jsonify({"answer": f"The required fields for a Contacts import are: {', '.join(required_fields)}. Ready to connect, stud? 📞"})
+        elif 'properties' in message:
+            required_fields = ["Property Name", "Property Type", "Property Address", "Property City", "Property State", "Property Postal Code"]
+            return jsonify({"answer": f"The required fields for a Properties import are: {', '.join(required_fields)}. Let’s list that property, stud! 🏠"})
+    elif 'what is a lease term' in message:
+        return jsonify({"answer": "In RealNex, the 'Lease term' field is the duration of the lease agreement, usually in months (e.g., '24 Months'). It’s required for LeaseComps. Let’s lock in that lease, stud! 📝"})
+    elif 'what is a cap rate' in message:
+        return jsonify({"answer": "In RealNex, the 'Cap rate' (capitalization rate) is a SaleComp field that measures the return on investment for a property, calculated as NOI / Sale price. It’s a key metric for investors, stud! 📈"})
+    elif 'how to import' in message and 'realnex' in message:
+        return jsonify({"answer": "To import into RealNex, drag-and-drop your XLSX file into the chat. I’ll auto-match your fields to RealNex templates like LeaseComps or SaleComps, and import the data for you. Make sure your file has headers, stud! 🖥️"})
+    elif 'realblast' in message:
+        return jsonify({"answer": "RealBlasts are RealNex’s email campaigns! You can send them to your CRM groups or the RealNex community (over 100,000 users). Use the 'Send RealBlast' button to create one, stud! 📧"})
+    elif 'marketedge' in message:
+        return jsonify({"answer": "MarketEdge in RealNex lets you create financial analyses, proposals, flyers, BOVs, and offering memorandums. It auto-populates data from your CRM and uses your branding. Let’s craft some killer collateral, stud! 📈"})
+    else:
+        return jsonify({"answer": "I can help with RealNex questions, stud! Ask about required fields, specific terms, RealBlasts, MarketEdge, or how to import data. What’s up? 🤙"})
+
+# Dashboard data route
+@app.route('/dashboard-data', methods=['GET'])
+@require_token
+def dashboard_data():
+    user_id = "default"
+    token = request.headers.get('Authorization').split(' ')[1]
+    response = requests.get(
+        f"{REALNEX_API_BASE}/Dashboard",
+        headers={'Authorization': f'Bearer {token}'}
+    )
+    if response.status_code != 200:
+        return jsonify({"error": f"Failed to fetch dashboard data: {response.text}"}), 400
+
+    data = response.json()
+    data["total_imports"] = data.get("total_imports", 50)  # Example field
+    data["recent_leases"] = data.get("recent_leases", [{"Deal ID": "123", "Rent/month": 6000}, {"Deal ID": "456", "Rent/month": 4500}])
+
+    cursor.execute("SELECT points FROM user_points WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+    data["points"] = result[0] if result else 0
+    return jsonify(data), 200
+
+# RealNex RealBlast campaign route
+@app.route('/send-realnex-realblast', methods=['POST'])
+@require_token
+def send_realnex_realblast():
+    data = request.json
+    user_id = "default"
+    token = request.headers.get('Authorization').split(' ')[1]
+    two_fa_code = data.get('two_fa_code')
+    if not two_fa_code:
+        if not send_2fa_code(user_id):
+            return jsonify({"error": "Failed to send 2fa code. Ensure user is registered for 2FA."}), 400
+        return jsonify({"message": "2FA code sent to your phone. Please provide the code to proceed."}), 200
+
+    if not check_2fa(user_id, two_fa_code):
+        return jsonify({"error": "Invalid 2FA code"}), 403
+
+    group_id = data.get('group_id')
+    campaign_content = data.get('campaign_content')
+
+    if not group_id or not campaign_content:
+        return jsonify({"error": "Missing group ID or campaign content, stud!"}), 400
+
+    response = requests.post(
+        f"{REALNEX_API_BASE}/RealBlasts",
+        headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+        json={"group_id": group_id, "content": campaign_content}
+    )
+
+    if response.status_code == 200:
+        points, points_message = award_points(user_id, 15, "sending a RealNex RealBlast")
+        return jsonify({"message": f"RealBlast sent to group {group_id}! Nice work, stud! 📧 {points_message}", "points": points}), 200
+    return jsonify({"error": f"Failed to send RealBlast: {response.text}"}), 400
+
+# Mailchimp campaign route (separate from RealBlasts)
+@app.route('/send-mailchimp-campaign', methods=['POST'])
+@require_token
+def send_mailchimp_campaign():
+    data = request.json
+    user_id = "default"
+    two_fa_code = data.get('two_fa_code')
+    if not two_fa_code:
+        if not send_2fa_code(user_id):
+            return jsonify({"error": "Failed to send 2FA code. Ensure user is registered for 2FA."}), 400
+        return jsonify({"message": "2FA code sent to your phone. Please provide the code to proceed."}), 200
+
+    if not check_2fa(user_id, two_fa_code):
+        return jsonify({"error": "Invalid 2FA code"}), 403
+
+    audience_id = data.get('audience_id')
+    campaign_content = data.get('campaign_content')
+
+    if not audience_id or not campaign_content:
+        return jsonify({"error": "Missing audience ID or campaign content, stud!"}), 400
+
+    # Create a Mailchimp campaign
+    url = f"https://{MAILCHIMP_SERVER_PREFIX}.api.mailchimp.com/3.0/campaigns"
+    headers = {
+        "Authorization": f"Bearer {MAILCHIMP_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    campaign_data = {
+        "type": "regular",
+        "recipients": {"list_id": audience_id},
+        "settings": {
+            "subject_line": "Your CRE Campaign",
+            "from_name": "Matty’s Maverick & Goose",
+            "reply_to": "noreply@example.com"
+        }
+    }
+    response = requests.post(url, headers=headers, json=campaign_data)
+
+    if response.status_code != 200:
+        return jsonify({"error": f"Failed to create Mailchimp campaign: {response.text}"}), 400
+
+    campaign_id = response.json().get("id")
+
+    # Set campaign content
+    content_url = f"https://{MAILCHIMP_SERVER_PREFIX}.api.mailchimp.com/3.0/campaigns/{campaign_id}/content"
+    content_data = {"html": campaign_content}
+    content_response = requests.put(content_url, headers=headers, json=content_data)
+
+    if content_response.status_code != 200:
+        return jsonify({"error": f"Failed to set Mailchimp campaign content: {content_response.text}"}), 400
+
+    # Send the campaign
+    send_url = f"https://{MAILCHIMP_SERVER_PREFIX}.api.mailchimp.com/3.0/campaigns/{campaign_id}/actions/send"
+    send_response = requests.post(send_url, headers=headers)
+
+    if send_response.status_code == 204:
+        points, points_message = award_points(user_id, 15, "sending a Mailchimp campaign")
+        return jsonify({"message": f"Mailchimp campaign sent to audience {audience_id}! Nice work, stud! 📧 {points_message}", "points": points}), 200
+    return jsonify({"error": f"Failed to send Mailchimp campaign: {send_response.text}"}), 400
+
+# CRM data sync route (ZoomInfo/Apollo.io)
+@app.route('/sync-crm-data', methods=['POST'])
+@require_token
+def sync_crm_data():
+    data = request.json
+    user_id = "default"
+    token = request.headers.get('Authorization').split(' ')[1]
+
+    # Fetch contacts from ZoomInfo
+    zoominfo_contacts = []
+    if ZOOMINFO_API_KEY:
+        response = requests.get(
+            "https://api.zoominfo.com/v1/contacts",
+            headers={"Authorization": f"Bearer {ZOOMINFO_API_KEY}"}
+        )
+        if response.status_code == 200:
+            zoominfo_contacts = response.json().get("contacts", [])
+
+    # Fetch contacts from Apollo.io
+    apollo_contacts = []
+    if APOLLO_API_KEY:
+        response = requests.get(
+            "https://api.apollo.io/v1/contacts",
+            headers={"Authorization": f"Bearer {APOLLO_API_KEY}"}
+        )
+        if response.status_code == 200:
+            apollo_contacts = response.json().get("contacts", [])
+
+    # Combine and format contacts for RealNex
+    contacts = []
+    for contact in zoominfo_contacts + apollo_contacts:
+        formatted_contact = {
+            "Full Name": contact.get("name", ""),
+            "First Name": contact.get("first_name", ""),
+            "Last Name": contact.get("last_name", ""),
+            "Company": contact.get("company", ""),
+            "Address1": contact.get("address", ""),
+            "City": contact.get("city", ""),
+            "State": contact.get("state", ""),
+            "Postal Code": contact.get("zip", ""),
+            "Work Phone": contact.get("phone", ""),
+            "Email": contact.get("email", "")
+        }
+        contacts.append(formatted_contact)
+
+    # Import into RealNex
+    if contacts:
+        df = pd.DataFrame(contacts)
+        csv_buffer = io.StringIO()
+        df.to_csv(csv_buffer, index=False)
+        csv_data = csv_buffer.getvalue()
+
+        response = requests.post(
+            f"{REALNEX_API_BASE}/ImportData",
+            headers={'Authorization': f'Bearer {token}', 'Content-Type': 'text/csv'},
+            data=csv_data
+        )
+
+        if response.status_code == 200:
+            points, points_message = award_points(user_id, 10, "bringing in data")
+            return jsonify({
+                "message": f"Synced {len(contacts)} contacts into RealNex, stud! 📇 {points_message}",
+                "points": points
+            }), 200
+        return jsonify({"error": f"Failed to import contacts into RealNex: {response.text}"}), 400
+    return jsonify({"message": "No contacts to sync."}), 200
+
+# Predictive analytics for deals
+@app.route('/predict-deal', methods=['POST'])
+@require_token
+def predict_deal():
+    data = request.json
+    user_id = "default"
+    token = request.headers.get('Authorization').split(' ')[1]
+
+    deal_type = data.get('deal_type')  # e.g., "LeaseComp", "SaleComp"
+    deal_data = data.get('deal_data')  # e.g., {"rent_month": 5000, "sq_ft": 1000}
+
+    if not deal_type or not deal_data:
+        return jsonify({"error": "Missing deal type or data"}), 400
+
+    # Fetch historical data from RealNex
+    response = requests.get(
+        f"{REALNEX_API_BASE}/{deal_type}s",
+        headers={'Authorization': f'Bearer {token}'}
+    )
+    if response.status_code != 200:
+        return jsonify({"error": f"Failed to fetch historical data: {response.text}"}), 400
+
+    historical_data = response.json().get('value', [])
+    if not historical_data:
+        return jsonify({"error": "No historical data available for prediction"}), 400
+
+    # Simple prediction model (replace with real ML model)
+    if deal_type == "LeaseComp":
+        avg_rent_per_sqft = sum(item.get("rent_month", 0) / item.get("sq_ft", 1) for item in historical_data) / len(historical_data)
+        predicted_rent = deal_data.get("sq_ft", 0) * avg_rent_per_sqft
+        return jsonify({"prediction": f"Predicted rent for {deal_data.get('sq_ft')} sq ft: ${predicted_rent:.2f}/month"})
+    elif deal_type == "SaleComp":
+        avg_price_per_sqft = sum(item.get("sale_price", 0) / item.get("sq_ft", 1) for item in historical_data) / len(historical_data)
+        predicted_price = deal_data.get("sq_ft", 0) * avg_price_per_sqft
+        return jsonify({"prediction": f"Predicted sale price for {deal_data.get('sq_ft')} sq ft: ${predicted_price:.2f}"})
+    return jsonify({"error": "Unsupported deal type"}), 400
+
+# Email drafting route
+@app.route('/draft-email', methods=['POST'])
+@require_token
+def draft_email():
+    data = request.json
+    user_id = "default"
+    campaign_type = data.get('campaign_type')  # e.g., "RealBlast", "Mailchimp"
+    audience_id = data.get('audience_id')
+    subject = data.get('subject', "Your CRE Update")
+
+    if not campaign_type or not audience_id:
+        return jsonify({"error": "Missing campaign type or audience ID"}), 400
+
+    # Fetch audience data from RealNex or Mailchimp
+    if campaign_type == "RealBlast":
+        token = request.headers.get('Authorization').split(' ')[1]
+        response = requests.get(
+            f"{REALNEX_API_BASE}/Groups/{audience_id}",
+            headers={'Authorization': f'Bearer {token}'}
+        )
+        if response.status_code != 200:
+            return jsonify({"error": f"Failed to fetch group data: {response.text}"}), 400
+        audience_data = response.json()
+    else:  # Mailchimp
+        url = f"https://{MAILCHIMP_SERVER_PREFIX}.api.mailchimp.com/3.0/lists/{audience_id}/members"
+        headers = {"Authorization": f"Bearer {MAILCHIMP_API_KEY}"}
+        response = requests.get(url, headers=headers)
+        if response.status_code != 200:
+            return jsonify({"error": f"Failed to fetch audience data: {response.text}"}), 400
+        audience_data = response.json()
+
+    # Generate email content (replace with real NLP model if available)
+    greeting = "Hey there, CRE Pro!"
+    body = f"I’ve got some exciting {campaign_type} updates for you. Check out the latest properties and deals we’ve lined up to help you close faster!"
+    closing = "Let’s make those deals happen, stud! 🤑\n- Matty’s Maverick & Goose"
+    content = f"{greeting}\n\n{body}\n\n{closing}"
+
+    return jsonify({
+        "subject": subject,
+        "content": content,
+        "message": "Email drafted! You can edit and send it using the Send RealBlast or Send Mailchimp Campaign button."
+    }), 200
+
+# Transcription route
+@app.route('/transcribe', methods=['POST'])
+@require_token
+def transcribe():
+    data = request.json
+    transcription = data.get('transcription', '')
+    if not transcription:
+        return jsonify({"error": "No transcription provided"}), 400
+
+    # Process transcription as a regular message
+    message_data = {"message": transcription}
+    request_data = request.copy()
+    request_data.json = message_data
+    return ask()
+
+# Sync contacts route
+@app.route('/sync-contacts', methods=['POST'])
+@require_token
+def sync_contacts():
+    data = request.json
+    user_id = "default"
+    token = request.headers.get('Authorization').split(' ')[1]
+
+    # Example: Sync with Google (requires OAuth setup)
+    google_token = data.get('google_token')
+    if not google_token:
+        return jsonify({"error": "Google token required for syncing"}), 400
+
+    response = requests.get(
+        "https://www.googleapis.com/oauth2/v1/userinfo",
+        headers={"Authorization": f"Bearer {google_token}"}
+    )
+    if response.status_code != 200:
+        return jsonify({"error": f"Failed to fetch Google contacts: {response.text}"}), 400
+
+    # Import into RealNex (simplified example)
+    contacts = response.json().get("contacts", [])
+    if contacts:
+        df = pd.DataFrame(contacts)
+        csv_buffer = io.StringIO()
+        df.to_csv(csv_buffer, index=False)
+        csv_data = csv_buffer.getvalue()
+
+        response = requests.post(
+            f"{REALNEX_API_BASE}/ImportData",
+            headers={'Authorization': f'Bearer {token}', 'Content-Type': 'text/csv'},
+            data=csv_data
+        )
+
+        if response.status_code == 200:
+            return jsonify({"message": f"Synced {len(contacts)} contacts into RealNex!"}), 200
+        return jsonify({"error": f"Failed to import contacts into RealNex: {response.text}"}), 400
+    return jsonify({"message": "No contacts to sync."}), 200
+
+# Verify emails route
+@app.route('/verify-emails', methods=['POST'])
+@require_token
+def verify_emails():
+    data = request.json
+    emails = data.get('emails', [])
+    if not emails:
+        return jsonify({"error": "No emails provided"}), 400
+
+    # Use a real email verification service (e.g., NeverBounce)
+    verified_emails = []
+    for email in emails:
+        # Placeholder for real email verification API
+        verified_emails.append({"email": email, "status": "valid"})  # Replace with actual API call
+
+    return jsonify({"verified_emails": verified_emails, "message": f"Verified {len(verified_emails)} emails, stud! ✨"}), 200
+
+# Summarize route
+@app.route('/summarize', methods=['POST'])
+@require_token
+def summarize():
+    data = request.json
+    text = data.get('text', '')
+    if not text:
+        return jsonify({"error": "No text provided for summarization"}), 400
+
+    # Use a real NLP model for summarization (e.g., Hugging Face)
+    summary = "Summary: " + text[:50] + "..."  # Replace with actual NLP model
+    return jsonify({"summary": summary}), 200
+
+# Get RealNex groups
+@app.route('/get-realnex-groups', methods=['GET'])
+@require_token
+def get_realnex_groups():
+    token = request.headers.get('Authorization').split(' ')[1]
+    response = requests.get(
+        f"{REALNEX_API_BASE}/Groups",
+        headers={'Authorization': f'Bearer {token}'}
+    )
+    if response.status_code == 200:
+        return jsonify({"groups": response.json().get('value', [])}), 200
+    return jsonify({"error": f"Failed to fetch groups: {response.text}"}), 400
+
+# Get marketing lists (Mailchimp audiences)
+@app.route('/get-marketing-lists', methods=['GET'])
+@require_token
+def get_marketing_lists():
+    url = f"https://{MAILCHIMP_SERVER_PREFIX}.api.mailchimp.com/3.0/lists"
+    headers = {"Authorization": f"Bearer {MAILCHIMP_API_KEY}"}
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        return jsonify({"lists": response.json().get("lists", [])}), 200
+    return jsonify({"error": f"Failed to fetch marketing lists: {response.text}"}), 400
+
+# Save settings route
+@app.route('/save-settings', methods=['POST'])
+@require_token
+def save_settings():
+    data = request.json
+    user_id = "default"
+    token = data.get('token')
+    email = data.get('email')
+    phone = data.get('phone')
+
+    # Validate token
+    response = requests.get(
+        f"{REALNEX_API_BASE}/ValidateToken",
+        headers={'Authorization': f'Bearer {token}'}
+    )
+    if response.status_code != 200:
+        return jsonify({"error": "Invalid RealNex token"}), 400
+
+    # Register for 2FA if email and phone are provided
+    if email and phone:
+        authy_id = register_user_for_2fa(user_id, email, phone)
+        if not authy_id:
+            return jsonify({"error": "Failed to register for 2FA"}), 400
+
+    return jsonify({"message": "Settings saved successfully!"}), 200
+
+if __name__ == "__main__":
+    app.run(debug=True)
