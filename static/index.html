@@ -1,85 +1,523 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Goose-Maverick Chatbot</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matty's Maverick & Goose - Chat Hub</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
+            min-height: 100vh;
+            overflow: hidden;
+            position: relative;
+            color: #F8FAFC;
+        }
+        body::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAYAAAAeP4ixAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABzSURBVHhe7dOxDYAwEASxV+jY+wZmE5s5I5oS0A3c4uP9J+ABgIMHDx48ePDgwYMHDx48ePDgweOv4MGDBy8ePHjw4MGDBy8ePHjw4MGDBy8ePHjw4MGDBy8ePHjw4MGDBy8ePHjw4MGDBy8ePHjw4MGDBw8evD5vA1WvB0oJAAAAAElFTkSuQmCC');
+            opacity: 0.05;
+            pointer-events: none;
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 24px;
+            transition: all 0.3s ease;
+            box-shadow: 0 0 20px rgba(168, 85, 247, 0.2);
+        }
+        .glass-card:hover {
+            background: rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2), 0 0 30px rgba(168, 85, 247, 0.5);
+        }
+        .glow-button {
+            background: linear-gradient(45deg, #A855F7, #22D3EE);
+            color: #F8FAFC;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 50px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 0 10px rgba(168, 85, 247, 0.3);
+        }
+        .glow-button:hover {
+            box-shadow: 0 0 20px rgba(168, 85, 247, 0.7), 0 0 30px rgba(34, 211, 238, 0.5);
+            transform: translateY(-2px);
+        }
+        .glow-button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+            transition: 0.5s;
+        }
+        .glow-button:hover::before {
+            left: 100%;
+        }
+        .glow-button:disabled {
+            background: #4B5563;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+        .mic-button {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: linear-gradient(45deg, #A855F7, #22D3EE);
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+            position: relative;
+            box-shadow: 0 0 10px rgba(168, 85, 247, 0.3);
+        }
+        .mic-button:hover {
+            box-shadow: 0 0 20px rgba(168, 85, 247, 0.7), 0 0 30px rgba(34, 211, 238, 0.5);
+            transform: translateY(-2px);
+        }
+        .mic-button .voice-wave::after {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            border: 2px solid #22D3EE;
+            opacity: 0.5;
+            animation: wavePulse 2s infinite;
+        }
+        @keyframes wavePulse {
+            0% { transform: scale(1); opacity: 0.5; }
+            100% { transform: scale(1.5); opacity: 0; }
+        }
+        .chat-bubble {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 12px 16px;
+            margin: 8px 0;
+            color: #F8FAFC;
+            animation: holographicFadeIn 0.5s ease;
+            box-shadow: 0 0 15px rgba(168, 85, 247, 0.3), inset 0 0 5px rgba(34, 211, 238, 0.2);
+            transition: transform 0.3s ease;
+        }
+        .chat-bubble:hover {
+            transform: scale(1.02);
+            box-shadow: 0 0 20px rgba(168, 85, 247, 0.5), inset 0 0 10px rgba(34, 211, 238, 0.3);
+        }
+        @keyframes holographicFadeIn {
+            0% { opacity: 0; transform: translateY(10px); filter: blur(5px); }
+            50% { filter: blur(2px); }
+            100% { opacity: 1; transform: translateY(0); filter: blur(0); }
+        }
+        .minimal-input {
+            background: transparent;
+            border: none;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.2);
+            color: #F8FAFC;
+            padding: 8px 0;
+            width: 100%;
+            transition: all 0.3s ease;
+        }
+        .minimal-input:focus {
+            outline: none;
+            border-bottom: 2px solid #A855F7;
+            box-shadow: 0 2px 10px rgba(168, 85, 247, 0.3);
+        }
+        .footer-text {
+            font-size: 12px;
+            color: #94A3B8;
+            text-align: center;
+            margin-top: 16px;
+        }
+        .drag-drop-zone {
+            border: 2px dashed rgba(255, 255, 255, 0.3);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            color: #94A3B8;
+            transition: all 0.3s ease;
+            position: relative;
+            background: rgba(255, 255, 255, 0.03);
+            box-shadow: 0 0 15px rgba(168, 85, 247, 0.2);
+        }
+        .drag-drop-zone:hover, .drag-drop-zone.dragover {
+            border-color: #A855F7;
+            background: rgba(168, 85, 247, 0.1);
+            box-shadow: 0 0 25px rgba(168, 85, 247, 0.5), 0 0 15px rgba(34, 211, 238, 0.3);
+        }
+        .drag-drop-zone.dragover::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border-radius: 12px;
+            border: 2px solid #22D3EE;
+            opacity: 0.5;
+            animation: wavePulse 2s infinite;
+        }
+        .drag-drop-zone:disabled {
+            border-color: #4B5563;
+            color: #4B5563;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+        .dashboard-button {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: linear-gradient(45deg, #A855F7, #22D3EE);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+            box-shadow: 0 0 10px rgba(168, 85, 247, 0.3);
+        }
+        .dashboard-button:hover {
+            box-shadow: 0 0 20px rgba(168, 85, 247, 0.7), 0 0 30px rgba(34, 211, 238, 0.5);
+            transform: translateY(-2px) rotate(5deg);
+        }
+        .dashboard-button:disabled {
+            background: #4B5563;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+        .dashboard-button i {
+            font-size: 24px;
+        }
+        .notification {
+            background: linear-gradient(45deg, #A855F7, #22D3EE);
+            box-shadow: 0 0 20px rgba(168, 85, 247, 0.5);
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 20px rgba(168, 85, 247, 0.5); }
+            50% { box-shadow: 0 0 30px rgba(34, 211, 238, 0.7); }
+            100% { box-shadow: 0 0 20px rgba(168, 85, 247, 0.5); }
+        }
+        .points-display {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 8px 16px;
+            color: #F8FAFC;
+            box-shadow: 0 0 15px rgba(168, 85, 247, 0.3);
+        }
+    </style>
 </head>
-<body class="bg-gray-100">
-    <div class="container mx-auto p-4">
-        <h1 class="text-3xl font-bold text-center text-blue-600">Goose-Maverick Chatbot</h1>
-        <div class="mt-4">
-            <input id="message" type="text" class="p-2 border rounded w-full" placeholder="Ask Maverick...">
-            <div class="flex space-x-2 mt-2">
-                <button onclick="sendMessage()" class="p-2 bg-blue-600 text-white rounded">Send</button>
-                <button onclick="startVoice()" class="p-2 bg-green-600 text-white rounded">🎙️ Voice</button>
-                <a href="/settings" class="p-2 bg-gray-600 text-white rounded text-center">⚙️ Settings</a>
+<body>
+    <!-- Main Container -->
+    <div class="container mx-auto p-6 relative z-10">
+        <!-- Points Display -->
+        <div class="flex justify-center mb-4">
+            <div class="points-display">
+                <i class="fas fa-trophy text-yellow-400 mr-2"></i>
+                <span id="points">0</span> Points
             </div>
         </div>
-        <div id="response" class="mt-4 p-4 bg-white rounded shadow"></div>
-        <div id="error" class="hidden fixed top-4 right-4 p-4 bg-red-500 text-white rounded-lg shadow-lg animate-bounce"></div>
+
+        <!-- Header -->
+        <header class="flex items-center justify-center mb-8">
+            <h1 class="text-4xl font-bold text-white tracking-tight">Matty's Maverick & Goose</h1>
+        </header>
+
+        <!-- Chat Widget (Glass Card) -->
+        <div class="max-w-md mx-auto glass-card">
+            <!-- Chat Display -->
+            <div id="chat-display" class="h-96 overflow-y-auto mb-4 p-4 rounded-lg">
+                <div class="chat-bubble">Hey there, I’m Goose! Ask me anything about RealNex, or add your token in Settings to unlock more features, stud! 💥</div>
+            </div>
+
+            <!-- Input and Buttons -->
+            <div class="flex items-center space-x-2 mb-4">
+                <input id="message" type="text" class="minimal-input placeholder-gray-400" placeholder="Type your message...">
+                <button onclick="sendMessage()" class="glow-button">Send</button>
+                <button onclick="startVoice()" class="mic-button" title="Voice Command">
+                    <div class="voice-wave">
+                        <i class="fas fa-microphone text-white"></i>
+                    </div>
+                </button>
+            </div>
+
+            <!-- Drag and Drop Zone -->
+            <div id="drag-drop-zone" class="drag-drop-zone mb-4" disabled>
+                <p>Drag & Drop PDF, Image, or XLSX here to upload (Token required) 📂</p>
+                <input type="file" id="file-upload" accept=".pdf,image/*,.xlsx" class="hidden" onchange="uploadFile()">
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="grid grid-cols-2 gap-3 mb-4">
+                <button id="send-campaign-btn" onclick="sendCampaign()" class="glow-button" disabled>Send RealBlast</button>
+                <button id="verify-emails-btn" onclick="verifyEmails()" class="glow-button" disabled>Verify Emails</button>
+                <button id="sync-crm-btn" onclick="syncCrmData()" class="glow-button" disabled>Sync CRM Data</button>
+                <a id="settings-link" href="/settings" class="glow-button text-center">Settings</a>
+            </div>
+
+            <!-- Dashboard Button -->
+            <div class="flex justify-center">
+                <a id="dashboard-link" href="/dashboard" class="text-center" onclick="checkToken(event)" disabled>
+                    <div class="dashboard-button">
+                        <i class="fas fa-chart-line text-white"></i>
+                    </div>
+                    <span class="text-sm text-gray-400 mt-1 block">Dashboard</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer-text">
+            Created by Matty Smith with 💜 | <a href="https://realnex.com" class="text-blue-400 hover:underline">Visit RealNex.com</a>
+        </div>
+
+        <!-- Notification Toast -->
+        <div id="notification" class="hidden fixed top-4 right-4 p-4 text-white rounded-lg shadow-lg animate-bounce notification"></div>
     </div>
+
     <script>
-    async function fetchWithErrorHandling(url, options) {
-        try {
-            const response = await fetch(url, options);
-            if (!response.ok) {
-                showError(response.status === 404 ? `Whoops, ${url} is off the radar! Try another route, Goose! 😎` : `Turbulence: ${response.statusText}`);
+        let token = localStorage.getItem('realnex_token') || null;
+        let mailchimpApiKey = localStorage.getItem('mailchimp_api_key') || null;
+        let zoominfoApiKey = localStorage.getItem('zoominfo_api_key') || null;
+        let apolloApiKey = localStorage.getItem('apollo_api_key') || null;
+
+        async function updatePoints() {
+            const response = await fetch('/dashboard-data', {
+                method: 'GET',
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            if (response.ok) {
+                const data = await response.json();
+                document.getElementById('points').textContent = data.points || 0;
+            }
+        }
+
+        function updateFeatureAccess() {
+            const hasToken = !!token;
+            const dragDropZone = document.getElementById('drag-drop-zone');
+            const fileUpload = document.getElementById('file-upload');
+            if (hasToken) {
+                dragDropZone.classList.remove('disabled');
+                dragDropZone.removeAttribute('disabled');
+                fileUpload.removeAttribute('disabled');
+            } else {
+                dragDropZone.classList.add('disabled');
+                dragDropZone.setAttribute('disabled', 'true');
+                fileUpload.setAttribute('disabled', 'true');
+            }
+            document.getElementById('send-campaign-btn').disabled = !(hasToken && mailchimpApiKey);
+            document.getElementById('verify-emails-btn').disabled = !hasToken;
+            document.getElementById('sync-crm-btn').disabled = !(hasToken && (zoominfoApiKey || apolloApiKey));
+            document.getElementById('dashboard-link').classList.toggle('dashboard-button', hasToken);
+            document.getElementById('dashboard-link').classList.toggle('dashboard-button:disabled', !hasToken);
+            updatePoints();
+        }
+
+        async function fetchWithErrorHandling(url, options) {
+            try {
+                const response = await fetch(url, options);
+                if (!response.ok) {
+                    showNotification(response.status === 401 ? `Invalid token! Please check your RealNex token in Settings, stud!` : `Turbulence: ${response.statusText} 🚨`);
+                    return null;
+                }
+                return await response.json();
+            } catch (error) {
+                showNotification(`Mayday! ${error.message} 🚨`);
                 return null;
             }
-            return await response.json();
-        } catch (error) {
-            showError(`Mayday! ${error.message}`);
-            return null;
         }
-    }
 
-    function showError(message) {
-        const errorDiv = document.getElementById('error');
-        errorDiv.textContent = message;
-        errorDiv.classList.remove('hidden');
-        setTimeout(() => errorDiv.classList.add('hidden'), 5000);
-    }
-
-    async function sendMessage() {
-        const message = document.getElementById('message').value;
-        const token = localStorage.getItem('token');
-        const response = await fetchWithErrorHandling('/ask', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-            body: JSON.stringify({ message })
-        });
-        if (response) {
-            document.getElementById('response').textContent = response.answer;
+        function showNotification(message) {
+            const notificationDiv = document.getElementById('notification');
+            notificationDiv.textContent = message;
+            notificationDiv.classList.remove('hidden');
+            setTimeout(() => notificationDiv.classList.add('hidden'), 5000);
         }
-    }
 
-    function startVoice() {
-        const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
-        recognition.lang = 'en-US';
-        recognition.onresult = async (event) => {
-            const transcription = event.results[0][0].transcript;
-            const token = localStorage.getItem('token');
-            const response = await fetchWithErrorHandling('/transcribe', {
+        function appendMessage(message) {
+            const chatDisplay = document.getElementById('chat-display');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'chat-bubble';
+            messageDiv.textContent = message;
+            chatDisplay.appendChild(messageDiv);
+            chatDisplay.scrollTop = chatDisplay.scrollHeight;
+        }
+
+        function checkToken(event) {
+            if (!token) {
+                event.preventDefault();
+                showNotification('Please add your RealNex token in Settings to access this feature, stud! 🔐');
+            }
+        }
+
+        async function sendMessage() {
+            const message = document.getElementById('message').value;
+            if (!message) return;
+            appendMessage(`You: ${message}`);
+
+            if (!token) {
+                if (message.toLowerCase().includes('realnex')) {
+                    appendMessage(`Goose: I can help with general RealNex questions, stud! For example, RealNex is a powerful CRM for commercial real estate, helping you manage contacts, projects, and properties. Want to know more about a specific feature? Or add your token in Settings to unlock more! 💪`);
+                } else {
+                    appendMessage(`Goose: I can answer questions about RealNex without a token. For other features, please add your RealNex token in Settings, stud! 🔐`);
+                }
+            } else {
+                const response = await fetchWithErrorHandling('/ask', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                    body: JSON.stringify({ message })
+                });
+                if (response) {
+                    appendMessage(`Goose: ${response.answer}`);
+                }
+            }
+            document.getElementById('message').value = '';
+        }
+
+        async function sendCampaign() {
+            if (!token || !mailchimpApiKey) return;
+            const campaignContent = prompt("Enter your RealBlast campaign content:");
+            if (!campaignContent) return;
+
+            const response = await fetchWithErrorHandling('/send-campaign', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-                body: JSON.stringify({ transcription })
+                body: JSON.stringify({
+                    mailchimp_api_key: mailchimpApiKey,
+                    audience_id: "Audience1", // Simulated audience
+                    campaign_content: campaignContent
+                })
             });
             if (response) {
-                document.getElementById('response').textContent = response.answer;
+                appendMessage(`Goose: ${response.message}`);
+                updatePoints();
             }
-        };
-        recognition.onerror = (event) => showError(`Voice error: ${event.error}`);
-        recognition.start();
-    }
+        }
+
+        async function verifyEmails() {
+            if (!token) return;
+            const response = await fetchWithErrorHandling('/verify-emails', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            if (response) {
+                showNotification(`Verified ${response.verified} emails! We’re golden, stud! ✨`);
+            }
+        }
+
+        async function syncCrmData() {
+            if (!token || !(zoominfoApiKey || apolloApiKey)) return;
+            const response = await fetchWithErrorHandling('/sync-crm-data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                body: JSON.stringify({
+                    zoominfo_api_key: zoominfoApiKey,
+                    apollo_api_key: apolloApiKey
+                })
+            });
+            if (response) {
+                appendMessage(`Goose: ${response.message}`);
+                updatePoints();
+            }
+        }
+
+        async function startVoice() {
+            const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+            recognition.lang = 'en-US';
+            recognition.onresult = async (event) => {
+                const transcription = event.results[0][0].transcript;
+                appendMessage(`You (Voice): ${transcription}`);
+
+                if (!token) {
+                    if (transcription.toLowerCase().includes('realnex')) {
+                        appendMessage(`Goose: I can help with general RealNex questions, stud! For example, RealNex is a powerful CRM for commercial real estate, helping you manage contacts, projects, and properties. Want to know more about a specific feature? Or add your token in Settings to unlock more! 💪`);
+                    } else {
+                        appendMessage(`Goose: I can answer questions about RealNex without a token. For other features, please add your RealNex token in Settings, stud! 🔐`);
+                    }
+                } else {
+                    const response = await fetchWithErrorHandling('/transcribe', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                        body: JSON.stringify({ transcription })
+                    });
+                    if (response) {
+                        appendMessage(`Goose: ${response.answer}`);
+                    }
+                }
+            };
+            recognition.onerror = (event) => showNotification(`Voice error: ${event.error} 🚨`);
+            recognition.start();
+        }
+
+        const dragDropZone = document.getElementById('drag-drop-zone');
+        dragDropZone.addEventListener('click', () => {
+            if (!token) return;
+            document.getElementById('file-upload').click();
+        });
+        dragDropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            if (!token) return;
+            dragDropZone.classList.add('dragover');
+        });
+        dragDropZone.addEventListener('dragleave', () => {
+            dragDropZone.classList.remove('dragover');
+        });
+        dragDropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            if (!token) return;
+            dragDropZone.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                document.getElementById('file-upload').files = files;
+                uploadFile();
+            }
+        });
+
+        async function uploadFile() {
+            if (!token) return;
+            const fileInput = document.getElementById('file-upload');
+            const file = fileInput.files[0];
+            if (!file) return;
+
+            const validTypes = ['application/pdf', 'image/jpeg', 'image/png', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'];
+            if (!validTypes.includes(file.type)) {
+                showNotification('Please upload a PDF, image (JPEG/PNG), or XLSX file, stud! 📂');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+            const response = await fetchWithErrorHandling('/upload-file', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + token },
+                body: formData
+            });
+
+            if (response) {
+                appendMessage(`Goose: ${response.message}`);
+                updatePoints();
+            }
+            fileInput.value = '';
+        }
+
+        document.getElementById('message').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+
+        updateFeatureAccess();
     </script>
-    <style>
-    .animate-bounce {
-        animation: bounce 0.5s ease infinite;
-    }
-    @keyframes bounce {
-        0%, 100% { transform: translateY(0); }
-        50% { transform: translateY(-10px); }
-    }
-    </style>
 </body>
 </html>
