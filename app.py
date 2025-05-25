@@ -843,6 +843,102 @@ def settings_page():
 def dashboard():
     return render_template('dashboard.html')
 
+# Dashboard data route
+@app.route('/dashboard-data', methods=['GET'])
+async def dashboard_data():
+    user_id = "default"
+    token = get_token(user_id, "realnex")
+    cursor.execute("SELECT points, email_credits, has_msa FROM user_points WHERE user_id = ?", (user_id,))
+    user_data = cursor.fetchone()
+    points = user_data[0] if user_data else 0
+    email_credits = user_data[1] if user_data else 0
+    has_msa = user_data[2] if user_data else 0
+
+    cursor.execute("SELECT record_type, import_date FROM user_imports WHERE user_id = ? ORDER BY import_date DESC LIMIT 5",
+                   (user_id,))
+    imports = cursor.fetchall()
+
+    data = {
+        "points": points,
+        "email_credits": email_credits,
+        "has_msa": bool(has_msa),
+        "imports": [{"record_type": imp[0], "import_date": imp[1]} for imp in imports]
+    }
+    return jsonify(data), 200
+
+# Duplicates route
+@app.route('/duplicates', methods=['GET'])
+def get_duplicates():
+    user_id = "default"
+    cursor.execute("SELECT import_id, record_type, record_data, import_date FROM user_imports WHERE user_id = ? ORDER BY import_date DESC",
+                   (user_id,))
+    imports = cursor.fetchall()
+
+    # Dictionary to group records by type and identify duplicates
+    records_by_type = defaultdict(list)
+    duplicates = defaultdict(list)
+
+    for imp in imports:
+        import_id, record_type, record_data, import_date = imp
+        record_data = json.loads(record_data)
+        record = {
+            "import_id": import_id,
+            "record_type": record_type,
+            "record_data": record_data,
+            "import_date": import_date
+        }
+        records_by_type[record_type].append(record)
+
+    # Identify duplicates within each record type
+    for record_type, records in records_by_type.items():
+        seen = {}
+        for record in records:
+            data = record["record_data"]
+            # Define key fields for duplicate detection based on record type
+            if record_type == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
+                # For Excel files, use fields like Property name and Deal date
+                key_fields = (
+                    data.get('Property name', ''),
+                    data.get('Deal date', data.get('Sale date', ''))
+                )
+            else:
+                # For PDFs/Images, use extracted text as a key (simplified)
+                key_fields = (data.get('text', ''),)
+
+            key = (record_type, key_fields)
+            if key in seen:
+                duplicates[record_type].append({
+                    "original": seen[key],
+                    "duplicate": record
+                })
+            else:
+                seen[key] = record
+
+    # Format the response
+    duplicates_response = {}
+    for record_type, dups in duplicates.items():
+        duplicates_response[record_type] = [
+            {
+                "original": {
+                    "import_id": dup["original"]["import_id"],
+                    "record_data": dup["original"]["record_data"],
+                    "import_date": dup["original"]["import_date"]
+                },
+                "duplicate": {
+                    "import_id": dup["duplicate"]["import_id"],
+                    "record_data": dup["duplicate"]["record_data"],
+                    "import_date": dup["duplicate"]["import_date"]
+                }
+            } for dup in dups
+        ]
+
+    return jsonify({"duplicates": duplicates_response}), 200
+
+# Duplicates dashboard route
+@app.route('/duplicates-dashboard')
+def duplicates_dashboard():
+    return render_template('duplicates_dashboard.html')
+
 # Natural language query route
 @app.route('/ask', methods=['POST'])
 async def ask():
@@ -1425,57 +1521,4 @@ async def ask():
             if not achievements:
                 answer = "You haven’t unlocked any achievements yet. Keep earning points to unlock badges! 🏅"
             else:
-                answer = "Here are your achievements:\n"
-                for a in achievements:
-                    answer += f"- {a[0]}: {a[1]} (Awarded on {a[2]})\n"
-
-    # RealNex-trained AI responses
-    elif 'lease comps with rent over' in message:
-        rent_threshold = re.search(r'\d+', message)
-        if rent_threshold:
-            rent_threshold = int(rent_threshold.group())
-            token = get_token(user_id, "realnex")
-            if not token:
-                answer = f"Please fetch your RealNex JWT token in Settings to query LeaseComps with rent over ${rent_threshold}/month. 🔑"
-                return jsonify({"answer": answer, "tts": answer})
-
-            historical_data = await get_realnex_data(user_id, f"LeaseComps?filter=rent_month gt {rent_threshold}")
-            if historical_data:
-                leases = historical_data
-                if leases:
-                    answer = f"Found {len(leases)} LeaseComps with rent over ${rent_threshold}/month: {json.dumps(leases[:2])}. Check RealNex for more. 📊"
-                else:
-                    answer = f"No LeaseComps found with rent over ${rent_threshold}/month."
-            else:
-                answer = "Failed to fetch LeaseComps."
-
-    elif 'sale comps in' in message and 'city' in message:
-        city = re.search(r'in\s+([a-z\s]+)\s+city', message)
-        if city:
-            city = city.group(1).strip()
-            token = get_token(user_id, "realnex")
-            if not token:
-                answer = f"Please fetch your RealNex JWT token in Settings to query SaleComps in {city} city. 🔑"
-                return jsonify({"answer": answer, "tts": answer})
-
-            historical_data = await get_realnex_data(user_id, f"SaleComps?filter=city eq '{city}'")
-            if historical_data:
-                sales = historical_data
-                if sales:
-                    answer = f"Found {len(sales)} SaleComps in {city} city: {json.dumps(sales[:2])}. Dive into RealNex for details. 🏙️"
-                else:
-                    answer = f"No SaleComps found in {city} city."
-            else:
-                answer = "Failed to fetch SaleComps."
-
-    elif 'required fields' in message:
-        if 'lease comp' in message:
-            required_fields = ["Deal ID", "Property name", "Address 1", "City", "State", "Zip code", "Lessee.Full Name", "Lessor.Full Name", "Rent/month", "Sq ft", "Lease term", "Deal date"]
-            answer = f"The required fields for a LeaseComp import are: {', '.join(required_fields)}. 💼"
-        elif 'sale comp' in message:
-            required_fields = ["Deal ID", "Property name", "Address", "City", "State", "Zip code", "Buyer.Name", "Seller.Name", "Sale price", "Sq ft", "Sale date"]
-            answer = f"The required fields for a SaleComp import are: {', '.join(required_fields)}. 🤑"
-        else:
-            answer = "Please specify a template (e.g., 'required fields for lease comp')."
-
-    elif 'what is a lease term' in message:
+                answer = "Here are your achievements:\n
