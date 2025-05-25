@@ -7,6 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4/dist/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -123,6 +124,26 @@
             box-shadow: 0 0 10px rgba(168, 85, 247, 0.2);
             animation: slideIn 0.3s ease;
         }
+        .prediction-widget {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 0 15px rgba(168, 85, 247, 0.3);
+        }
+        .prediction-input {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 8px;
+            color: #F8FAFC;
+            transition: all 0.3s ease;
+        }
+        .prediction-input:focus {
+            outline: none;
+            box-shadow: 0 0 10px rgba(168, 85, 247, 0.5);
+        }
         @keyframes pulse {
             0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
             100% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; }
@@ -156,74 +177,3 @@
             box-shadow: 0 0 15px rgba(168, 85, 247, 0.5);
             animation: popIn 0.5s ease forwards, fadeOut 0.5s ease 2s forwards;
         }
-        @keyframes popIn {
-            0% { transform: scale(0.8); opacity: 0; }
-            100% { transform: scale(1); opacity: 1; }
-        }
-        @keyframes fadeOut {
-            0% { opacity: 1; }
-            100% { opacity: 0; }
-        }
-    </style>
-</head>
-<body>
-    <div class="container mx-auto p-6">
-        <!-- Stats Display -->
-        <div class="flex justify-center mb-4 space-x-4">
-            <div class="stats-display">
-                <i class="fas fa-trophy text-yellow-400 mr-2"></i>
-                <span id="points">0</span> Points
-            </div>
-            <div class="stats-display">
-                <i class="fas fa-envelope text-cyan-300 mr-2"></i>
-                <span id="email-credits">0</span> Credits
-            </div>
-            <div class="stats-display">
-                <i class="fas fa-award text-purple-400 mr-2"></i>
-                MSA: <span id="msa-status">No</span>
-            </div>
-        </div>
-
-        <!-- Header -->
-        <header class="flex items-center justify-center mb-8">
-            <h1 class="text-4xl font-bold text-white tracking-tight">Matty's Maverick & Goose</h1>
-        </header>
-
-        <!-- Drag and Drop Area -->
-        <div class="drop-zone mb-8" id="dropZone">
-            <p>Drag & Drop your XLSX, PDF, or photos here to import (earn 1 point per record, stud! 📂)</p>
-        </div>
-
-        <!-- Recent Imports Display -->
-        <div class="glass-card mb-8">
-            <h2 class="text-xl font-semibold mb-4">Recent Imports</h2>
-            <div id="recentImports"></div>
-        </div>
-
-        <!-- Chat Container -->
-        <div class="glass-card mb-8">
-            <div id="chat" class="chat-container"></div>
-        </div>
-
-        <!-- Input Area -->
-        <div class="flex flex-col sm:flex-row items-center justify-center space-y-4 sm:space-y-0 sm:space-x-4 mb-8">
-            <input type="text" id="message" placeholder="Ask me anything, stud! 🤙" class="w-full sm:w-96 input-glass">
-            <button onclick="sendMessage()" class="neon-button">Send</button>
-            <button onclick="transcribe()" class="voice-icon">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-cyan-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                </svg>
-            </button>
-            <a href="/dashboard.html" class="neon-button">Dashboard</a>
-            <button onclick="goToSettings()" class="neon-button">Settings</button>
-        </div>
-    </div>
-
-    <script>
-        const socket = io();
-
-        async function fetchWithErrorHandling(url, options) {
-            try {
-                const response = await fetch(url, options);
-                if (!response.ok) {
-                    addMessage(response.status === 401 ? `Invalid token! Please fetch your RealNex JWT token in Settings, stud!` : `Turbulence: ${response.status
