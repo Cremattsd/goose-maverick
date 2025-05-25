@@ -1510,15 +1510,3 @@ async def ask():
         if remaining_steps:
             status_message += f"Remaining Steps: {', '.join(remaining_steps)}\n"
         answer = status_message
-
-    elif 'my achievements' in message:
-        if not settings["achievements_enabled"]:
-            answer = "Achievements are disabled in settings. Enable them to view your badges! 🏅"
-        else:
-            cursor.execute("SELECT name, description, awarded_date FROM user_achievements WHERE user_id = ? ORDER BY awarded_date DESC",
-                           (user_id,))
-            achievements = cursor.fetchall()
-            if not achievements:
-                answer = "You haven’t unlocked any achievements yet. Keep earning points to unlock badges! 🏅"
-            else:
-                answer = "Here are your achievements:\n
