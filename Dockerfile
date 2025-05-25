@@ -52,7 +52,7 @@ RUN pip install --upgrade pip
 
 # Copy Python requirements and install dependencies to leverage caching
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt --use-pep517
 
 # Copy the rest of the application
 COPY . .
