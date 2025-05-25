@@ -1,7 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit
-from functools import wraps
 import pandas as pd
 import io
 import numpy as np
@@ -11,7 +10,6 @@ from pdf2image import convert_from_bytes
 import pytesseract
 from PIL import Image
 import httpx
-from tenacity import retry, stop_after_attempt, wait_fixed
 from fuzzywuzzy import fuzz
 from collections import defaultdict
 import sqlite3
@@ -31,12 +29,9 @@ redis_client = redis.Redis(host='localhost', port=6379, db=0)
 socketio = SocketIO(app, cors_allowed_origins="*", message_queue='redis://localhost:6379')
 
 # API credentials (replace with your own)
-REALNEX_API_KEY = "your_realnex_api_key"
 REALNEX_API_BASE = "https://sync.realnex.com/api/v1/CrmOData"
-MAILCHIMP_API_KEY = "your_mailchimp_api_key"
+REALNEX_AUTH_URL = "https://imports.realnex.com/integrations/api"
 MAILCHIMP_SERVER_PREFIX = "us1"
-ZOOMINFO_API_KEY = "your_zoominfo_api_key"
-APOLLO_API_KEY = "your_apollo_api_key"
 TWILIO_ACCOUNT_SID = "your_twilio_account_sid"
 TWILIO_AUTH_TOKEN = "your_twilio_auth_token"
 TWILIO_AUTHY_API_KEY = "your_authy_api_key"
@@ -47,12 +42,11 @@ SMTP_USER = "your_email@gmail.com"  # Replace with your email
 SMTP_PASSWORD = "your_email_password"  # Replace with your email password
 
 # Initialize clients
-mailchimp = MailchimpClient()
-mailchimp.set_config({"api_key": MAILCHIMP_API_KEY, "server": MAILCHIMP_SERVER_PREFIX})
+mailchimp = None
 twilio_client = TwilioClient(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
-# Database setup for user mappings, points, 2FA, email credits, and onboarding
+# Database setup for user mappings, points, 2FA, email credits, onboarding, tokens, and imports
 conn = sqlite3.connect('user_data.db', check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute('''CREATE TABLE IF NOT EXISTS user_mappings 
@@ -63,6 +57,10 @@ cursor.execute('''CREATE TABLE IF NOT EXISTS user_2fa
                  (user_id TEXT, authy_id TEXT)''')
 cursor.execute('''CREATE TABLE IF NOT EXISTS user_onboarding 
                  (user_id TEXT, step TEXT, completed INTEGER)''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS user_tokens 
+                 (user_id TEXT, service TEXT, token TEXT)''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS user_imports 
+                 (user_id TEXT, import_id TEXT, record_type TEXT, record_data TEXT, import_date TEXT)''')
 conn.commit()
 
 # RealNex template fields for data imports
@@ -83,24 +81,44 @@ REALNEX_PROPERTIES_FIELDS = ["Property Name", "Property Type", "Property Address
 
 USER_MAPPINGS = defaultdict(dict)
 
-# Authentication decorator to validate RealNex token
-def require_token(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if request.path == '/ask':
-            return f(*args, **kwargs)
-        token = request.headers.get('Authorization')
-        if not token or not token.startswith('Bearer '):
-            return jsonify({"error": "Token is missing or invalid"}), 401
-        token = token.split(' ')[1]
+# Helper to get token for a service
+def get_token(user_id, service):
+    cursor.execute("SELECT token FROM user_tokens WHERE user_id = ? AND service = ?", (user_id, service))
+    result = cursor.fetchone()
+    return result[0] if result else None
+
+# Helper to fetch JWT token from RealNex
+async def fetch_realnex_jwt(user_id, username, password):
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            REALNEX_AUTH_URL,
+            json={"username": username, "password": password}
+        )
+    if response.status_code == 200:
+        jwt_token = response.json().get("token")
+        cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
+                       (user_id, "realnex", jwt_token))
+        conn.commit()
+        return jwt_token
+    return None
+
+# Helper to validate token for a service
+def validate_token(token, service):
+    if service == "realnex":
         response = httpx.get(
             f"{REALNEX_API_BASE}/ValidateToken",
             headers={'Authorization': f'Bearer {token}'}
         )
-        if response.status_code != 200:
-            return jsonify({"error": "Invalid RealNex token"}), 401
-        return f(*args, **kwargs)
-    return decorated_function
+        return response.status_code == 200
+    elif service == "mailchimp":
+        try:
+            client = MailchimpClient()
+            client.set_config({"api_key": token, "server": MAILCHIMP_SERVER_PREFIX})
+            client.ping.get()
+            return True
+        except:
+            return False
+    return False
 
 # Points system helper with email credits and MSA
 def award_points(user_id, points_to_add, action):
@@ -277,12 +295,31 @@ def extract_text_from_file(file):
         return pytesseract.image_to_string(image)
     return ""
 
-# File upload route with OCR and RealNex integration
-@app.route('/upload-file', methods=['POST'])
-@require_token
-async def upload_file():
-    data = request.form.to_dict()
+# Route to fetch RealNex JWT token
+@app.route('/fetch-realnex-jwt', methods=['POST'])
+async def fetch_realnex_jwt_route():
+    data = request.json
     user_id = "default"
+    username = data.get('username')
+    password = data.get('password')
+
+    if not username or not password:
+        return jsonify({"error": "Please provide RealNex username and password, stud!"}), 400
+
+    jwt_token = await fetch_realnex_jwt(user_id, username, password)
+    if jwt_token:
+        return jsonify({"message": "RealNex JWT token fetched successfully, stud! 🚀"}), 200
+    return jsonify({"error": "Failed to fetch RealNex JWT token. Check your credentials, stud!"}), 400
+
+# File upload route with RealNex integration
+@app.route('/upload-file', methods=['POST'])
+async def upload_file():
+    user_id = "default"
+    token = get_token(user_id, "realnex")
+    if not token:
+        return jsonify({"answer": "Please fetch your RealNex JWT token in Settings to import data, stud! 🔑"})
+
+    data = request.form.to_dict()
     two_fa_code = data.get('two_fa_code')
     if not two_fa_code:
         if not send_2fa_code(user_id):
@@ -296,73 +333,91 @@ async def upload_file():
         return jsonify({"error": "No file provided"}), 400
 
     file = request.files['file']
-    token = request.headers.get('Authorization').split(' ')[1]
     valid_types = ['application/pdf', 'image/jpeg', 'image/png', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
     
     if file.content_type not in valid_types:
         return jsonify({"error": "Invalid file type. Only PDFs, JPEG/PNG images, and XLSX files are allowed."}), 400
 
+    record_count = 0
+    records = []
+    import_id = str(uuid.uuid4())
+
     if file.content_type == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
         df = pd.read_excel(file, engine='openpyxl')
+        record_count = len(df)
+        records = df.to_dict('records')
+    elif file.content_type == 'application/pdf':
+        pdf_file = PyMuPDF.open(stream=file.read(), filetype="pdf")
+        record_count = len(pdf_file)
+        for page_num in range(record_count):
+            records.append({"page": page_num + 1, "text": pdf_file[page_num].get_text()})
+    else:  # Image
+        record_count = 1
+        text = pytesseract.image_to_string(Image.open(file.stream))
+        records.append({"text": text})
+
+    # Store imported records
+    for record in records:
+        cursor.execute("INSERT INTO user_imports (user_id, import_id, record_type, record_data, import_date) VALUES (?, ?, ?, ?, ?)",
+                       (user_id, import_id, file.content_type, json.dumps(record), datetime.now().isoformat()))
+    conn.commit()
+
+    # Award points: 1 point per record
+    points_to_add = record_count
+    points, email_credits, has_msa, points_message = award_points(user_id, points_to_add, f"importing {record_count} records")
+
+    # Process for RealNex import
+    if file.content_type == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
+        uploaded_headers = list(df.columns)
+        templates = {
+            "LeaseComps": REALNEX_LEASECOMP_FIELDS,
+            "SaleComps": REALNEX_SALECOMP_FIELDS,
+            "Spaces": REALNEX_SPACES_FIELDS,
+            "Projects": REALNEX_PROJECTS_FIELDS,
+            "Companies": REALNEX_COMPANIES_FIELDS,
+            "Contacts": REALNEX_CONTACTS_FIELDS,
+            "Properties": REALNEX_PROPERTIES_FIELDS
+        }
+
+        best_match_template = None
+        best_match_count = 0
+        matched_fields = {}
+        unmatched_fields = []
+
+        for template_name, template_fields in templates.items():
+            matched, unmatched = match_fields(uploaded_headers, template_fields, user_id)
+            match_count = len(matched)
+            if match_count > best_match_count:
+                best_match_count = match_count
+                best_match_template = template_name
+                matched_fields = matched
+                unmatched_fields = unmatched
+
+        renamed_df = df.rename(columns=matched_fields)
+        csv_buffer = io.StringIO()
+        renamed_df.to_csv(csv_buffer, index=False)
+        csv_data = csv_buffer.getvalue()
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f'{REALNEX_API_BASE}/ImportData',
+                headers={'Authorization': f'Bearer {token}', 'Content-Type': 'text/csv'},
+                content=csv_data
+            )
+
+        if response.status_code == 200:
+            message = f"🔥 Imported {record_count} records into RealNex as {best_match_template}! "
+            message += f"Matched fields: {', '.join([f'{k} → {v}' for k, v in matched_fields.items()])}. "
+            if unmatched_fields:
+                message += f"Unmatched fields: {', '.join(unmatched_fields)}. Map these in RealNex or adjust your file, stud!"
+            else:
+                message += "All fields matched—smooth sailing, stud!"
+            message += f" {points_message}"
+            return jsonify({"message": message, "points": points, "email_credits": email_credits, "has_msa": has_msa}), 200
+        return jsonify({"error": f"Failed to import data into RealNex: {response.text}"}), 400
     else:
-        # Extract text via OCR
-        text = extract_text_from_file(file)
-        if not text:
-            return jsonify({"error": "Could not extract data from the file."}), 400
-        # Convert text to DataFrame (simplified parsing)
-        lines = text.split('\n')
-        headers = lines[0].split(',')
-        data = [line.split(',') for line in lines[1:] if line]
-        df = pd.DataFrame(data, columns=headers)
-
-    uploaded_headers = list(df.columns)
-    templates = {
-        "LeaseComps": REALNEX_LEASECOMP_FIELDS,
-        "SaleComps": REALNEX_SALECOMP_FIELDS,
-        "Spaces": REALNEX_SPACES_FIELDS,
-        "Projects": REALNEX_PROJECTS_FIELDS,
-        "Companies": REALNEX_COMPANIES_FIELDS,
-        "Contacts": REALNEX_CONTACTS_FIELDS,
-        "Properties": REALNEX_PROPERTIES_FIELDS
-    }
-
-    best_match_template = None
-    best_match_count = 0
-    matched_fields = {}
-    unmatched_fields = []
-
-    for template_name, template_fields in templates.items():
-        matched, unmatched = match_fields(uploaded_headers, template_fields, user_id)
-        match_count = len(matched)
-        if match_count > best_match_count:
-            best_match_count = match_count
-            best_match_template = template_name
-            matched_fields = matched
-            unmatched_fields = unmatched
-
-    renamed_df = df.rename(columns=matched_fields)
-    csv_buffer = io.StringIO()
-    renamed_df.to_csv(csv_buffer, index=False)
-    csv_data = csv_buffer.getvalue()
-
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            f'{REALNEX_API_BASE}/ImportData',
-            headers={'Authorization': f'Bearer {token}', 'Content-Type': 'text/csv'},
-            content=csv_data
-        )
-
-    if response.status_code == 200:
-        points, email_credits, has_msa, points_message = award_points(user_id, 10, "uploading data")
-        message = f"🔥 Imported {len(df)} records into RealNex as {best_match_template}! "
-        message += f"Matched fields: {', '.join([f'{k} → {v}' for k, v in matched_fields.items()])}. "
-        if unmatched_fields:
-            message += f"Unmatched fields: {', '.join(unmatched_fields)}. Map these in RealNex or adjust your file, stud!"
-        else:
-            message += "All fields matched—smooth sailing, stud!"
-        message += f" {points_message}"
+        message = f"🔥 Imported {record_count} records (non-CSV data stored locally). {points_message}"
         return jsonify({"message": message, "points": points, "email_credits": email_credits, "has_msa": has_msa}), 200
-    return jsonify({"error": f"Failed to import data into RealNex: {response.text}"}), 400
 
 # Natural language query route with trained AI
 @app.route('/ask', methods=['POST'])
@@ -488,9 +543,9 @@ async def ask():
         if not group_id or not campaign_content:
             return jsonify({"answer": "To send a RealBlast, I need the group ID and campaign content. Say something like 'send realblast to group group123 with content Check out this property!'. What’s the group ID and content, stud? 📧"})
 
-        token = request.headers.get('Authorization', '').split(' ')[1] if 'Authorization' in request.headers else None
+        token = get_token(user_id, "realnex")
         if not token:
-            return jsonify({"answer": "Please provide a RealNex token in Settings to send a RealBlast, stud!"})
+            return jsonify({"answer": "Please fetch your RealNex JWT token in Settings to send a RealBlast, stud! 🔑"})
 
         two_fa_code = data.get('two_fa_code')
         if not two_fa_code:
@@ -539,6 +594,14 @@ async def ask():
         if not audience_id or not campaign_content:
             return jsonify({"answer": "To send a Mailchimp campaign, I need the audience ID and campaign content. Say something like 'send mailchimp campaign to audience audience456 with content Check out this property!'. What’s the audience ID and content, stud? 📧"})
 
+        token = get_token(user_id, "mailchimp")
+        if not token:
+            return jsonify({"answer": "Please add your Mailchimp API key in Settings to send a Mailchimp campaign, stud! 🔑"})
+
+        global mailchimp
+        mailchimp = MailchimpClient()
+        mailchimp.set_config({"api_key": token, "server": MAILCHIMP_SERVER_PREFIX})
+
         two_fa_code = data.get('two_fa_code')
         if not two_fa_code:
             if not send_2fa_code(user_id):
@@ -567,31 +630,38 @@ async def ask():
             return jsonify({"answer": f"Failed to send Mailchimp campaign: {str(e)}"})
 
     elif 'sync crm data' in message:
-        token = request.headers.get('Authorization', '').split(' ')[1] if 'Authorization' in request.headers else None
+        token = get_token(user_id, "realnex")
         if not token:
-            return jsonify({"answer": "Please provide a RealNex token in Settings to sync CRM data, stud!"})
+            return jsonify({"answer": "Please fetch your RealNex JWT token in Settings to sync CRM data, stud! 🔑"})
+
+        zoominfo_token = get_token(user_id, "zoominfo")
+        apollo_token = get_token(user_id, "apollo")
 
         # Fetch contacts from ZoomInfo
         zoominfo_contacts = []
-        if ZOOMINFO_API_KEY:
+        if zoominfo_token:
             async with httpx.AsyncClient() as client:
                 response = await client.get(
                     "https://api.zoominfo.com/v1/contacts",
-                    headers={"Authorization": f"Bearer {ZOOMINFO_API_KEY}"}
+                    headers={"Authorization": f"Bearer {zoominfo_token}"}
                 )
             if response.status_code == 200:
                 zoominfo_contacts = response.json().get("contacts", [])
+            else:
+                return jsonify({"answer": f"Failed to fetch ZoomInfo contacts: {response.text}. Check your ZoomInfo token in Settings, stud!"})
 
         # Fetch contacts from Apollo.io
         apollo_contacts = []
-        if APOLLO_API_KEY:
+        if apollo_token:
             async with httpx.AsyncClient() as client:
                 response = await client.get(
                     "https://api.apollo.io/v1/contacts",
-                    headers={"Authorization": f"Bearer {APOLLO_API_KEY}"}
+                    headers={"Authorization": f"Bearer {apollo_token}"}
                 )
             if response.status_code == 200:
                 apollo_contacts = response.json().get("contacts", [])
+            else:
+                return jsonify({"answer": f"Failed to fetch Apollo.io contacts: {response.text}. Check your Apollo.io token in Settings, stud!"})
 
         # Combine and format contacts for RealNex
         contacts = []
@@ -641,9 +711,9 @@ async def ask():
         if not deal_type or not sq_ft:
             return jsonify({"answer": "To predict a deal, I need the deal type (LeaseComp or SaleComp) and square footage. Say something like 'predict deal for LeaseComp with 5000 sq ft'. What’s the deal type and square footage, stud? 🔮"})
 
-        token = request.headers.get('Authorization', '').split(' ')[1] if 'Authorization' in request.headers else None
+        token = get_token(user_id, "realnex")
         if not token:
-            return jsonify({"answer": "Please provide a RealNex token in Settings to predict a deal, stud!"})
+            return jsonify({"answer": "Please fetch your RealNex JWT token in Settings to predict a deal, stud! 🔑"})
 
         async with httpx.AsyncClient() as client:
             response = await client.get(
@@ -710,9 +780,9 @@ async def ask():
         if not google_token:
             return jsonify({"answer": "I need a Google token to sync contacts. Say something like 'sync contacts with google token your_token_here'. What’s your Google token, stud?"})
 
-        token = request.headers.get('Authorization', '').split(' ')[1] if 'Authorization' in request.headers else None
+        token = get_token(user_id, "realnex")
         if not token:
-            return jsonify({"answer": "Please provide a RealNex token in Settings to sync contacts, stud!"})
+            return jsonify({"answer": "Please fetch your RealNex JWT token in Settings to sync contacts, stud! 🔑"})
 
         async with httpx.AsyncClient() as client:
             response = await client.get(
@@ -792,38 +862,40 @@ async def ask():
         rent_threshold = re.search(r'\d+', message)
         if rent_threshold:
             rent_threshold = int(rent_threshold.group())
-            token = request.headers.get('Authorization', '').split(' ')[1] if 'Authorization' in request.headers else None
-            if token:
-                async with httpx.AsyncClient() as client:
-                    response = await client.get(
-                        f"{REALNEX_API_BASE}/LeaseComps?filter=rent_month gt {rent_threshold}",
-                        headers={'Authorization': f'Bearer {token}'}
-                    )
-                if response.status_code == 200:
-                    leases = response.json().get('value', [])
-                    if leases:
-                        return jsonify({"answer": f"Found {len(leases)} LeaseComps with rent over ${rent_threshold}/month: {json.dumps(leases[:2])}. Check RealNex for more, stud! 📊"})
-                    return jsonify({"answer": f"No LeaseComps found with rent over ${rent_threshold}/month."})
-                return jsonify({"answer": f"Error fetching LeaseComps: {response.text}"})
-            return jsonify({"answer": f"Please provide a RealNex token to query LeaseComps with rent over ${rent_threshold}/month."})
+            token = get_token(user_id, "realnex")
+            if not token:
+                return jsonify({"answer": f"Please fetch your RealNex JWT token in Settings to query LeaseComps with rent over ${rent_threshold}/month, stud! 🔑"})
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{REALNEX_API_BASE}/LeaseComps?filter=rent_month gt {rent_threshold}",
+                    headers={'Authorization': f'Bearer {token}'}
+                )
+            if response.status_code == 200:
+                leases = response.json().get('value', [])
+                if leases:
+                    return jsonify({"answer": f"Found {len(leases)} LeaseComps with rent over ${rent_threshold}/month: {json.dumps(leases[:2])}. Check RealNex for more, stud! 📊"})
+                return jsonify({"answer": f"No LeaseComps found with rent over ${rent_threshold}/month."})
+            return jsonify({"answer": f"Error fetching LeaseComps: {response.text}"})
     elif 'sale comps in' in message and 'city' in message:
         city = re.search(r'in\s+([a-z\s]+)\s+city', message)
         if city:
             city = city.group(1).strip()
-            token = request.headers.get('Authorization', '').split(' ')[1] if 'Authorization' in request.headers else None
-            if token:
-                async with httpx.AsyncClient() as client:
-                    response = await client.get(
-                        f"{REALNEX_API_BASE}/SaleComps?filter=city eq '{city}'",
-                        headers={'Authorization': f'Bearer {token}'}
-                    )
-                if response.status_code == 200:
-                    sales = response.json().get('value', [])
-                    if sales:
-                        return jsonify({"answer": f"Found {len(sales)} SaleComps in {city} city: {json.dumps(sales[:2])}. Dive into RealNex for details, stud! 🏙️"})
-                    return jsonify({"answer": f"No SaleComps found in {city} city."})
-                return jsonify({"answer": f"Error fetching SaleComps: {response.text}"})
-            return jsonify({"answer": f"Please provide a RealNex token to query SaleComps in {city} city."})
+            token = get_token(user_id, "realnex")
+            if not token:
+                return jsonify({"answer": f"Please fetch your RealNex JWT token in Settings to query SaleComps in {city} city, stud! 🔑"})
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{REALNEX_API_BASE}/SaleComps?filter=city eq '{city}'",
+                    headers={'Authorization': f'Bearer {token}'}
+                )
+            if response.status_code == 200:
+                sales = response.json().get('value', [])
+                if sales:
+                    return jsonify({"answer": f"Found {len(sales)} SaleComps in {city} city: {json.dumps(sales[:2])}. Dive into RealNex for details, stud! 🏙️"})
+                return jsonify({"answer": f"No SaleComps found in {city} city."})
+            return jsonify({"answer": f"Error fetching SaleComps: {response.text}"})
     elif 'required fields' in message:
         if 'lease comp' in message:
             required_fields = ["Deal ID", "Property name", "Address 1", "City", "State", "Zip code", "Lessee.Full Name", "Lessor.Full Name", "Rent/month", "Sq ft", "Lease term", "Deal date"]
@@ -851,7 +923,7 @@ async def ask():
     elif 'what is a cap rate' in message:
         return jsonify({"answer": "In RealNex, the 'Cap rate' (capitalization rate) is a SaleComp field that measures the return on investment for a property, calculated as NOI / Sale price. It’s a key metric for investors, stud! 📈"})
     elif 'how to import' in message and 'realnex' in message:
-        return jsonify({"answer": "To import into RealNex, drag-and-drop your XLSX, PDF, or image file into the chat. I’ll auto-match your fields to RealNex templates like LeaseComps or SaleComps, and import the data for you. Make sure your file has headers, and required fields like 'Deal ID' match exactly, or the import might fail. You can also download RealNex template files for proper formatting, stud! 🖥️"})
+        return jsonify({"answer": "To import into RealNex, drag-and-drop your XLSX, PDF, or image file into the chat. I’ll auto-match your fields to RealNex templates like LeaseComps or SaleComps, and import the data for you. You’ll earn 1 point per record imported! Make sure your file has headers, and required fields like 'Deal ID' match exactly, or the import might fail. You’ll need to fetch your RealNex JWT token in Settings first, stud! 🖥️"})
     elif 'realblast' in message and 'best' in message:
         return jsonify({"answer": "The best way to set up a RealBlast is to use a clear subject line and include a call-to-action, like 'View Property Listing'. You can target your CRM groups or the RealNex community of over 100,000 users, and even schedule the campaign for a future date. Say 'send realblast to group group123 with content Check out this property!' to send one, stud! 📧"})
     elif 'marketedge' in message and 'flyer' in message:
@@ -863,7 +935,7 @@ async def ask():
     elif 'where can i find realnex training' in message:
         return jsonify({"answer": "RealNex offers weekly training webinars and one-on-one sessions—check their website for the schedule. You can also visit the Knowledge Base at https://realnex.zendesk.com, or start with the 'Getting Started' guide there. Say 'send training reminder to email your_email@example.com' to get a link sent to your email, stud! 📚"})
     elif 'realblast' in message:
-        return jsonify({"answer": "RealBlasts are RealNex’s email campaigns! You can send them to your CRM groups or the RealNex community (over 100,000 users). Say 'send realblast to group group123 with content Check out this property!' to send one. You’ll need email credits (earn 1000 points for 1000 credits) or a free RealBlast MSA (complete onboarding), stud! 📧"})
+        return jsonify({"answer": "RealBlasts are RealNex’s email campaigns! You can send them to your CRM groups or the RealNex community (over 100,000 users). Say 'send realblast to group group123 with content Check out this property!' to send one. You’ll need email credits (earn 1000 points for 1000 credits) or a free RealBlast MSA (complete onboarding), and a RealNex JWT token in Settings, stud! 📧"})
     elif 'marketedge' in message:
         return jsonify({"answer": "MarketEdge in RealNex lets you create financial analyses, proposals, flyers, BOVs, and offering memorandums. It auto-populates data from your CRM and uses your branding. Note that MarketEdge doesn’t have an API, so you’ll need to use it directly in RealNex, stud! 📈"})
     else:
@@ -871,19 +943,33 @@ async def ask():
 
 # Dashboard data route
 @app.route('/dashboard-data', methods=['GET'])
-@require_token
 async def dashboard_data():
     user_id = "default"
-    token = request.headers.get('Authorization').split(' ')[1]
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            f"{REALNEX_API_BASE}/Dashboard",
-            headers={'Authorization': f'Bearer {token}'}
-        )
-    if response.status_code != 200:
-        return jsonify({"error": f"Failed to fetch dashboard data: {response.text}"}), 400
+    token = get_token(user_id, "realnex")
+    data = {"imports": []}
 
-    data = response.json()
+    # Fetch recent imports
+    cursor.execute("SELECT import_id, record_type, record_data, import_date FROM user_imports WHERE user_id = ? ORDER BY import_date DESC LIMIT 10", (user_id,))
+    imports = cursor.fetchall()
+    for imp in imports:
+        data["imports"].append({
+            "import_id": imp[0],
+            "record_type": imp[1],
+            "record_data": json.loads(imp[2]),
+            "import_date": imp[3]
+        })
+
+    if token:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{REALNEX_API_BASE}/Dashboard",
+                headers={'Authorization': f'Bearer {token}'}
+            )
+        if response.status_code == 200:
+            data.update(response.json())
+    else:
+        data["answer"] = "Please fetch your RealNex JWT token in Settings to access full dashboard data, stud! 🔑"
+
     cursor.execute("SELECT points, email_credits, has_msa FROM user_points WHERE user_id = ?", (user_id,))
     result = cursor.fetchone()
     data["points"] = result[0] if result else 0
@@ -893,10 +979,12 @@ async def dashboard_data():
 
 # Deal trends for Chart.js visualization
 @app.route('/deal-trends', methods=['GET'])
-@require_token
 async def deal_trends():
     user_id = "default"
-    token = request.headers.get('Authorization').split(' ')[1]
+    token = get_token(user_id, "realnex")
+    if not token:
+        return jsonify({"answer": "Please fetch your RealNex JWT token in Settings to access deal trends, stud! 🔑"})
+
     deal_type = request.args.get('deal_type', 'LeaseComp')  # Default to LeaseComp
 
     # Fetch historical data from RealNex
@@ -939,9 +1027,12 @@ async def deal_trends():
 
 # Get RealNex groups
 @app.route('/get-realnex-groups', methods=['GET'])
-@require_token
 async def get_realnex_groups():
-    token = request.headers.get('Authorization').split(' ')[1]
+    user_id = "default"
+    token = get_token(user_id, "realnex")
+    if not token:
+        return jsonify({"answer": "Please fetch your RealNex JWT token in Settings to fetch groups, stud! 🔑"})
+
     async with httpx.AsyncClient() as client:
         response = await client.get(
             f"{REALNEX_API_BASE}/Groups",
@@ -953,8 +1044,16 @@ async def get_realnex_groups():
 
 # Get marketing lists (Mailchimp audiences)
 @app.route('/get-marketing-lists', methods=['GET'])
-@require_token
 async def get_marketing_lists():
+    user_id = "default"
+    token = get_token(user_id, "mailchimp")
+    if not token:
+        return jsonify({"answer": "Please add your Mailchimp API key in Settings to fetch marketing lists, stud! 🔑"})
+
+    global mailchimp
+    mailchimp = MailchimpClient()
+    mailchimp.set_config({"api_key": token, "server": MAILCHIMP_SERVER_PREFIX})
+
     try:
         lists = mailchimp.lists.get_all_lists()
         return jsonify({"lists": lists.get("lists", [])}), 200
@@ -963,22 +1062,22 @@ async def get_marketing_lists():
 
 # Save settings route
 @app.route('/save-settings', methods=['POST'])
-@require_token
 async def save_settings():
     data = request.json
     user_id = "default"
-    token = data.get('token')
+    tokens = data.get('tokens', {})
     email = data.get('email')
     phone = data.get('phone')
 
-    # Validate token
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            f"{REALNEX_API_BASE}/ValidateToken",
-            headers={'Authorization': f'Bearer {token}'}
-        )
-    if response.status_code != 200:
-        return jsonify({"error": "Invalid RealNex token"}), 400
+    # Save tokens for each service
+    for service, token in tokens.items():
+        if token and validate_token(token, service):
+            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
+                           (user_id, service, token))
+        else:
+            return jsonify({"error": f"Invalid token for {service}. Please check and try again, stud!"}), 400
+
+    conn.commit()
 
     # Register for 2FA if email and phone are provided
     if email and phone:
@@ -991,7 +1090,6 @@ async def save_settings():
 
 # Transcription route
 @app.route('/transcribe', methods=['POST'])
-@require_token
 async def transcribe():
     data = request.json
     transcription = data.get('transcription', '')
