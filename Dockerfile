@@ -1,10 +1,15 @@
 # Use a lightweight Python 3.11 base image
 FROM python:3.11-slim
 
+# Set environment variables for Python and Gunicorn
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PORT=5000
+
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies for PyMuPDF (MuPDF, Leptonica, Tesseract), pdf2image (poppler-utils), build tools, and swig
+# Install system dependencies for PyMuPDF, pdf2image, pytesseract, pyttsx3, build tools, and swig
 RUN apt-get update && apt-get install -y \
     build-essential \
     make \
@@ -24,9 +29,10 @@ RUN apt-get update && apt-get install -y \
     tesseract-ocr \
     poppler-utils \
     curl \
+    libespeak1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js 20.x and npm (use the latest npm version to avoid potential version issues)
+# Install Node.js 20.x and npm
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && npm install -g npm@latest
@@ -60,5 +66,5 @@ COPY . .
 # Expose the port (Render will override this with the PORT env variable)
 EXPOSE 5000
 
-# Command to run the app, using the PORT environment variable with optimized gunicorn settings
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 app:app"]
+# Command to run the app with optimized Gunicorn settings
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120 --log-level info app:app"]
