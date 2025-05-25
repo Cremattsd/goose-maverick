@@ -419,6 +419,91 @@ async def upload_file():
         message = f"🔥 Imported {record_count} records (non-CSV data stored locally). {points_message}"
         return jsonify({"message": message, "points": points, "email_credits": email_credits, "has_msa": has_msa}), 200
 
+# Real-time deal prediction route
+@app.route('/predict-deal', methods=['POST'])
+async def predict_deal():
+    user_id = "default"
+    token = get_token(user_id, "realnex")
+    if not token:
+        return jsonify({"error": "Please fetch your RealNex JWT token in Settings to predict a deal, stud! 🔑"}), 400
+
+    data = request.json
+    deal_type = data.get('deal_type', 'LeaseComp')
+    sq_ft = data.get('sq_ft')
+
+    if not sq_ft or not isinstance(sq_ft, (int, float)) or sq_ft <= 0:
+        return jsonify({"error": "Please provide a valid square footage, stud! 🔮"}), 400
+
+    if deal_type not in ["LeaseComp", "SaleComp"]:
+        return jsonify({"error": "Deal type must be 'LeaseComp' or 'SaleComp', stud! 🔮"}), 400
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{REALNEX_API_BASE}/{deal_type}s",
+            headers={'Authorization': f'Bearer {token}'}
+        )
+    if response.status_code != 200:
+        return jsonify({"error": f"Failed to fetch historical data: {response.text}"}), 400
+
+    historical_data = response.json().get('value', [])
+    if not historical_data:
+        return jsonify({"error": "No historical data available for prediction, stud!"}), 400
+
+    # Train a simple linear regression model
+    X = []
+    y = []
+    labels = []
+    for item in historical_data:
+        date = item.get('deal_date') or item.get('sale_date')
+        if not date:
+            continue
+        sq_ft_value = item.get("sq_ft", 0)
+        if deal_type == "LeaseComp":
+            value = item.get("rent_month", 0)
+        else:  # SaleComp
+            value = item.get("sale_price", 0)
+        X.append([sq_ft_value])
+        y.append(value)
+        labels.append(date)
+
+    if not X or not y:
+        return jsonify({"error": "Insufficient data for prediction, stud!"}), 400
+
+    model = LinearRegression()
+    model.fit(X, y)
+    predicted_value = model.predict([[sq_ft]])[0]
+
+    # Prepare chart data
+    chart_data = {
+        "labels": labels,
+        "datasets": [
+            {
+                "label": f"Historical {deal_type} Data",
+                "data": y,
+                "borderColor": "rgba(168, 85, 247, 1)",
+                "backgroundColor": "rgba(168, 85, 247, 0.2)",
+                "fill": True
+            },
+            {
+                "label": "Prediction",
+                "data": [{"x": sq_ft, "y": predicted_value}],
+                "borderColor": "rgba(34, 211, 238, 1)",
+                "backgroundColor": "rgba(34, 211, 238, 0.5)",
+                "pointRadius": 8,
+                "pointHoverRadius": 12
+            }
+        ]
+    }
+
+    prediction = {
+        "deal_type": deal_type,
+        "sq_ft": sq_ft,
+        "predicted_value": round(predicted_value, 2),
+        "unit": "month" if deal_type == "LeaseComp" else "total",
+        "chart_data": chart_data
+    }
+    return jsonify({"prediction": prediction}), 200
+
 # Natural language query route with trained AI
 @app.route('/ask', methods=['POST'])
 async def ask():
