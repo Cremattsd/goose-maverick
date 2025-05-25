@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit
 import pandas as pd
@@ -21,6 +21,11 @@ from twilio.rest import Client as TwilioClient
 from openai import OpenAI
 import smtplib
 from email.mime.text import MIMEText
+import threading
+import time
+import pyttsx3
+import uuid
+import re
 
 app = Flask(__name__)
 CORS(app)
@@ -38,21 +43,23 @@ TWILIO_AUTHY_API_KEY = "your_authy_api_key"
 OPENAI_API_KEY = "your_openai_api_key"
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
-SMTP_USER = "your_email@gmail.com"  # Replace with your email
-SMTP_PASSWORD = "your_email_password"  # Replace with your email password
+SMTP_USER = "your_email@gmail.com"
+SMTP_PASSWORD = "your_email_password"
 
 # Initialize clients
 mailchimp = None
 twilio_client = TwilioClient(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
-# Database setup for user mappings, points, 2FA, email credits, onboarding, tokens, and imports
+# Database setup
 conn = sqlite3.connect('user_data.db', check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute('''CREATE TABLE IF NOT EXISTS user_mappings 
                  (user_id TEXT, header TEXT, mapped_field TEXT, frequency INTEGER)''')
 cursor.execute('''CREATE TABLE IF NOT EXISTS user_points 
                  (user_id TEXT, points INTEGER, email_credits INTEGER, has_msa INTEGER, last_updated TEXT)''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS points_history 
+                 (user_id TEXT, points INTEGER, timestamp TEXT)''')
 cursor.execute('''CREATE TABLE IF NOT EXISTS user_2fa 
                  (user_id TEXT, authy_id TEXT)''')
 cursor.execute('''CREATE TABLE IF NOT EXISTS user_onboarding 
@@ -61,9 +68,20 @@ cursor.execute('''CREATE TABLE IF NOT EXISTS user_tokens
                  (user_id TEXT, service TEXT, token TEXT)''')
 cursor.execute('''CREATE TABLE IF NOT EXISTS user_imports 
                  (user_id TEXT, import_id TEXT, record_type TEXT, record_data TEXT, import_date TEXT)''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS deal_alerts 
+                 (user_id TEXT, threshold REAL)''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS user_achievements 
+                 (user_id TEXT, achievement_id TEXT, name TEXT, description TEXT, awarded_date TEXT)''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS user_settings 
+                 (user_id TEXT, deal_alerts_enabled INTEGER, deal_alert_volume INTEGER, 
+                  subject_generator_enabled INTEGER, achievements_enabled INTEGER, 
+                  sms_alerts_enabled INTEGER, phone_number TEXT, language TEXT)''')
+# Add indexes for performance
+cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_imports_date ON user_imports (user_id, import_date)")
+cursor.execute("CREATE INDEX IF NOT EXISTS idx_points_history ON points_history (user_id, timestamp)")
 conn.commit()
 
-# RealNex template fields for data imports
+# RealNex template fields
 REALNEX_LEASECOMP_FIELDS = [
     "Deal ID", "Property name", "Address 1", "Address 2", "City", "State", "Zip code", "Country",
     "Lessee.Full Name", "Lessor.Full Name", "Rent/month", "Rent/sq ft", "Sq ft", "Lease term", "Lease type", "Deal date"
@@ -81,7 +99,7 @@ REALNEX_PROPERTIES_FIELDS = ["Property Name", "Property Type", "Property Address
 
 USER_MAPPINGS = defaultdict(dict)
 
-# Helper to get token for a service
+# Helper to get token
 def get_token(user_id, service):
     cursor.execute("SELECT token FROM user_tokens WHERE user_id = ? AND service = ?", (user_id, service))
     result = cursor.fetchone()
@@ -102,7 +120,7 @@ async def fetch_realnex_jwt(user_id, username, password):
         return jwt_token
     return None
 
-# Helper to validate token for a service
+# Helper to validate token
 def validate_token(token, service):
     if service == "realnex":
         response = httpx.get(
@@ -120,8 +138,33 @@ def validate_token(token, service):
             return False
     return False
 
-# Points system helper with email credits and MSA
+# Helper to get user settings
+def get_user_settings(user_id):
+    cursor.execute("SELECT deal_alerts_enabled, deal_alert_volume, subject_generator_enabled, achievements_enabled, sms_alerts_enabled, phone_number, language FROM user_settings WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+    if result:
+        return {
+            "deal_alerts_enabled": bool(result[0]),
+            "deal_alert_volume": result[1],
+            "subject_generator_enabled": bool(result[2]),
+            "achievements_enabled": bool(result[3]),
+            "sms_alerts_enabled": bool(result[4]),
+            "phone_number": result[5],
+            "language": result[6] or "en"
+        }
+    return {
+        "deal_alerts_enabled": True,
+        "deal_alert_volume": 90,
+        "subject_generator_enabled": True,
+        "achievements_enabled": True,
+        "sms_alerts_enabled": False,
+        "phone_number": "",
+        "language": "en"
+    }
+
+# Points system helper with email credits, MSA, and achievements
 def award_points(user_id, points_to_add, action):
+    settings = get_user_settings(user_id)
     cursor.execute("SELECT points, email_credits, has_msa FROM user_points WHERE user_id = ?", (user_id,))
     result = cursor.fetchone()
     current_points = result[0] if result else 0
@@ -132,12 +175,29 @@ def award_points(user_id, points_to_add, action):
     # Check for email credits unlock at 1000 points
     if current_points < 1000 and new_points >= 1000:
         email_credits += 1000
-        socketio.emit('credits_update', {'user_id': user_id, 'email_credits': email_credits, 'message': "🎉 Boom! You’ve hit 1000 points and unlocked 1000 email credits for RealBlasts! Let’s blast off, stud! 🚀"})
+        socketio.emit('credits_update', {'user_id': user_id, 'email_credits': email_credits, 'message': "You've hit 1000 points and unlocked 1000 email credits for RealBlasts! 🚀"})
+
+    # Check for achievements
+    achievements = []
+    if settings["achievements_enabled"] and new_points >= 1000 and current_points < 1000:
+        achievement_id = str(uuid.uuid4())
+        cursor.execute("INSERT INTO user_achievements (user_id, achievement_id, name, description, awarded_date) VALUES (?, ?, ?, ?, ?)",
+                       (user_id, achievement_id, "1000 Points Ace", "Earned 1000 points!", datetime.now().isoformat()))
+        achievements.append({"name": "1000 Points Ace", "description": "Earned 1000 points!"})
+    if settings["achievements_enabled"] and new_points >= 5000 and current_points < 5000:
+        achievement_id = str(uuid.uuid4())
+        cursor.execute("INSERT INTO user_achievements (user_id, achievement_id, name, description, awarded_date) VALUES (?, ?, ?, ?, ?)",
+                       (user_id, achievement_id, "5000 Points Pro", "Earned 5000 points!", datetime.now().isoformat()))
+        achievements.append({"name": "5000 Points Pro", "description": "Earned 5000 points!"})
 
     cursor.execute("INSERT OR REPLACE INTO user_points (user_id, points, email_credits, has_msa, last_updated) VALUES (?, ?, ?, ?, ?)",
                    (user_id, new_points, email_credits, has_msa, datetime.now().isoformat()))
+    cursor.execute("INSERT INTO points_history (user_id, points, timestamp) VALUES (?, ?, ?)",
+                   (user_id, new_points, datetime.now().isoformat()))
     conn.commit()
     socketio.emit('points_update', {'user_id': user_id, 'points': new_points, 'message': f"Earned {points_to_add} points for {action}! Total points: {new_points} 🏆"})
+    if achievements:
+        socketio.emit('achievement_unlocked', {'user_id': user_id, 'achievements': achievements})
     return new_points, email_credits, has_msa, f"Earned {points_to_add} points for {action}! Total points: {new_points} 🏆"
 
 # Onboarding helper
@@ -145,7 +205,6 @@ def update_onboarding(user_id, step):
     cursor.execute("INSERT OR REPLACE INTO user_onboarding (user_id, step, completed) VALUES (?, ?, 1)", (user_id, step))
     conn.commit()
 
-    # Check if all onboarding steps are complete
     onboarding_steps = ["save_settings", "sync_crm_data", "send_realblast", "send_training_reminder"]
     completed_steps = []
     for step in onboarding_steps:
@@ -161,13 +220,13 @@ def update_onboarding(user_id, step):
         if not has_msa:
             cursor.execute("UPDATE user_points SET has_msa = 1 WHERE user_id = ?", (user_id,))
             conn.commit()
-            socketio.emit('msa_update', {'user_id': user_id, 'message': "🎉 Congrats, stud! You’ve completed onboarding and earned a free RealBlast MSA! Send a RealBlast on us! 🚀"})
+            socketio.emit('msa_update', {'user_id': user_id, 'message': "Congrats! You've completed onboarding and earned a free RealBlast MSA! 🚀"})
 
 # Normalize field names for matching
 def normalize_field_name(field):
     return re.sub(r'[^a-z0-9]', '', field.lower())
 
-# Suggest field mappings based on history or fuzzy matching
+# Suggest field mappings
 def suggest_mappings(uploaded_headers, template_fields, user_id):
     suggestions = {}
     for header in uploaded_headers:
@@ -246,7 +305,7 @@ def match_fields(uploaded_headers, template_fields, user_id="default"):
     conn.commit()
     return matched_fields, unmatched_fields
 
-# 2FA setup and verification with Twilio Authy
+# 2FA setup and verification
 def register_user_for_2fa(user_id, email, phone):
     authy = twilio_client.authy.users.create(
         email=email,
@@ -295,6 +354,77 @@ def extract_text_from_file(file):
         return pytesseract.image_to_string(image)
     return ""
 
+# Cached RealNex API call
+async def get_realnex_data(user_id, endpoint):
+    cache_key = f"realnex:{user_id}:{endpoint}"
+    cached_data = redis_client.get(cache_key)
+    if cached_data:
+        return json.loads(cached_data)
+
+    token = get_token(user_id, "realnex")
+    if not token:
+        return None
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{REALNEX_API_BASE}/{endpoint}",
+            headers={'Authorization': f'Bearer {token}'}
+        )
+    if response.status_code == 200:
+        data = response.json().get('value', [])
+        redis_client.setex(cache_key, 3600, json.dumps(data))  # Cache for 1 hour
+        return data
+    return None
+
+# Background task to check for new imports and emit deal alerts
+def check_new_imports():
+    settings = get_user_settings("default")
+    if not settings["deal_alerts_enabled"] and not settings["sms_alerts_enabled"]:
+        return
+    last_checked = datetime.now().isoformat()
+    while True:
+        time.sleep(10)
+        user_id = "default"
+        cursor.execute("SELECT threshold FROM deal_alerts WHERE user_id = ?", (user_id,))
+        result = cursor.fetchone()
+        threshold = result[0] if result else None
+
+        cursor.execute("SELECT import_id, record_type, record_data, import_date FROM user_imports WHERE user_id = ? AND import_date > ?",
+                       (user_id, last_checked))
+        new_imports = cursor.fetchall()
+        for imp in new_imports:
+            import_id, record_type, record_data, import_date = imp
+            record_data = json.loads(record_data)
+            if record_type == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
+                deal_value = record_data.get('Rent/month', record_data.get('Sale price', 0))
+                deal_type = 'LeaseComp' if 'Rent/month' in record_data else 'SaleComp'
+                message = f"New {deal_type} Alert! Deal value: ${deal_value} (exceeds your threshold of ${threshold}) at {import_date}."
+                if threshold and deal_value and deal_value > threshold:
+                    if settings["deal_alerts_enabled"]:
+                        socketio.emit('deal_alert', {
+                            'user_id': user_id,
+                            'message': message,
+                            'tts': message
+                        })
+                    if settings["sms_alerts_enabled"] and settings["phone_number"]:
+                        try:
+                            twilio_client.messages.create(
+                                body=message,
+                                from_='+1234567890',  # Replace with your Twilio number
+                                to=settings["phone_number"]
+                            )
+                        except Exception as e:
+                            print(f"Failed to send SMS: {e}")
+                else:
+                    socketio.emit('deal_alert', {
+                        'user_id': user_id,
+                        'message': f"New {deal_type} Imported: Value ${deal_value} at {import_date}."
+                    })
+        last_checked = datetime.now().isoformat()
+
+# Start the background task
+threading.Thread(target=check_new_imports, daemon=True).start()
+
 # Route to fetch RealNex JWT token
 @app.route('/fetch-realnex-jwt', methods=['POST'])
 async def fetch_realnex_jwt_route():
@@ -304,20 +434,20 @@ async def fetch_realnex_jwt_route():
     password = data.get('password')
 
     if not username or not password:
-        return jsonify({"error": "Please provide RealNex username and password, stud!"}), 400
+        return jsonify({"error": "Please provide RealNex username and password."}), 400
 
     jwt_token = await fetch_realnex_jwt(user_id, username, password)
     if jwt_token:
-        return jsonify({"message": "RealNex JWT token fetched successfully, stud! 🚀"}), 200
-    return jsonify({"error": "Failed to fetch RealNex JWT token. Check your credentials, stud!"}), 400
+        return jsonify({"message": "RealNex JWT token fetched successfully! 🚀"}), 200
+    return jsonify({"error": "Failed to fetch RealNex JWT token. Check your credentials."}), 400
 
-# File upload route with RealNex integration
+# File upload route
 @app.route('/upload-file', methods=['POST'])
 async def upload_file():
     user_id = "default"
     token = get_token(user_id, "realnex")
     if not token:
-        return jsonify({"answer": "Please fetch your RealNex JWT token in Settings to import data, stud! 🔑"})
+        return jsonify({"answer": "Please fetch your RealNex JWT token in Settings to import data. 🔑"})
 
     data = request.form.to_dict()
     two_fa_code = data.get('two_fa_code')
@@ -351,22 +481,19 @@ async def upload_file():
         record_count = len(pdf_file)
         for page_num in range(record_count):
             records.append({"page": page_num + 1, "text": pdf_file[page_num].get_text()})
-    else:  # Image
+    else:
         record_count = 1
         text = pytesseract.image_to_string(Image.open(file.stream))
         records.append({"text": text})
 
-    # Store imported records
     for record in records:
         cursor.execute("INSERT INTO user_imports (user_id, import_id, record_type, record_data, import_date) VALUES (?, ?, ?, ?, ?)",
                        (user_id, import_id, file.content_type, json.dumps(record), datetime.now().isoformat()))
     conn.commit()
 
-    # Award points: 1 point per record
     points_to_add = record_count
     points, email_credits, has_msa, points_message = award_points(user_id, points_to_add, f"importing {record_count} records")
 
-    # Process for RealNex import
     if file.content_type == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
         uploaded_headers = list(df.columns)
         templates = {
@@ -406,50 +533,37 @@ async def upload_file():
             )
 
         if response.status_code == 200:
-            message = f"🔥 Imported {record_count} records into RealNex as {best_match_template}! "
+            message = f"Imported {record_count} records into RealNex as {best_match_template}! "
             message += f"Matched fields: {', '.join([f'{k} → {v}' for k, v in matched_fields.items()])}. "
             if unmatched_fields:
-                message += f"Unmatched fields: {', '.join(unmatched_fields)}. Map these in RealNex or adjust your file, stud!"
+                message += f"Unmatched fields: {', '.join(unmatched_fields)}. Map these in RealNex or adjust your file."
             else:
-                message += "All fields matched—smooth sailing, stud!"
+                message += "All fields matched—smooth sailing!"
             message += f" {points_message}"
             return jsonify({"message": message, "points": points, "email_credits": email_credits, "has_msa": has_msa}), 200
         return jsonify({"error": f"Failed to import data into RealNex: {response.text}"}), 400
     else:
-        message = f"🔥 Imported {record_count} records (non-CSV data stored locally). {points_message}"
+        message = f"Imported {record_count} records (non-CSV data stored locally). {points_message}"
         return jsonify({"message": message, "points": points, "email_credits": email_credits, "has_msa": has_msa}), 200
 
-# Real-time deal prediction route
+# Deal prediction route
 @app.route('/predict-deal', methods=['POST'])
 async def predict_deal():
     user_id = "default"
-    token = get_token(user_id, "realnex")
-    if not token:
-        return jsonify({"error": "Please fetch your RealNex JWT token in Settings to predict a deal, stud! 🔑"}), 400
-
     data = request.json
     deal_type = data.get('deal_type', 'LeaseComp')
     sq_ft = data.get('sq_ft')
 
     if not sq_ft or not isinstance(sq_ft, (int, float)) or sq_ft <= 0:
-        return jsonify({"error": "Please provide a valid square footage, stud! 🔮"}), 400
+        return jsonify({"error": "Please provide a valid square footage. 🔮"}), 400
 
     if deal_type not in ["LeaseComp", "SaleComp"]:
-        return jsonify({"error": "Deal type must be 'LeaseComp' or 'SaleComp', stud! 🔮"}), 400
+        return jsonify({"error": "Deal type must be 'LeaseComp' or 'SaleComp'. 🔮"}), 400
 
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            f"{REALNEX_API_BASE}/{deal_type}s",
-            headers={'Authorization': f'Bearer {token}'}
-        )
-    if response.status_code != 200:
-        return jsonify({"error": f"Failed to fetch historical data: {response.text}"}), 400
-
-    historical_data = response.json().get('value', [])
+    historical_data = await get_realnex_data(user_id, f"{deal_type}s")
     if not historical_data:
-        return jsonify({"error": "No historical data available for prediction, stud!"}), 400
+        return jsonify({"error": "Failed to fetch historical data or no data available."}), 400
 
-    # Train a simple linear regression model
     X = []
     y = []
     labels = []
@@ -460,35 +574,34 @@ async def predict_deal():
         sq_ft_value = item.get("sq_ft", 0)
         if deal_type == "LeaseComp":
             value = item.get("rent_month", 0)
-        else:  # SaleComp
+        else:
             value = item.get("sale_price", 0)
         X.append([sq_ft_value])
         y.append(value)
         labels.append(date)
 
     if not X or not y:
-        return jsonify({"error": "Insufficient data for prediction, stud!"}), 400
+        return jsonify({"error": "Insufficient data for prediction."}), 400
 
     model = LinearRegression()
     model.fit(X, y)
     predicted_value = model.predict([[sq_ft]])[0]
 
-    # Prepare chart data
     chart_data = {
         "labels": labels,
         "datasets": [
             {
                 "label": f"Historical {deal_type} Data",
                 "data": y,
-                "borderColor": "rgba(168, 85, 247, 1)",
-                "backgroundColor": "rgba(168, 85, 247, 0.2)",
+                "borderColor": "rgba(59, 130, 246, 1)",
+                "backgroundColor": "rgba(59, 130, 246, 0.2)",
                 "fill": True
             },
             {
                 "label": "Prediction",
                 "data": [{"x": sq_ft, "y": predicted_value}],
-                "borderColor": "rgba(34, 211, 238, 1)",
-                "backgroundColor": "rgba(34, 211, 238, 0.5)",
+                "borderColor": "rgba(34, 197, 94, 1)",
+                "backgroundColor": "rgba(34, 197, 94, 0.5)",
                 "pointRadius": 8,
                 "pointHoverRadius": 12
             }
@@ -504,21 +617,246 @@ async def predict_deal():
     }
     return jsonify({"prediction": prediction}), 200
 
-# Natural language query route with trained AI
+# Deal negotiation route
+@app.route('/negotiate-deal', methods=['POST'])
+async def negotiate_deal():
+    user_id = "default"
+    token = get_token(user_id, "realnex")
+    if not token:
+        return jsonify({"error": "Please fetch your RealNex JWT token in Settings to negotiate a deal. 🔑"}), 400
+
+    data = request.json
+    deal_type = data.get('deal_type', 'LeaseComp')
+    sq_ft = data.get('sq_ft')
+    offered_value = data.get('offered_value')
+
+    if not sq_ft or not isinstance(sq_ft, (int, float)) or sq_ft <= 0:
+        return jsonify({"error": "Please provide a valid square footage. 🤝"}), 400
+    if not offered_value or not isinstance(offered_value, (int, float)) or offered_value <= 0:
+        return jsonify({"error": "Please provide a valid offered value. 🤝"}), 400
+    if deal_type not in ["LeaseComp", "SaleComp"]:
+        return jsonify({"error": "Deal type must be 'LeaseComp' or 'SaleComp'. 🤝"}), 400
+
+    historical_data = await get_realnex_data(user_id, f"{deal_type}s")
+    if not historical_data:
+        return jsonify({"error": "No historical data available for negotiation."}), 400
+
+    sq_ft_values = []
+    values = []
+    for item in historical_data:
+        sq_ft_value = item.get("sq_ft", 0)
+        if deal_type == "LeaseComp":
+            value = item.get("rent_month", 0)
+        else:
+            value = item.get("sale_price", 0)
+        sq_ft_values.append(sq_ft_value)
+        values.append(value)
+
+    if not sq_ft_values or not values:
+        return jsonify({"error": "Insufficient data for negotiation."}), 400
+
+    prompt = (
+        f"You are a commercial real estate negotiation expert. Based on the following historical {deal_type} data, "
+        f"suggest a counteroffer for a property with {sq_ft} square feet, where the offered value is ${offered_value} "
+        f"({'per month' if deal_type == 'LeaseComp' else 'total'}). Historical data (square footage, value):\n"
+    )
+    for sf, val in zip(sq_ft_values, values):
+        prompt += f"- {sf} sq ft: ${val} {'per month' if deal_type == 'LeaseComp' else 'total'}\n"
+    prompt += "Provide a counteroffer with a confidence score (0-100) and a brief explanation."
+
+    try:
+        response = openai_client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a commercial real estate negotiation expert."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        ai_response = response.choices[0].message.content
+
+        counteroffer_match = re.search(r'Counteroffer: \$([\d.]+)', ai_response)
+        confidence_match = re.search(r'Confidence: (\d+)%', ai_response)
+        explanation_match = re.search(r'Explanation: (.*?)(?:\n|$)', ai_response)
+
+        counteroffer = float(counteroffer_match.group(1)) if counteroffer_match else offered_value * 1.1
+        confidence = int(confidence_match.group(1)) if confidence_match else 75
+        explanation = explanation_match.group(1) if explanation_match else "Based on historical data trends."
+
+        negotiation_result = {
+            "deal_type": deal_type,
+            "sq_ft": sq_ft,
+            "offered_value": offered_value,
+            "counteroffer": round(counteroffer, 2),
+            "confidence": confidence,
+            "explanation": explanation,
+            "unit": "month" if deal_type == "LeaseComp" else "total"
+        }
+        return jsonify({"negotiation": negotiation_result}), 200
+    except Exception as e:
+        return jsonify({"error": f"Failed to negotiate deal: {str(e)}. Try again."}), 400
+
+# Text-to-Speech route with volume control and language support
+@app.route('/tts', methods=['POST'])
+def text_to_speech():
+    settings = get_user_settings("default")
+    data = request.json
+    text = data.get('text', '')
+    if not text:
+        return jsonify({"error": "No text provided for TTS."}), 400
+
+    engine = pyttsx3.init()
+    engine.setProperty('rate', 150)
+    engine.setProperty('volume', settings["deal_alert_volume"] / 100.0)
+    
+    # Set voice based on language (simplified; may need additional voices installed)
+    voices = engine.getProperty('voices')
+    if settings["language"] == "es":
+        for voice in voices:
+            if "spanish" in voice.name.lower():
+                engine.setProperty('voice', voice.id)
+                break
+    elif settings["language"] == "fr":
+        for voice in voices:
+            if "french" in voice.name.lower():
+                engine.setProperty('voice', voice.id)
+                break
+    else:
+        for voice in voices:
+            if "english" in voice.name.lower():
+                engine.setProperty('voice', voice.id)
+                break
+
+    engine.say(text)
+    engine.runAndWait()
+    return jsonify({"message": "TTS played successfully! 🎙️"}), 200
+
+# Set deal alert threshold
+@app.route('/set-deal-alert', methods=['POST'])
+def set_deal_alert():
+    user_id = "default"
+    settings = get_user_settings(user_id)
+    if not settings["deal_alerts_enabled"]:
+        return jsonify({"error": "Deal alerts are disabled in settings. Enable them to set a threshold."}), 400
+
+    data = request.json
+    threshold = data.get('threshold')
+
+    if not threshold or not isinstance(threshold, (int, float)) or threshold <= 0:
+        return jsonify({"error": "Please provide a valid threshold value."}), 400
+
+    cursor.execute("INSERT OR REPLACE INTO deal_alerts (user_id, threshold) VALUES (?, ?)",
+                   (user_id, threshold))
+    conn.commit()
+    return jsonify({"message": f"Deal alert set! You'll be notified for deals over ${threshold}. 🔔"}), 200
+
+# Generate email subject line
+@app.route('/generate-subject', methods=['POST'])
+def generate_subject():
+    user_id = "default"
+    settings = get_user_settings(user_id)
+    if not settings["subject_generator_enabled"]:
+        return jsonify({"error": "Subject line generator is disabled in settings. Enable it to generate subjects."}), 400
+
+    data = request.json
+    campaign_type = data.get('campaign_type', 'RealBlast')
+
+    try:
+        response = openai_client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are an expert in email marketing for commercial real estate."},
+                {"role": "user", "content": f"Generate a catchy subject line for a {campaign_type} email campaign."}
+            ]
+        )
+        subject = response.choices[0].message.content.strip()
+        return jsonify({"subject": subject}), 200
+    except Exception as e:
+        return jsonify({"error": f"Failed to generate subject line: {str(e)}."}), 400
+
+# Fetch user achievements
+@app.route('/achievements', methods=['GET'])
+def get_achievements():
+    user_id = "default"
+    settings = get_user_settings(user_id)
+    if not settings["achievements_enabled"]:
+        return jsonify({"message": "Achievements are disabled in settings. Enable them to view your badges! 🏅"}), 200
+
+    cursor.execute("SELECT name, description, awarded_date FROM user_achievements WHERE user_id = ? ORDER BY awarded_date DESC",
+                   (user_id,))
+    achievements = cursor.fetchall()
+    return jsonify({
+        "achievements": [{"name": a[0], "description": a[1], "awarded_date": a[2]} for a in achievements]
+    }), 200
+
+# Fetch points history
+@app.route('/points-history', methods=['GET'])
+def get_points_history():
+    user_id = "default"
+    cursor.execute("SELECT points, timestamp FROM points_history WHERE user_id = ? ORDER BY timestamp ASC",
+                   (user_id,))
+    history = cursor.fetchall()
+    return jsonify({
+        "history": [{"points": h[0], "timestamp": h[1]} for h in history]
+    }), 200
+
+# Settings route to get current settings
+@app.route('/settings', methods=['GET'])
+def get_settings():
+    user_id = "default"
+    settings = get_user_settings(user_id)
+    return jsonify({"settings": settings}), 200
+
+# Settings route to update settings
+@app.route('/settings', methods=['POST'])
+def update_settings():
+    user_id = "default"
+    data = request.json
+    deal_alerts_enabled = int(data.get('deal_alerts_enabled', True))
+    deal_alert_volume = max(0, min(100, int(data.get('deal_alert_volume', 90))))
+    subject_generator_enabled = int(data.get('subject_generator_enabled', True))
+    achievements_enabled = int(data.get('achievements_enabled', True))
+    sms_alerts_enabled = int(data.get('sms_alerts_enabled', False))
+    phone_number = data.get('phone_number', '')
+    language = data.get('language', 'en')
+
+    cursor.execute("INSERT OR REPLACE INTO user_settings (user_id, deal_alerts_enabled, deal_alert_volume, subject_generator_enabled, achievements_enabled, sms_alerts_enabled, phone_number, language) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                   (user_id, deal_alerts_enabled, deal_alert_volume, subject_generator_enabled, achievements_enabled, sms_alerts_enabled, phone_number, language))
+    conn.commit()
+    socketio.emit('settings_update', {'user_id': user_id, 'settings': {
+        "deal_alerts_enabled": bool(deal_alerts_enabled),
+        "deal_alert_volume": deal_alert_volume,
+        "subject_generator_enabled": bool(subject_generator_enabled),
+        "achievements_enabled": bool(achievements_enabled),
+        "sms_alerts_enabled": bool(sms_alerts_enabled),
+        "phone_number": phone_number,
+        "language": language
+    }})
+    return jsonify({"message": "Settings updated successfully! ⚙️"}), 200
+
+# Settings page route
+@app.route('/settings-page')
+def settings_page():
+    return render_template('settings.html')
+
+# Dashboard page route
+@app.route('/dashboard')
+def dashboard():
+    return render_template('dashboard.html')
+
+# Natural language query route
 @app.route('/ask', methods=['POST'])
 async def ask():
     data = request.json
     message = data.get('message', '').lower()
     user_id = "default"
 
-    # Fetch user data
     cursor.execute("SELECT points, email_credits, has_msa FROM user_points WHERE user_id = ?", (user_id,))
     user_data = cursor.fetchone()
     points = user_data[0] if user_data else 0
     email_credits = user_data[1] if user_data else 0
     has_msa = user_data[2] if user_data else 0
 
-    # Check onboarding progress
+    settings = get_user_settings(user_id)
     onboarding_steps = ["save_settings", "sync_crm_data", "send_realblast", "send_training_reminder"]
     completed_steps = []
     for step in onboarding_steps:
@@ -527,7 +865,22 @@ async def ask():
         if result and result[0] == 1:
             completed_steps.append(step)
 
-    # Check for human help requests
+    # Translate non-English commands to English
+    original_message = message
+    if settings["language"] != "en":
+        try:
+            response = openai_client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": f"Translate this {settings['language']} text to English."},
+                    {"role": "user", "content": message}
+                ]
+            )
+            message = response.choices[0].message.content.lower()
+        except Exception as e:
+            print(f"Translation failed: {e}")
+
+    # Handle human help requests
     help_phrases = ["i need a human", "more help", "support help", "billing help", "sales support"]
     if any(phrase in message for phrase in help_phrases):
         issue = "General support request"
@@ -536,7 +889,6 @@ async def ask():
             issue = "Billing or sales support request"
             to_email = "sales@realnex.com"
 
-        # Auto-draft and send email
         subject = f"Support Request from User {user_id}"
         body = (
             f"User ID: {user_id}\n"
@@ -560,11 +912,12 @@ async def ask():
                 "If you need to reach them directly, here’s their contact info:\n"
                 "📞 Phone: (281) 299-3161\n"
                 "📧 Email: info@realnex.com (general inquiries), sales@realnex.com (sales/billing), support@realnex.com (support)\n"
-                "Hang tight, stud! 🛠️"
+                "Hang tight! 🛠️"
             )
-            return jsonify({"answer": contact_info})
+            return jsonify({"answer": contact_info, "tts": contact_info})
         except Exception as e:
-            return jsonify({"answer": f"Failed to send support request: {str(e)}. Please try again or contact RealNex directly at (281) 299-3161 or support@realnex.com, stud!"})
+            error_message = f"Failed to send support request: {str(e)}. Please try again or contact RealNex directly at (281) 299-3161 or support@realnex.com."
+            return jsonify({"answer": error_message, "tts": error_message})
 
     # AI-driven commands
     if 'draft an email' in message:
@@ -573,15 +926,38 @@ async def ask():
         audience_id = None
         content = None
 
-        # Ask follow-up questions
         if "realblast" in message:
-            return jsonify({"answer": "Let’s draft a RealBlast email! What’s the subject? (e.g., 'New Property Listing')"})
+            answer = "Let’s draft a RealBlast email! What’s the subject? (e.g., 'New Property Listing') Or say 'suggest a subject' to get ideas."
+            return jsonify({"answer": answer, "tts": answer})
         else:
-            return jsonify({"answer": "Let’s draft a Mailchimp email! What’s the subject? (e.g., 'Your CRE Update')"})
+            answer = "Let’s draft a Mailchimp email! What’s the subject? (e.g., 'Your CRE Update') Or say 'suggest a subject' to get ideas."
+            return jsonify({"answer": answer, "tts": answer})
+
+    elif 'suggest a subject' in message:
+        if not settings["subject_generator_enabled"]:
+            answer = "Subject line generator is disabled in settings. Enable it to get suggestions! ⚙️"
+            return jsonify({"answer": answer, "tts": answer})
+
+        campaign_type = "RealBlast" if "realblast" in message else "Mailchimp"
+        try:
+            response = openai_client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "You are an expert in email marketing for commercial real estate."},
+                    {"role": "user", "content": f"Generate a catchy subject line for a {campaign_type} email campaign."}
+                ]
+            )
+            subject = response.choices[0].message.content.strip()
+            answer = f"Suggested subject: '{subject}'. Does this work? Say the subject to use it, or provide your own!"
+            return jsonify({"answer": answer, "tts": answer})
+        except Exception as e:
+            answer = f"Failed to generate subject line: {str(e)}. Try providing your own subject."
+            return jsonify({"answer": answer, "tts": answer})
 
     elif 'subject' in message and 'realblast' in message:
         subject = message.split('subject')[-1].strip()
-        return jsonify({"answer": f"Got the subject: '{subject}'. Which RealNex group ID should this go to? (e.g., 'group123')"})
+        answer = f"Got the subject: '{subject}'. Which RealNex group ID should this go to? (e.g., 'group123')"
+        return jsonify({"answer": answer, "tts": answer})
 
     elif 'group id' in message:
         audience_id = message.split('group id')[-1].strip()
@@ -594,13 +970,16 @@ async def ask():
                 ]
             )
             content = response.choices[0].message.content
-            return jsonify({"answer": f"Here’s your RealBlast email for group {audience_id}:\nSubject: Your CRE Update\nContent:\n{content}\n\nCopy and paste this into your RealNex RealBlast setup, stud! 📧"})
+            answer = f"Here’s your RealBlast email for group {audience_id}:\nSubject: Your CRE Update\nContent:\n{content}\n\nCopy and paste this into your RealNex RealBlast setup. 📧"
+            return jsonify({"answer": answer, "tts": answer})
         except Exception as e:
-            return jsonify({"answer": f"Failed to draft email: {str(e)}. Try again, stud!"})
+            answer = f"Failed to draft email: {str(e)}. Try again."
+            return jsonify({"answer": answer, "tts": answer})
 
     elif 'subject' in message and 'mailchimp' in message:
         subject = message.split('subject')[-1].strip()
-        return jsonify({"answer": f"Got the subject: '{subject}'. Which Mailchimp audience ID should this go to? (e.g., 'audience456')"})
+        answer = f"Got the subject: '{subject}'. Which Mailchimp audience ID should this go to? (e.g., 'audience456')"
+        return jsonify({"answer": answer, "tts": answer})
 
     elif 'audience id' in message:
         audience_id = message.split('audience id')[-1].strip()
@@ -613,9 +992,11 @@ async def ask():
                 ]
             )
             content = response.choices[0].message.content
-            return jsonify({"answer": f"Here’s your Mailchimp email for audience {audience_id}:\nSubject: Your CRE Update\nContent:\n{content}\n\nCopy and paste this into your Mailchimp campaign setup, stud! 📧"})
+            answer = f"Here’s your Mailchimp email for audience {audience_id}:\nSubject: Your CRE Update\nContent:\n{content}\n\nCopy and paste this into your Mailchimp campaign setup. 📧"
+            return jsonify({"answer": answer, "tts": answer})
         except Exception as e:
-            return jsonify({"answer": f"Failed to draft email: {str(e)}. Try again, stud!"})
+            answer = f"Failed to draft email: {str(e)}. Try again."
+            return jsonify({"answer": answer, "tts": answer})
 
     elif 'send realblast' in message:
         group_id = None
@@ -626,33 +1007,37 @@ async def ask():
             campaign_content = message.split('content')[-1].strip()
 
         if not group_id or not campaign_content:
-            return jsonify({"answer": "To send a RealBlast, I need the group ID and campaign content. Say something like 'send realblast to group group123 with content Check out this property!'. What’s the group ID and content, stud? 📧"})
+            answer = "To send a RealBlast, I need the group ID and campaign content. Say something like 'send realblast to group group123 with content Check out this property!'. What’s the group ID and content? 📧"
+            return jsonify({"answer": answer, "tts": answer})
 
         token = get_token(user_id, "realnex")
         if not token:
-            return jsonify({"answer": "Please fetch your RealNex JWT token in Settings to send a RealBlast, stud! 🔑"})
+            answer = "Please fetch your RealNex JWT token in Settings to send a RealBlast. 🔑"
+            return jsonify({"answer": answer, "tts": answer})
 
         two_fa_code = data.get('two_fa_code')
         if not two_fa_code:
             if not send_2fa_code(user_id):
                 return jsonify({"error": "Failed to send 2FA code. Ensure user is registered for 2FA."}), 400
-            return jsonify({"answer": "2FA code sent to your phone. Please provide the code to proceed with sending the RealBlast, stud! 🔒"})
+            answer = "2FA code sent to your phone. Please provide the code to proceed with sending the RealBlast. 🔒"
+            return jsonify({"answer": answer, "tts": answer})
 
         if not check_2fa(user_id, two_fa_code):
-            return jsonify({"answer": "Invalid 2FA code, stud! Try again."})
+            answer = "Invalid 2FA code. Try again."
+            return jsonify({"answer": answer, "tts": answer})
 
-        # Check email credits or MSA
         if has_msa:
             cursor.execute("UPDATE user_points SET has_msa = 0 WHERE user_id = ?", (user_id,))
             conn.commit()
-            socketio.emit('msa_update', {'user_id': user_id, 'message': "Used your free RealBlast MSA! Nice work, stud! 🚀"})
+            socketio.emit('msa_update', {'user_id': user_id, 'message': "Used your free RealBlast MSA! Nice work! 🚀"})
         elif email_credits > 0:
             email_credits -= 1
             cursor.execute("UPDATE user_points SET email_credits = ? WHERE user_id = ?", (email_credits, user_id))
             conn.commit()
-            socketio.emit('credits_update', {'user_id': user_id, 'email_credits': email_credits, 'message': f"Used 1 email credit for RealBlast. You have {email_credits} credits left, stud! 📧"})
+            socketio.emit('credits_update', {'user_id': user_id, 'email_credits': email_credits, 'message': f"Used 1 email credit for RealBlast. You have {email_credits} credits left. 📧"})
         else:
-            return jsonify({"answer": "You need email credits or a free RealBlast MSA to send a RealBlast! Earn 1000 points to unlock 1000 credits, or complete onboarding for a free MSA. Check your status with 'my status', stud! 🚀"})
+            answer = "You need email credits or a free RealBlast MSA to send a RealBlast! Earn 1000 points to unlock 1000 credits, or complete onboarding for a free MSA. Check your status with 'my status'. 🚀"
+            return jsonify({"answer": answer, "tts": answer})
 
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -665,8 +1050,10 @@ async def ask():
             points, email_credits, has_msa, points_message = award_points(user_id, 15, "sending a RealNex RealBlast")
             socketio.emit('campaign_sent', {'user_id': user_id, 'message': f"RealBlast sent to group {group_id}!"})
             update_onboarding(user_id, "send_realblast")
-            return jsonify({"answer": f"RealBlast sent to group {group_id}! Nice work, stud! 📧 {points_message}"})
-        return jsonify({"answer": f"Failed to send RealBlast: {response.text}"})
+            answer = f"RealBlast sent to group {group_id}! 📧 {points_message}"
+            return jsonify({"answer": answer, "tts": answer})
+        answer = f"Failed to send RealBlast: {response.text}"
+        return jsonify({"answer": answer, "tts": answer})
 
     elif 'send mailchimp campaign' in message:
         audience_id = None
@@ -677,11 +1064,13 @@ async def ask():
             campaign_content = message.split('content')[-1].strip()
 
         if not audience_id or not campaign_content:
-            return jsonify({"answer": "To send a Mailchimp campaign, I need the audience ID and campaign content. Say something like 'send mailchimp campaign to audience audience456 with content Check out this property!'. What’s the audience ID and content, stud? 📧"})
+            answer = "To send a Mailchimp campaign, I need the audience ID and campaign content. Say something like 'send mailchimp campaign to audience audience456 with content Check out this property!'. What’s the audience ID and content? 📧"
+            return jsonify({"answer": answer, "tts": answer})
 
         token = get_token(user_id, "mailchimp")
         if not token:
-            return jsonify({"answer": "Please add your Mailchimp API key in Settings to send a Mailchimp campaign, stud! 🔑"})
+            answer = "Please add your Mailchimp API key in Settings to send a Mailchimp campaign. 🔑"
+            return jsonify({"answer": answer, "tts": answer})
 
         global mailchimp
         mailchimp = MailchimpClient()
@@ -691,10 +1080,12 @@ async def ask():
         if not two_fa_code:
             if not send_2fa_code(user_id):
                 return jsonify({"error": "Failed to send 2FA code. Ensure user is registered for 2FA."}), 400
-            return jsonify({"answer": "2FA code sent to your phone. Please provide the code to proceed with sending the Mailchimp campaign, stud! 🔒"})
+            answer = "2FA code sent to your phone. Please provide the code to proceed with sending the Mailchimp campaign. 🔒"
+            return jsonify({"answer": answer, "tts": answer})
 
         if not check_2fa(user_id, two_fa_code):
-            return jsonify({"answer": "Invalid 2FA code, stud! Try again."})
+            answer = "Invalid 2FA code. Try again."
+            return jsonify({"answer": answer, "tts": answer})
 
         try:
             campaign = mailchimp.campaigns.create({
@@ -710,19 +1101,21 @@ async def ask():
             mailchimp.campaigns.set_content(campaign_id, {"html": campaign_content})
             mailchimp.campaigns.actions.send(campaign_id)
             socketio.emit('campaign_sent', {'user_id': user_id, 'message': f"Mailchimp campaign sent to audience {audience_id}!"})
-            return jsonify({"answer": f"Mailchimp campaign sent to audience {audience_id}! Nice work, stud! 📧"})
+            answer = f"Mailchimp campaign sent to audience {audience_id}! 📧"
+            return jsonify({"answer": answer, "tts": answer})
         except Exception as e:
-            return jsonify({"answer": f"Failed to send Mailchimp campaign: {str(e)}"})
+            answer = f"Failed to send Mailchimp campaign: {str(e)}"
+            return jsonify({"answer": answer, "tts": answer})
 
     elif 'sync crm data' in message:
         token = get_token(user_id, "realnex")
         if not token:
-            return jsonify({"answer": "Please fetch your RealNex JWT token in Settings to sync CRM data, stud! 🔑"})
+            answer = "Please fetch your RealNex JWT token in Settings to sync CRM data. 🔑"
+            return jsonify({"answer": answer, "tts": answer})
 
         zoominfo_token = get_token(user_id, "zoominfo")
         apollo_token = get_token(user_id, "apollo")
 
-        # Fetch contacts from ZoomInfo
         zoominfo_contacts = []
         if zoominfo_token:
             async with httpx.AsyncClient() as client:
@@ -733,9 +1126,9 @@ async def ask():
             if response.status_code == 200:
                 zoominfo_contacts = response.json().get("contacts", [])
             else:
-                return jsonify({"answer": f"Failed to fetch ZoomInfo contacts: {response.text}. Check your ZoomInfo token in Settings, stud!"})
+                answer = f"Failed to fetch ZoomInfo contacts: {response.text}. Check your ZoomInfo token in Settings."
+                return jsonify({"answer": answer, "tts": answer})
 
-        # Fetch contacts from Apollo.io
         apollo_contacts = []
         if apollo_token:
             async with httpx.AsyncClient() as client:
@@ -746,9 +1139,9 @@ async def ask():
             if response.status_code == 200:
                 apollo_contacts = response.json().get("contacts", [])
             else:
-                return jsonify({"answer": f"Failed to fetch Apollo.io contacts: {response.text}. Check your Apollo.io token in Settings, stud!"})
+                answer = f"Failed to fetch Apollo.io contacts: {response.text}. Check your Apollo.io token in Settings."
+                return jsonify({"answer": answer, "tts": answer})
 
-        # Combine and format contacts for RealNex
         contacts = []
         for contact in zoominfo_contacts + apollo_contacts:
             formatted_contact = {
@@ -765,7 +1158,6 @@ async def ask():
             }
             contacts.append(formatted_contact)
 
-        # Import into RealNex
         if contacts:
             df = pd.DataFrame(contacts)
             csv_buffer = io.StringIO()
@@ -782,9 +1174,12 @@ async def ask():
             if response.status_code == 200:
                 points, email_credits, has_msa, points_message = award_points(user_id, 10, "bringing in data")
                 update_onboarding(user_id, "sync_crm_data")
-                return jsonify({"answer": f"Synced {len(contacts)} contacts into RealNex, stud! 📇 {points_message}"})
-            return jsonify({"answer": f"Failed to import contacts into RealNex: {response.text}"})
-        return jsonify({"answer": "No contacts to sync, stud!"})
+                answer = f"Synced {len(contacts)} contacts into RealNex. 📇 {points_message}"
+                return jsonify({"answer": answer, "tts": answer})
+            answer = f"Failed to import contacts into RealNex: {response.text}"
+            return jsonify({"answer": answer, "tts": answer})
+        answer = "No contacts to sync."
+        return jsonify({"answer": answer, "tts": answer})
 
     elif 'predict deal' in message:
         deal_type = "LeaseComp" if "leasecomp" in message else "SaleComp" if "salecomp" in message else None
@@ -794,25 +1189,19 @@ async def ask():
             sq_ft = int(sq_ft.group()) if sq_ft else None
 
         if not deal_type or not sq_ft:
-            return jsonify({"answer": "To predict a deal, I need the deal type (LeaseComp or SaleComp) and square footage. Say something like 'predict deal for LeaseComp with 5000 sq ft'. What’s the deal type and square footage, stud? 🔮"})
+            answer = "To predict a deal, I need the deal type (LeaseComp or SaleComp) and square footage. Say something like 'predict deal for LeaseComp with 5000 sq ft'. What’s the deal type and square footage? 🔮"
+            return jsonify({"answer": answer, "tts": answer})
 
         token = get_token(user_id, "realnex")
         if not token:
-            return jsonify({"answer": "Please fetch your RealNex JWT token in Settings to predict a deal, stud! 🔑"})
+            answer = "Please fetch your RealNex JWT token in Settings to predict a deal. 🔑"
+            return jsonify({"answer": answer, "tts": answer})
 
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{REALNEX_API_BASE}/{deal_type}s",
-                headers={'Authorization': f'Bearer {token}'}
-            )
-        if response.status_code != 200:
-            return jsonify({"answer": f"Failed to fetch historical data: {response.text}"})
-
-        historical_data = response.json().get('value', [])
+        historical_data = await get_realnex_data(user_id, f"{deal_type}s")
         if not historical_data:
-            return jsonify({"answer": "No historical data available for prediction, stud!"})
+            answer = "No historical data available for prediction."
+            return jsonify({"answer": answer, "tts": answer})
 
-        # Train a simple linear regression model
         X = []
         y = []
         if deal_type == "LeaseComp":
@@ -822,7 +1211,7 @@ async def ask():
             model = LinearRegression()
             model.fit(X, y)
             predicted_rent = model.predict([[sq_ft]])[0]
-            return jsonify({"answer": f"Predicted rent for {sq_ft} sq ft: ${predicted_rent:.2f}/month, stud! 🔮"})
+            answer = f"Predicted rent for {sq_ft} sq ft: ${predicted_rent:.2f}/month. 🔮"
         elif deal_type == "SaleComp":
             for item in historical_data:
                 X.append([item.get("sq_ft", 0)])
@@ -830,12 +1219,92 @@ async def ask():
             model = LinearRegression()
             model.fit(X, y)
             predicted_price = model.predict([[sq_ft]])[0]
-            return jsonify({"answer": f"Predicted sale price for {sq_ft} sq ft: ${predicted_price:.2f}, stud! 🔮"})
+            answer = f"Predicted sale price for {sq_ft} sq ft: ${predicted_price:.2f}. 🔮"
+
+    elif 'negotiate deal' in message:
+        deal_type = "LeaseComp" if "leasecomp" in message else "SaleComp" if "salecomp" in message else None
+        sq_ft = None
+        offered_value = None
+        if 'square footage' in message or 'sq ft' in message:
+            sq_ft = re.search(r'square footage\s*(\d+)|sq ft\s*(\d+)', message)
+            sq_ft = int(sq_ft.group(1) or sq_ft.group(2)) if sq_ft else None
+        if 'offered' in message:
+            offered_value = re.search(r'offered\s*\$\s*([\d.]+)', message)
+            offered_value = float(offered_value.group(1)) if offered_value else None
+
+        if not deal_type or not sq_ft or not offered_value:
+            answer = "To negotiate a deal, I need the deal type (LeaseComp or SaleComp), square footage, and offered value. Say something like 'negotiate deal for LeaseComp with 5000 sq ft offered $5000'. What’s the deal type, square footage, and offered value? 🤝"
+            return jsonify({"answer": answer, "tts": answer})
+
+        token = get_token(user_id, "realnex")
+        if not token:
+            answer = "Please fetch your RealNex JWT token in Settings to negotiate a deal. 🔑"
+            return jsonify({"answer": answer, "tts": answer})
+
+        historical_data = await get_realnex_data(user_id, f"{deal_type}s")
+        if not historical_data:
+            answer = "No historical data available for negotiation."
+            return jsonify({"answer": answer, "tts": answer})
+
+        prompt = (
+            f"You are a commercial real estate negotiation expert. Based on the following historical {deal_type} data, "
+            f"suggest a counteroffer for a property with {sq_ft} square feet, where the offered value is ${offered_value} "
+            f"({'per month' if deal_type == 'LeaseComp' else 'total'}). Historical data (square footage, value):\n"
+        )
+        for item in historical_data:
+            sq_ft_value = item.get("sq_ft", 0)
+            value = item.get("rent_month", 0) if deal_type == "LeaseComp" else item.get("sale_price", 0)
+            prompt += f"- {sq_ft_value} sq ft: ${value} {'per month' if deal_type == 'LeaseComp' else 'total'}\n"
+        prompt += "Provide a counteroffer with a confidence score (0-100) and a brief explanation."
+
+        try:
+            response = openai_client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "You are a commercial real estate negotiation expert."},
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            ai_response = response.choices[0].message.content
+
+            counteroffer_match = re.search(r'Counteroffer: \$([\d.]+)', ai_response)
+            confidence_match = re.search(r'Confidence: (\d+)%', ai_response)
+            explanation_match = re.search(r'Explanation: (.*?)(?:\n|$)', ai_response)
+
+            counteroffer = float(counteroffer_match.group(1)) if counteroffer_match else offered_value * 1.1
+            confidence = int(confidence_match.group(1)) if confidence_match else 75
+            explanation = explanation_match.group(1) if explanation_match else "Based on historical data trends."
+
+            answer = (
+                f"Negotiation Suggestion for {deal_type}:\n"
+                f"Offered: ${offered_value} {'per month' if deal_type == 'LeaseComp' else 'total'}\n"
+                f"Counteroffer: ${round(counteroffer, 2)} {'per month' if deal_type == 'LeaseComp' else 'total'}\n"
+                f"Confidence: {confidence}%\n"
+                f"Explanation: {explanation}\n"
+                f"Ready to close this deal? 🤝"
+            )
+        except Exception as e:
+            answer = f"Failed to negotiate deal: {str(e)}. Try again."
+
+    elif 'notify me of new deals over' in message:
+        if not settings["deal_alerts_enabled"]:
+            answer = "Deal alerts are disabled in settings. Enable them to set notifications! ⚙️"
+        else:
+            threshold = re.search(r'over\s*\$\s*([\d.]+)', message)
+            threshold = float(threshold.group(1)) if threshold else None
+            if not threshold:
+                answer = "Please specify a deal value threshold, like 'notify me of new deals over $5000'. What’s the threshold? 🔔"
+            else:
+                cursor.execute("INSERT OR REPLACE INTO deal_alerts (user_id, threshold) VALUES (?, ?)",
+                               (user_id, threshold))
+                conn.commit()
+                answer = f"Deal alert set! I’ll notify you of new deals over ${threshold}. 🔔"
 
     elif 'summarize text' in message:
         text = message.split('summarize text')[-1].strip()
         if not text:
-            return jsonify({"answer": "Please provide the text to summarize. Say something like 'summarize text This is my text to summarize'. What’s the text, stud? 📝"})
+            answer = "Please provide the text to summarize. Say something like 'summarize text This is my text to summarize'. What’s the text? 📝"
+            return jsonify({"answer": answer, "tts": answer})
 
         try:
             response = openai_client.chat.completions.create(
@@ -846,28 +1315,30 @@ async def ask():
                 ]
             )
             summary = response.choices[0].message.content
-            return jsonify({"answer": f"Summary: {summary}, stud! 📝"})
+            answer = f"Summary: {summary}. 📝"
         except Exception as e:
-            return jsonify({"answer": f"Failed to summarize text: {str(e)}. Try again, stud!"})
+            answer = f"Failed to summarize text: {str(e)}. Try again."
 
     elif 'verify emails' in message:
         emails = message.split('verify emails')[-1].strip().split(',')
         emails = [email.strip() for email in emails if email.strip()]
         if not emails:
-            return jsonify({"answer": "Please provide emails to verify. Say something like 'verify emails email1@example.com, email2@example.com'. What are the emails, stud? 📧"})
+            answer = "Please provide emails to verify. Say something like 'verify emails email1@example.com, email2@example.com'. What are the emails? 📧"
+            return jsonify({"answer": answer, "tts": answer})
 
-        # Placeholder for real email verification API
         verified_emails = [{"email": email, "status": "valid"} for email in emails]
-        return jsonify({"answer": f"Verified {len(verified_emails)} emails: {json.dumps(verified_emails)}. Nice work, stud! ✨"})
+        answer = f"Verified {len(verified_emails)} emails: {json.dumps(verified_emails)}. ✨"
 
     elif 'sync contacts' in message:
         google_token = data.get('google_token')
         if not google_token:
-            return jsonify({"answer": "I need a Google token to sync contacts. Say something like 'sync contacts with google token your_token_here'. What’s your Google token, stud?"})
+            answer = "I need a Google token to sync contacts. Say something like 'sync contacts with google token your_token_here'. What’s your Google token?"
+            return jsonify({"answer": answer, "tts": answer})
 
         token = get_token(user_id, "realnex")
         if not token:
-            return jsonify({"answer": "Please fetch your RealNex JWT token in Settings to sync contacts, stud! 🔑"})
+            answer = "Please fetch your RealNex JWT token in Settings to sync contacts. 🔑"
+            return jsonify({"answer": answer, "tts": answer})
 
         async with httpx.AsyncClient() as client:
             response = await client.get(
@@ -875,9 +1346,9 @@ async def ask():
                 headers={"Authorization": f"Bearer {google_token}"}
             )
         if response.status_code != 200:
-            return jsonify({"answer": f"Failed to fetch Google contacts: {response.text}"})
+            answer = f"Failed to fetch Google contacts: {response.text}"
+            return jsonify({"answer": answer, "tts": answer})
 
-        # Import into RealNex (simplified example)
         contacts = response.json().get("contacts", [])
         if contacts:
             df = pd.DataFrame(contacts)
@@ -893,25 +1364,27 @@ async def ask():
                 )
 
             if response.status_code == 200:
-                return jsonify({"answer": f"Synced {len(contacts)} contacts into RealNex, stud! 📇"})
-            return jsonify({"answer": f"Failed to import contacts into RealNex: {response.text}"})
-        return jsonify({"answer": "No contacts to sync, stud!"})
+                answer = f"Synced {len(contacts)} contacts into RealNex. 📇"
+                return jsonify({"answer": answer, "tts": answer})
+            answer = f"Failed to import contacts into RealNex: {response.text}"
+            return jsonify({"answer": answer, "tts": answer})
+        answer = "No contacts to sync."
 
     elif 'training reminder' in message:
         user_email = None
         if 'email' in message:
             user_email = message.split('email')[-1].strip()
         if not user_email:
-            return jsonify({"answer": "I need your email to send a training reminder. Say something like 'send training reminder to email myemail@example.com'. What’s your email, stud? 📚"})
+            answer = "I need your email to send a training reminder. Say something like 'send training reminder to email myemail@example.com'. What’s your email? 📚"
+            return jsonify({"answer": answer, "tts": answer})
 
-        # Send email reminder
         subject = "RealNex Training Reminder"
         body = (
             "Hey there, CRE Pro!\n\n"
             "Don’t miss out on mastering RealNex! Join our training webinars or check out our Knowledge Base:\n"
             "- Training Webinars: [Link to RealNex Webinars]\n"
             "- Knowledge Base: https://realnex.zendesk.com\n\n"
-            "Let’s get you closing deals faster, stud! 🏆\n"
+            "Let’s get you closing deals faster! 🏆\n"
             "- Matty’s Maverick & Goose"
         )
         msg = MIMEText(body)
@@ -925,12 +1398,12 @@ async def ask():
                 server.login(SMTP_USER, SMTP_PASSWORD)
                 server.sendmail(SMTP_USER, user_email, msg.as_string())
             update_onboarding(user_id, "send_training_reminder")
-            return jsonify({"answer": "Training reminder sent! Check your email, stud! 📚"})
+            answer = "Training reminder sent! Check your email. 📚"
         except Exception as e:
-            return jsonify({"answer": f"Failed to send training reminder: {str(e)}. Try again, stud!"})
+            answer = f"Failed to send training reminder: {str(e)}. Try again."
 
     elif 'my status' in message:
-        status_message = f"Here’s your status, stud! 🏆\n"
+        status_message = f"Here’s your status:\n"
         status_message += f"Points: {points}\n"
         status_message += f"Email Credits: {email_credits} (reach 1000 points to unlock 1000 credits!)\n"
         status_message += f"Free RealBlast MSA: {'Yes' if has_msa else 'No'} (complete onboarding to earn one!)\n"
@@ -940,7 +1413,21 @@ async def ask():
         remaining_steps = [step for step in onboarding_steps if step not in completed_steps]
         if remaining_steps:
             status_message += f"Remaining Steps: {', '.join(remaining_steps)}\n"
-        return jsonify({"answer": status_message})
+        answer = status_message
+
+    elif 'my achievements' in message:
+        if not settings["achievements_enabled"]:
+            answer = "Achievements are disabled in settings. Enable them to view your badges! 🏅"
+        else:
+            cursor.execute("SELECT name, description, awarded_date FROM user_achievements WHERE user_id = ? ORDER BY awarded_date DESC",
+                           (user_id,))
+            achievements = cursor.fetchall()
+            if not achievements:
+                answer = "You haven’t unlocked any achievements yet. Keep earning points to unlock badges! 🏅"
+            else:
+                answer = "Here are your achievements:\n"
+                for a in achievements:
+                    answer += f"- {a[0]}: {a[1]} (Awarded on {a[2]})\n"
 
     # RealNex-trained AI responses
     elif 'lease comps with rent over' in message:
@@ -949,243 +1436,46 @@ async def ask():
             rent_threshold = int(rent_threshold.group())
             token = get_token(user_id, "realnex")
             if not token:
-                return jsonify({"answer": f"Please fetch your RealNex JWT token in Settings to query LeaseComps with rent over ${rent_threshold}/month, stud! 🔑"})
+                answer = f"Please fetch your RealNex JWT token in Settings to query LeaseComps with rent over ${rent_threshold}/month. 🔑"
+                return jsonify({"answer": answer, "tts": answer})
 
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    f"{REALNEX_API_BASE}/LeaseComps?filter=rent_month gt {rent_threshold}",
-                    headers={'Authorization': f'Bearer {token}'}
-                )
-            if response.status_code == 200:
-                leases = response.json().get('value', [])
+            historical_data = await get_realnex_data(user_id, f"LeaseComps?filter=rent_month gt {rent_threshold}")
+            if historical_data:
+                leases = historical_data
                 if leases:
-                    return jsonify({"answer": f"Found {len(leases)} LeaseComps with rent over ${rent_threshold}/month: {json.dumps(leases[:2])}. Check RealNex for more, stud! 📊"})
-                return jsonify({"answer": f"No LeaseComps found with rent over ${rent_threshold}/month."})
-            return jsonify({"answer": f"Error fetching LeaseComps: {response.text}"})
+                    answer = f"Found {len(leases)} LeaseComps with rent over ${rent_threshold}/month: {json.dumps(leases[:2])}. Check RealNex for more. 📊"
+                else:
+                    answer = f"No LeaseComps found with rent over ${rent_threshold}/month."
+            else:
+                answer = "Failed to fetch LeaseComps."
+
     elif 'sale comps in' in message and 'city' in message:
         city = re.search(r'in\s+([a-z\s]+)\s+city', message)
         if city:
             city = city.group(1).strip()
             token = get_token(user_id, "realnex")
             if not token:
-                return jsonify({"answer": f"Please fetch your RealNex JWT token in Settings to query SaleComps in {city} city, stud! 🔑"})
+                answer = f"Please fetch your RealNex JWT token in Settings to query SaleComps in {city} city. 🔑"
+                return jsonify({"answer": answer, "tts": answer})
 
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    f"{REALNEX_API_BASE}/SaleComps?filter=city eq '{city}'",
-                    headers={'Authorization': f'Bearer {token}'}
-                )
-            if response.status_code == 200:
-                sales = response.json().get('value', [])
+            historical_data = await get_realnex_data(user_id, f"SaleComps?filter=city eq '{city}'")
+            if historical_data:
+                sales = historical_data
                 if sales:
-                    return jsonify({"answer": f"Found {len(sales)} SaleComps in {city} city: {json.dumps(sales[:2])}. Dive into RealNex for details, stud! 🏙️"})
-                return jsonify({"answer": f"No SaleComps found in {city} city."})
-            return jsonify({"answer": f"Error fetching SaleComps: {response.text}"})
+                    answer = f"Found {len(sales)} SaleComps in {city} city: {json.dumps(sales[:2])}. Dive into RealNex for details. 🏙️"
+                else:
+                    answer = f"No SaleComps found in {city} city."
+            else:
+                answer = "Failed to fetch SaleComps."
+
     elif 'required fields' in message:
         if 'lease comp' in message:
             required_fields = ["Deal ID", "Property name", "Address 1", "City", "State", "Zip code", "Lessee.Full Name", "Lessor.Full Name", "Rent/month", "Sq ft", "Lease term", "Deal date"]
-            return jsonify({"answer": f"The required fields for a LeaseComp import are: {', '.join(required_fields)}. Let’s get that deal in, stud! 💼"})
+            answer = f"The required fields for a LeaseComp import are: {', '.join(required_fields)}. 💼"
         elif 'sale comp' in message:
             required_fields = ["Deal ID", "Property name", "Address", "City", "State", "Zip code", "Buyer.Name", "Seller.Name", "Sale price", "Sq ft", "Sale date"]
-            return jsonify({"answer": f"The required fields for a SaleComp import are: {', '.join(required_fields)}. Ready to crush that sale, stud? 🤑"})
-        elif 'spaces' in message:
-            required_fields = ["Property.Property name", "Property.Address 1", "Property.City", "Property.State", "Property.Zip code", "Suite", "Floor", "Sq Ft"]
-            return jsonify({"answer": f"The required fields for a Spaces import are: {', '.join(required_fields)}. Let’s fill those spaces, stud! 🏢"})
-        elif 'projects' in message:
-            required_fields = ["Project", "Type", "Size", "Deal amt", "Date opened"]
-            return jsonify({"answer": f"The required fields for a Projects import are: {', '.join(required_fields)}. Time to kick off that project, stud!"})
-        elif 'companies' in message:
-            required_fields = ["Company", "Address1", "City", "State", "Zip Code"]
-            return jsonify({"answer": f"The required fields for a Companies import are: {', '.join(required_fields)}. Let’s add that company, stud! 🏬"})
-        elif 'contacts' in message:
-            required_fields = ["Full Name", "First Name", "Last Name", "Company", "Address1", "City", "State", "Postal Code"]
-            return jsonify({"answer": f"The required fields for a Contacts import are: {', '.join(required_fields)}. Ready to connect, stud? 📞"})
-        elif 'properties' in message:
-            required_fields = ["Property Name", "Property Type", "Property Address", "Property City", "Property State", "Property Postal Code"]
-            return jsonify({"answer": f"The required fields for a Properties import are: {', '.join(required_fields)}. Let’s list that property, stud! 🏠"})
-    elif 'what is a lease term' in message:
-        return jsonify({"answer": "In RealNex, the 'Lease term' field is the duration of the lease agreement, usually in months (e.g., '24 Months'). It’s required for LeaseComps. Let’s lock in that lease, stud! 📝"})
-    elif 'what is a cap rate' in message:
-        return jsonify({"answer": "In RealNex, the 'Cap rate' (capitalization rate) is a SaleComp field that measures the return on investment for a property, calculated as NOI / Sale price. It’s a key metric for investors, stud! 📈"})
-    elif 'how to import' in message and 'realnex' in message:
-        return jsonify({"answer": "To import into RealNex, drag-and-drop your XLSX, PDF, or image file into the chat. I’ll auto-match your fields to RealNex templates like LeaseComps or SaleComps, and import the data for you. You’ll earn 1 point per record imported! Make sure your file has headers, and required fields like 'Deal ID' match exactly, or the import might fail. You’ll need to fetch your RealNex JWT token in Settings first, stud! 🖥️"})
-    elif 'realblast' in message and 'best' in message:
-        return jsonify({"answer": "The best way to set up a RealBlast is to use a clear subject line and include a call-to-action, like 'View Property Listing'. You can target your CRM groups or the RealNex community of over 100,000 users, and even schedule the campaign for a future date. Say 'send realblast to group group123 with content Check out this property!' to send one, stud! 📧"})
-    elif 'marketedge' in message and 'flyer' in message:
-        return jsonify({"answer": "To create a flyer in RealNex MarketEdge, select a property from your CRM, choose a flyer template, customize it with your branding, and download the PDF. MarketEdge auto-populates data like the property address and sale price. Note that MarketEdge doesn’t have an API, so you’ll need to do this directly in RealNex, stud! 📄"})
-    elif 'what is a buyer match score' in message:
-        return jsonify({"answer": "In RealNex NavigatorPRO, the Buyer Match Score is a percentage that shows how likely a contact is to buy a property, based on predictive analytics. Unfortunately, NavigatorPRO doesn’t have an API, so you’ll need to check this directly in RealNex, stud! 🔍"})
-    elif 'why did my import fail' in message:
-        return jsonify({"answer": "Your RealNex import might have failed because required fields didn’t match exactly—like 'Deal ID' for LeaseComps—or the formatting was off. Download the RealNex template files to ensure your data matches the expected format, stud! 🖥️"})
-    elif 'where can i find realnex training' in message:
-        return jsonify({"answer": "RealNex offers weekly training webinars and one-on-one sessions—check their website for the schedule. You can also visit the Knowledge Base at https://realnex.zendesk.com, or start with the 'Getting Started' guide there. Say 'send training reminder to email your_email@example.com' to get a link sent to your email, stud! 📚"})
-    elif 'realblast' in message:
-        return jsonify({"answer": "RealBlasts are RealNex’s email campaigns! You can send them to your CRM groups or the RealNex community (over 100,000 users). Say 'send realblast to group group123 with content Check out this property!' to send one. You’ll need email credits (earn 1000 points for 1000 credits) or a free RealBlast MSA (complete onboarding), and a RealNex JWT token in Settings, stud! 📧"})
-    elif 'marketedge' in message:
-        return jsonify({"answer": "MarketEdge in RealNex lets you create financial analyses, proposals, flyers, BOVs, and offering memorandums. It auto-populates data from your CRM and uses your branding. Note that MarketEdge doesn’t have an API, so you’ll need to use it directly in RealNex, stud! 📈"})
-    else:
-        return jsonify({"answer": "I can help with RealNex questions, stud! Ask about required fields, specific terms, RealBlasts, MarketEdge, or how to import data. You can also say things like 'draft an email for my realblast', 'send realblast', 'predict deal', or 'summarize text'. Check your gamification status with 'my status'. If you need more help, say 'I need a human' or 'support help'. What’s up? 🤙"})
-
-# Dashboard data route
-@app.route('/dashboard-data', methods=['GET'])
-async def dashboard_data():
-    user_id = "default"
-    token = get_token(user_id, "realnex")
-    data = {"imports": []}
-
-    # Fetch recent imports
-    cursor.execute("SELECT import_id, record_type, record_data, import_date FROM user_imports WHERE user_id = ? ORDER BY import_date DESC LIMIT 10", (user_id,))
-    imports = cursor.fetchall()
-    for imp in imports:
-        data["imports"].append({
-            "import_id": imp[0],
-            "record_type": imp[1],
-            "record_data": json.loads(imp[2]),
-            "import_date": imp[3]
-        })
-
-    if token:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{REALNEX_API_BASE}/Dashboard",
-                headers={'Authorization': f'Bearer {token}'}
-            )
-        if response.status_code == 200:
-            data.update(response.json())
-    else:
-        data["answer"] = "Please fetch your RealNex JWT token in Settings to access full dashboard data, stud! 🔑"
-
-    cursor.execute("SELECT points, email_credits, has_msa FROM user_points WHERE user_id = ?", (user_id,))
-    result = cursor.fetchone()
-    data["points"] = result[0] if result else 0
-    data["email_credits"] = result[1] if result else 0
-    data["has_msa"] = result[2] if result else 0
-    return jsonify(data), 200
-
-# Deal trends for Chart.js visualization
-@app.route('/deal-trends', methods=['GET'])
-async def deal_trends():
-    user_id = "default"
-    token = get_token(user_id, "realnex")
-    if not token:
-        return jsonify({"answer": "Please fetch your RealNex JWT token in Settings to access deal trends, stud! 🔑"})
-
-    deal_type = request.args.get('deal_type', 'LeaseComp')  # Default to LeaseComp
-
-    # Fetch historical data from RealNex
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            f"{REALNEX_API_BASE}/{deal_type}s",
-            headers={'Authorization': f'Bearer {token}'}
-        )
-    if response.status_code != 200:
-        return jsonify({"error": f"Failed to fetch deal data: {response.text}"}), 400
-
-    deals = response.json().get('value', [])
-    if not deals:
-        return jsonify({"error": "No deal data available"}), 400
-
-    # Prepare data for Chart.js
-    labels = []
-    values = []
-    for deal in deals:
-        date = deal.get('deal_date') or deal.get('sale_date')
-        if not date:
-            continue
-        labels.append(date)
-        if deal_type == "LeaseComp":
-            values.append(deal.get('rent_month', 0))
-        else:  # SaleComp
-            values.append(deal.get('sale_price', 0))
-
-    chart_data = {
-        "labels": labels,
-        "datasets": [{
-            "label": f"{deal_type} Trends",
-            "data": values,
-            "borderColor": "rgba(75, 192, 192, 1)",
-            "backgroundColor": "rgba(75, 192, 192, 0.2)",
-            "fill": True
-        }]
-    }
-    return jsonify({"chart_data": chart_data}), 200
-
-# Get RealNex groups
-@app.route('/get-realnex-groups', methods=['GET'])
-async def get_realnex_groups():
-    user_id = "default"
-    token = get_token(user_id, "realnex")
-    if not token:
-        return jsonify({"answer": "Please fetch your RealNex JWT token in Settings to fetch groups, stud! 🔑"})
-
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            f"{REALNEX_API_BASE}/Groups",
-            headers={'Authorization': f'Bearer {token}'}
-        )
-    if response.status_code == 200:
-        return jsonify({"groups": response.json().get('value', [])}), 200
-    return jsonify({"error": f"Failed to fetch groups: {response.text}"}), 400
-
-# Get marketing lists (Mailchimp audiences)
-@app.route('/get-marketing-lists', methods=['GET'])
-async def get_marketing_lists():
-    user_id = "default"
-    token = get_token(user_id, "mailchimp")
-    if not token:
-        return jsonify({"answer": "Please add your Mailchimp API key in Settings to fetch marketing lists, stud! 🔑"})
-
-    global mailchimp
-    mailchimp = MailchimpClient()
-    mailchimp.set_config({"api_key": token, "server": MAILCHIMP_SERVER_PREFIX})
-
-    try:
-        lists = mailchimp.lists.get_all_lists()
-        return jsonify({"lists": lists.get("lists", [])}), 200
-    except Exception as e:
-        return jsonify({"error": f"Failed to fetch marketing lists: {str(e)}"}), 400
-
-# Save settings route
-@app.route('/save-settings', methods=['POST'])
-async def save_settings():
-    data = request.json
-    user_id = "default"
-    tokens = data.get('tokens', {})
-    email = data.get('email')
-    phone = data.get('phone')
-
-    # Save tokens for each service
-    for service, token in tokens.items():
-        if token and validate_token(token, service):
-            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
-                           (user_id, service, token))
+            answer = f"The required fields for a SaleComp import are: {', '.join(required_fields)}. 🤑"
         else:
-            return jsonify({"error": f"Invalid token for {service}. Please check and try again, stud!"}), 400
+            answer = "Please specify a template (e.g., 'required fields for lease comp')."
 
-    conn.commit()
-
-    # Register for 2FA if email and phone are provided
-    if email and phone:
-        authy_id = register_user_for_2fa(user_id, email, phone)
-        if not authy_id:
-            return jsonify({"error": "Failed to register for 2FA"}), 400
-
-    update_onboarding(user_id, "save_settings")
-    return jsonify({"message": "Settings saved successfully!"}), 200
-
-# Transcription route
-@app.route('/transcribe', methods=['POST'])
-async def transcribe():
-    data = request.json
-    transcription = data.get('transcription', '')
-    if not transcription:
-        return jsonify({"error": "No transcription provided"}), 400
-
-    # Process transcription as a regular message
-    message_data = {"message": transcription}
-    request_data = request.copy()
-    request_data.json = message_data
-    return await ask()
-
-if __name__ == "__main__":
-    socketio.run(app, debug=True)
+    elif 'what is a lease term' in message:
