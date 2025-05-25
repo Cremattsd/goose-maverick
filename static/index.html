@@ -3,231 +3,184 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Matty's Maverick & Goose - Chat Hub</title>
+    <title>Matty's Maverick & Goose - CRE Chatbot</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4/dist/socket.io.min.js"></script>
     <style>
         body {
             font-family: 'Inter', sans-serif;
             background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
             min-height: 100vh;
-            overflow: hidden;
-            position: relative;
             color: #F8FAFC;
-        }
-        body::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAYAAAAeP4ixAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABzSURBVHhe7dOxDYAwEASxV+jY+wZmE5s5I5oS0A3c4uP9J+ABgIMHDx48ePDgwYMHDx48ePDgweOv4MGDBy8ePHjw4MGDBy8ePHjw4MGDBy8ePHjw4MGDBy8ePHjw4MGDBy8ePHjw4MGDBy8ePHjw4MGDBw8evD5vA1WvB0oJAAAAAElFTkSuQmCC');
-            opacity: 0.05;
-            pointer-events: none;
+            overflow-x: hidden;
         }
         .glass-card {
             background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(10px);
+            backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 16px;
+            border-radius: 20px;
             padding: 24px;
-            transition: all 0.3s ease;
-            box-shadow: 0 0 20px rgba(168, 85, 247, 0.2);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1), 0 0 20px rgba(168, 85, 247, 0.15);
         }
-        .glass-card:hover {
-            background: rgba(255, 255, 255, 0.1);
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2), 0 0 30px rgba(168, 85, 247, 0.5);
-        }
-        .glow-button {
+        .neon-button {
             background: linear-gradient(45deg, #A855F7, #22D3EE);
             color: #F8FAFC;
             border: none;
             padding: 12px 24px;
             border-radius: 50px;
+            box-shadow: 0 0 15px rgba(168, 85, 247, 0.5), 0 0 25px rgba(34, 211, 238, 0.3);
             transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
-            box-shadow: 0 0 10px rgba(168, 85, 247, 0.3);
         }
-        .glow-button:hover {
-            box-shadow: 0 0 20px rgba(168, 85, 247, 0.7), 0 0 30px rgba(34, 211, 238, 0.5);
+        .neon-button:hover {
+            box-shadow: 0 0 25px rgba(168, 85, 247, 0.8), 0 0 35px rgba(34, 211, 238, 0.5);
             transform: translateY(-2px);
         }
-        .glow-button::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
-            transition: 0.5s;
-        }
-        .glow-button:hover::before {
-            left: 100%;
-        }
-        .glow-button:disabled {
-            background: #4B5563;
-            cursor: not-allowed;
-            box-shadow: none;
-        }
-        .mic-button {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            background: linear-gradient(45deg, #A855F7, #22D3EE);
-            border: none;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.3s ease;
-            position: relative;
-            box-shadow: 0 0 10px rgba(168, 85, 247, 0.3);
-        }
-        .mic-button:hover {
-            box-shadow: 0 0 20px rgba(168, 85, 247, 0.7), 0 0 30px rgba(34, 211, 238, 0.5);
-            transform: translateY(-2px);
-        }
-        .mic-button .voice-wave::after {
-            content: '';
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            border-radius: 50%;
-            border: 2px solid #22D3EE;
-            opacity: 0.5;
-            animation: wavePulse 2s infinite;
-        }
-        @keyframes wavePulse {
-            0% { transform: scale(1); opacity: 0.5; }
-            100% { transform: scale(1.5); opacity: 0; }
-        }
-        .chat-bubble {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 12px;
+        .message-bubble {
+            max-width: 70%;
             padding: 12px 16px;
-            margin: 8px 0;
-            color: #F8FAFC;
-            animation: holographicFadeIn 0.5s ease;
-            box-shadow: 0 0 15px rgba(168, 85, 247, 0.3), inset 0 0 5px rgba(34, 211, 238, 0.2);
-            transition: transform 0.3s ease;
-        }
-        .chat-bubble:hover {
-            transform: scale(1.02);
-            box-shadow: 0 0 20px rgba(168, 85, 247, 0.5), inset 0 0 10px rgba(34, 211, 238, 0.3);
-        }
-        @keyframes holographicFadeIn {
-            0% { opacity: 0; transform: translateY(10px); filter: blur(5px); }
-            50% { filter: blur(2px); }
-            100% { opacity: 1; transform: translateY(0); filter: blur(0); }
-        }
-        .minimal-input {
-            background: transparent;
-            border: none;
-            border-bottom: 2px solid rgba(255, 255, 255, 0.2);
-            color: #F8FAFC;
-            padding: 8px 0;
-            width: 100%;
-            transition: all 0.3s ease;
-        }
-        .minimal-input:focus {
-            outline: none;
-            border-bottom: 2px solid #A855F7;
-            box-shadow: 0 2px 10px rgba(168, 85, 247, 0.3);
-        }
-        .footer-text {
-            font-size: 12px;
-            color: #94A3B8;
-            text-align: center;
-            margin-top: 16px;
-        }
-        .drag-drop-zone {
-            border: 2px dashed rgba(255, 255, 255, 0.3);
             border-radius: 12px;
-            padding: 20px;
-            text-align: center;
-            color: #94A3B8;
-            transition: all 0.3s ease;
-            position: relative;
-            background: rgba(255, 255, 255, 0.03);
-            box-shadow: 0 0 15px rgba(168, 85, 247, 0.2);
+            margin-bottom: 12px;
+            animation: slideIn 0.3s ease;
         }
-        .drag-drop-zone:hover, .drag-drop-zone.dragover {
-            border-color: #A855F7;
-            background: rgba(168, 85, 247, 0.1);
-            box-shadow: 0 0 25px rgba(168, 85, 247, 0.5), 0 0 15px rgba(34, 211, 238, 0.3);
-        }
-        .drag-drop-zone.dragover::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            border-radius: 12px;
-            border: 2px solid #22D3EE;
-            opacity: 0.5;
-            animation: wavePulse 2s infinite;
-        }
-        .drag-drop-zone:disabled {
-            border-color: #4B5563;
-            color: #4B5563;
-            cursor: not-allowed;
-            box-shadow: none;
-        }
-        .dashboard-button {
-            width: 60px;
-            height: 60px;
-            border-radius: 50%;
+        .user-message {
             background: linear-gradient(45deg, #A855F7, #22D3EE);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.3s ease;
-            box-shadow: 0 0 10px rgba(168, 85, 247, 0.3);
+            margin-left: auto;
         }
-        .dashboard-button:hover {
-            box-shadow: 0 0 20px rgba(168, 85, 247, 0.7), 0 0 30px rgba(34, 211, 238, 0.5);
-            transform: translateY(-2px) rotate(5deg);
+        .bot-message {
+            background: rgba(255, 255, 255, 0.1);
         }
-        .dashboard-button:disabled {
-            background: #4B5563;
-            cursor: not-allowed;
-            box-shadow: none;
+        .chat-container {
+            height: 70vh;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: #A855F7 #1E293B;
         }
-        .dashboard-button i {
-            font-size: 24px;
+        .chat-container::-webkit-scrollbar {
+            width: 8px;
         }
-        .notification {
-            background: linear-gradient(45deg, #A855F7, #22D3EE);
-            box-shadow: 0 0 20px rgba(168, 85, 247, 0.5);
-            animation: pulse 1.5s infinite;
+        .chat-container::-webkit-scrollbar-track {
+            background: #1E293B;
         }
-        @keyframes pulse {
-            0% { box-shadow: 0 0 20px rgba(168, 85, 247, 0.5); }
-            50% { box-shadow: 0 0 30px rgba(34, 211, 238, 0.7); }
-            100% { box-shadow: 0 0 20px rgba(168, 85, 247, 0.5); }
+        .chat-container::-webkit-scrollbar-thumb {
+            background: #A855F7;
+            border-radius: 4px;
         }
-        .points-display {
+        .stats-display {
             background: rgba(255, 255, 255, 0.05);
             border-radius: 12px;
             padding: 8px 16px;
             color: #F8FAFC;
             box-shadow: 0 0 15px rgba(168, 85, 247, 0.3);
         }
+        .voice-icon {
+            position: relative;
+            background: none;
+            border: none;
+            padding: 12px;
+            border-radius: 50%;
+            box-shadow: 0 0 15px rgba(34, 211, 238, 0.5);
+            transition: all 0.3s ease;
+        }
+        .voice-icon:hover {
+            box-shadow: 0 0 25px rgba(34, 211, 238, 0.8);
+        }
+        .voice-icon::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 40px;
+            height: 40px;
+            background: radial-gradient(circle, rgba(34, 211, 238, 0.3), transparent);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            animation: pulse 1.5s infinite;
+        }
+        .drop-zone {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(12px);
+            border: 2px dashed rgba(168, 85, 247, 0.5);
+            border-radius: 12px;
+            padding: 24px;
+            text-align: center;
+            color: #F8FAFC;
+            box-shadow: 0 0 15px rgba(168, 85, 247, 0.3);
+            transition: all 0.3s ease;
+        }
+        .drop-zone.dragover {
+            border-color: #22D3EE;
+            box-shadow: 0 0 25px rgba(34, 211, 238, 0.5);
+            transform: scale(1.02);
+        }
+        .record-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 12px;
+            margin-bottom: 8px;
+            box-shadow: 0 0 10px rgba(168, 85, 247, 0.2);
+            animation: slideIn 0.3s ease;
+        }
+        @keyframes pulse {
+            0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+            100% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; }
+        }
+        @keyframes slideIn {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        .input-glass {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 12px;
+            color: #F8FAFC;
+            transition: all 0.3s ease;
+        }
+        .input-glass:focus {
+            outline: none;
+            box-shadow: 0 0 15px rgba(168, 85, 247, 0.5);
+        }
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 12px 24px;
+            box-shadow: 0 0 15px rgba(168, 85, 247, 0.5);
+            animation: popIn 0.5s ease forwards, fadeOut 0.5s ease 2s forwards;
+        }
+        @keyframes popIn {
+            0% { transform: scale(0.8); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        @keyframes fadeOut {
+            0% { opacity: 1; }
+            100% { opacity: 0; }
+        }
     </style>
 </head>
 <body>
-    <!-- Main Container -->
-    <div class="container mx-auto p-6 relative z-10">
-        <!-- Points Display -->
-        <div class="flex justify-center mb-4">
-            <div class="points-display">
+    <div class="container mx-auto p-6">
+        <!-- Stats Display -->
+        <div class="flex justify-center mb-4 space-x-4">
+            <div class="stats-display">
                 <i class="fas fa-trophy text-yellow-400 mr-2"></i>
                 <span id="points">0</span> Points
+            </div>
+            <div class="stats-display">
+                <i class="fas fa-envelope text-cyan-300 mr-2"></i>
+                <span id="email-credits">0</span> Credits
+            </div>
+            <div class="stats-display">
+                <i class="fas fa-award text-purple-400 mr-2"></i>
+                MSA: <span id="msa-status">No</span>
             </div>
         </div>
 
@@ -236,288 +189,41 @@
             <h1 class="text-4xl font-bold text-white tracking-tight">Matty's Maverick & Goose</h1>
         </header>
 
-        <!-- Chat Widget (Glass Card) -->
-        <div class="max-w-md mx-auto glass-card">
-            <!-- Chat Display -->
-            <div id="chat-display" class="h-96 overflow-y-auto mb-4 p-4 rounded-lg">
-                <div class="chat-bubble">Hey there, I’m Goose! Ask me anything about RealNex, or add your token in Settings to unlock more features, stud! 💥</div>
-            </div>
-
-            <!-- Input and Buttons -->
-            <div class="flex items-center space-x-2 mb-4">
-                <input id="message" type="text" class="minimal-input placeholder-gray-400" placeholder="Type your message...">
-                <button onclick="sendMessage()" class="glow-button">Send</button>
-                <button onclick="startVoice()" class="mic-button" title="Voice Command">
-                    <div class="voice-wave">
-                        <i class="fas fa-microphone text-white"></i>
-                    </div>
-                </button>
-            </div>
-
-            <!-- Drag and Drop Zone -->
-            <div id="drag-drop-zone" class="drag-drop-zone mb-4" disabled>
-                <p>Drag & Drop PDF, Image, or XLSX here to upload (Token required) 📂</p>
-                <input type="file" id="file-upload" accept=".pdf,image/*,.xlsx" class="hidden" onchange="uploadFile()">
-            </div>
-
-            <!-- Action Buttons -->
-            <div class="grid grid-cols-2 gap-3 mb-4">
-                <button id="send-campaign-btn" onclick="sendCampaign()" class="glow-button" disabled>Send RealBlast</button>
-                <button id="verify-emails-btn" onclick="verifyEmails()" class="glow-button" disabled>Verify Emails</button>
-                <button id="sync-crm-btn" onclick="syncCrmData()" class="glow-button" disabled>Sync CRM Data</button>
-                <a id="settings-link" href="/settings" class="glow-button text-center">Settings</a>
-            </div>
-
-            <!-- Dashboard Button -->
-            <div class="flex justify-center">
-                <a id="dashboard-link" href="/dashboard" class="text-center" onclick="checkToken(event)" disabled>
-                    <div class="dashboard-button">
-                        <i class="fas fa-chart-line text-white"></i>
-                    </div>
-                    <span class="text-sm text-gray-400 mt-1 block">Dashboard</span>
-                </a>
-            </div>
+        <!-- Drag and Drop Area -->
+        <div class="drop-zone mb-8" id="dropZone">
+            <p>Drag & Drop your XLSX, PDF, or photos here to import (earn 1 point per record, stud! 📂)</p>
         </div>
 
-        <!-- Footer -->
-        <div class="footer-text">
-            Created by Matty Smith with 💜 | <a href="https://realnex.com" class="text-blue-400 hover:underline">Visit RealNex.com</a>
+        <!-- Recent Imports Display -->
+        <div class="glass-card mb-8">
+            <h2 class="text-xl font-semibold mb-4">Recent Imports</h2>
+            <div id="recentImports"></div>
         </div>
 
-        <!-- Notification Toast -->
-        <div id="notification" class="hidden fixed top-4 right-4 p-4 text-white rounded-lg shadow-lg animate-bounce notification"></div>
+        <!-- Chat Container -->
+        <div class="glass-card mb-8">
+            <div id="chat" class="chat-container"></div>
+        </div>
+
+        <!-- Input Area -->
+        <div class="flex flex-col sm:flex-row items-center justify-center space-y-4 sm:space-y-0 sm:space-x-4 mb-8">
+            <input type="text" id="message" placeholder="Ask me anything, stud! 🤙" class="w-full sm:w-96 input-glass">
+            <button onclick="sendMessage()" class="neon-button">Send</button>
+            <button onclick="transcribe()" class="voice-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-cyan-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                </svg>
+            </button>
+            <a href="/dashboard.html" class="neon-button">Dashboard</a>
+            <button onclick="goToSettings()" class="neon-button">Settings</button>
+        </div>
     </div>
 
     <script>
-        let token = localStorage.getItem('realnex_token') || null;
-        let mailchimpApiKey = localStorage.getItem('mailchimp_api_key') || null;
-        let zoominfoApiKey = localStorage.getItem('zoominfo_api_key') || null;
-        let apolloApiKey = localStorage.getItem('apollo_api_key') || null;
-
-        async function updatePoints() {
-            const response = await fetch('/dashboard-data', {
-                method: 'GET',
-                headers: { 'Authorization': 'Bearer ' + token }
-            });
-            if (response.ok) {
-                const data = await response.json();
-                document.getElementById('points').textContent = data.points || 0;
-            }
-        }
-
-        function updateFeatureAccess() {
-            const hasToken = !!token;
-            const dragDropZone = document.getElementById('drag-drop-zone');
-            const fileUpload = document.getElementById('file-upload');
-            if (hasToken) {
-                dragDropZone.classList.remove('disabled');
-                dragDropZone.removeAttribute('disabled');
-                fileUpload.removeAttribute('disabled');
-            } else {
-                dragDropZone.classList.add('disabled');
-                dragDropZone.setAttribute('disabled', 'true');
-                fileUpload.setAttribute('disabled', 'true');
-            }
-            document.getElementById('send-campaign-btn').disabled = !(hasToken && mailchimpApiKey);
-            document.getElementById('verify-emails-btn').disabled = !hasToken;
-            document.getElementById('sync-crm-btn').disabled = !(hasToken && (zoominfoApiKey || apolloApiKey));
-            document.getElementById('dashboard-link').classList.toggle('dashboard-button', hasToken);
-            document.getElementById('dashboard-link').classList.toggle('dashboard-button:disabled', !hasToken);
-            updatePoints();
-        }
+        const socket = io();
 
         async function fetchWithErrorHandling(url, options) {
             try {
                 const response = await fetch(url, options);
                 if (!response.ok) {
-                    showNotification(response.status === 401 ? `Invalid token! Please check your RealNex token in Settings, stud!` : `Turbulence: ${response.statusText} 🚨`);
-                    return null;
-                }
-                return await response.json();
-            } catch (error) {
-                showNotification(`Mayday! ${error.message} 🚨`);
-                return null;
-            }
-        }
-
-        function showNotification(message) {
-            const notificationDiv = document.getElementById('notification');
-            notificationDiv.textContent = message;
-            notificationDiv.classList.remove('hidden');
-            setTimeout(() => notificationDiv.classList.add('hidden'), 5000);
-        }
-
-        function appendMessage(message) {
-            const chatDisplay = document.getElementById('chat-display');
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'chat-bubble';
-            messageDiv.textContent = message;
-            chatDisplay.appendChild(messageDiv);
-            chatDisplay.scrollTop = chatDisplay.scrollHeight;
-        }
-
-        function checkToken(event) {
-            if (!token) {
-                event.preventDefault();
-                showNotification('Please add your RealNex token in Settings to access this feature, stud! 🔐');
-            }
-        }
-
-        async function sendMessage() {
-            const message = document.getElementById('message').value;
-            if (!message) return;
-            appendMessage(`You: ${message}`);
-
-            if (!token) {
-                if (message.toLowerCase().includes('realnex')) {
-                    appendMessage(`Goose: I can help with general RealNex questions, stud! For example, RealNex is a powerful CRM for commercial real estate, helping you manage contacts, projects, and properties. Want to know more about a specific feature? Or add your token in Settings to unlock more! 💪`);
-                } else {
-                    appendMessage(`Goose: I can answer questions about RealNex without a token. For other features, please add your RealNex token in Settings, stud! 🔐`);
-                }
-            } else {
-                const response = await fetchWithErrorHandling('/ask', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-                    body: JSON.stringify({ message })
-                });
-                if (response) {
-                    appendMessage(`Goose: ${response.answer}`);
-                }
-            }
-            document.getElementById('message').value = '';
-        }
-
-        async function sendCampaign() {
-            if (!token || !mailchimpApiKey) return;
-            const campaignContent = prompt("Enter your RealBlast campaign content:");
-            if (!campaignContent) return;
-
-            const response = await fetchWithErrorHandling('/send-campaign', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-                body: JSON.stringify({
-                    mailchimp_api_key: mailchimpApiKey,
-                    audience_id: "Audience1", // Simulated audience
-                    campaign_content: campaignContent
-                })
-            });
-            if (response) {
-                appendMessage(`Goose: ${response.message}`);
-                updatePoints();
-            }
-        }
-
-        async function verifyEmails() {
-            if (!token) return;
-            const response = await fetchWithErrorHandling('/verify-emails', {
-                method: 'POST',
-                headers: { 'Authorization': 'Bearer ' + token }
-            });
-            if (response) {
-                showNotification(`Verified ${response.verified} emails! We’re golden, stud! ✨`);
-            }
-        }
-
-        async function syncCrmData() {
-            if (!token || !(zoominfoApiKey || apolloApiKey)) return;
-            const response = await fetchWithErrorHandling('/sync-crm-data', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-                body: JSON.stringify({
-                    zoominfo_api_key: zoominfoApiKey,
-                    apollo_api_key: apolloApiKey
-                })
-            });
-            if (response) {
-                appendMessage(`Goose: ${response.message}`);
-                updatePoints();
-            }
-        }
-
-        async function startVoice() {
-            const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
-            recognition.lang = 'en-US';
-            recognition.onresult = async (event) => {
-                const transcription = event.results[0][0].transcript;
-                appendMessage(`You (Voice): ${transcription}`);
-
-                if (!token) {
-                    if (transcription.toLowerCase().includes('realnex')) {
-                        appendMessage(`Goose: I can help with general RealNex questions, stud! For example, RealNex is a powerful CRM for commercial real estate, helping you manage contacts, projects, and properties. Want to know more about a specific feature? Or add your token in Settings to unlock more! 💪`);
-                    } else {
-                        appendMessage(`Goose: I can answer questions about RealNex without a token. For other features, please add your RealNex token in Settings, stud! 🔐`);
-                    }
-                } else {
-                    const response = await fetchWithErrorHandling('/transcribe', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-                        body: JSON.stringify({ transcription })
-                    });
-                    if (response) {
-                        appendMessage(`Goose: ${response.answer}`);
-                    }
-                }
-            };
-            recognition.onerror = (event) => showNotification(`Voice error: ${event.error} 🚨`);
-            recognition.start();
-        }
-
-        const dragDropZone = document.getElementById('drag-drop-zone');
-        dragDropZone.addEventListener('click', () => {
-            if (!token) return;
-            document.getElementById('file-upload').click();
-        });
-        dragDropZone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            if (!token) return;
-            dragDropZone.classList.add('dragover');
-        });
-        dragDropZone.addEventListener('dragleave', () => {
-            dragDropZone.classList.remove('dragover');
-        });
-        dragDropZone.addEventListener('drop', (e) => {
-            e.preventDefault();
-            if (!token) return;
-            dragDropZone.classList.remove('dragover');
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                document.getElementById('file-upload').files = files;
-                uploadFile();
-            }
-        });
-
-        async function uploadFile() {
-            if (!token) return;
-            const fileInput = document.getElementById('file-upload');
-            const file = fileInput.files[0];
-            if (!file) return;
-
-            const validTypes = ['application/pdf', 'image/jpeg', 'image/png', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'];
-            if (!validTypes.includes(file.type)) {
-                showNotification('Please upload a PDF, image (JPEG/PNG), or XLSX file, stud! 📂');
-                return;
-            }
-
-            const formData = new FormData();
-            formData.append('file', file);
-            const response = await fetchWithErrorHandling('/upload-file', {
-                method: 'POST',
-                headers: { 'Authorization': 'Bearer ' + token },
-                body: formData
-            });
-
-            if (response) {
-                appendMessage(`Goose: ${response.message}`);
-                updatePoints();
-            }
-            fileInput.value = '';
-        }
-
-        document.getElementById('message').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') sendMessage();
-        });
-
-        updateFeatureAccess();
-    </script>
-</body>
-</html>
+                    addMessage(response.status === 401 ? `Invalid token! Please fetch your RealNex JWT token in Settings, stud!` : `Turbulence: ${response.status
