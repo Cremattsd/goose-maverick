@@ -4,7 +4,7 @@ FROM python:3.11-slim
 # Set environment variables for Python and Gunicorn
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PORT=5000
+    PORT=10000
 
 # Set working directory
 WORKDIR /app
@@ -58,13 +58,13 @@ RUN pip install --upgrade pip
 
 # Copy Python requirements and install dependencies to leverage caching
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt --use-pep517
+RUN pip install --no-cache-dir -r requirements.txt --use-pep517 || { echo "Failed to install dependencies"; exit 1; }
 
 # Copy the rest of the application
 COPY . .
 
-# Expose the port (Render will override this with the PORT env variable)
-EXPOSE 5000
+# Expose the port
+EXPOSE 10000
 
 # Command to run the app with optimized Gunicorn settings
 CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120 --log-level info app:app"]
