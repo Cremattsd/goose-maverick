@@ -4,7 +4,8 @@ FROM python:3.11-slim
 # Set environment variables for Python and Gunicorn
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PORT=10000
+    PORT=10000 \
+    PYTHONPATH=/usr/local/lib/python3.11/site-packages
 
 # Set working directory
 WORKDIR /app
@@ -62,8 +63,12 @@ RUN pip install --upgrade pip
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt --use-pep517 || { echo "Failed to install dependencies"; exit 1; }
 
-# Debug step: Verify PyMuPDF is installed
-RUN python -c "import PyMuPDF; print('PyMuPDF installed successfully:', PyMuPDF.__version__)" || { echo "PyMuPDF installation failed"; exit 1; }
+# Debug step: Verify PyMuPDF installation and Python path
+RUN echo "Python path:" && python -c "import sys; print(sys.path)" && \
+    echo "Installed packages:" && pip list && \
+    echo "Trying import PyMuPDF..." && (python -c "import PyMuPDF; print('PyMuPDF (uppercase) installed successfully:', PyMuPDF.__version__)" || echo "Failed to import PyMuPDF (uppercase)") && \
+    echo "Trying import pymupdf..." && (python -c "import pymupdf; print('pymupdf (lowercase) installed successfully:', pymupdf.__version__)" || echo "Failed to import pymupdf (lowercase)") && \
+    echo "Debug complete"
 
 # Copy the rest of the application
 COPY . .
