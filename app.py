@@ -5,7 +5,7 @@ import pandas as pd
 import io
 import numpy as np
 from sklearn.linear_model import LinearRegression
-import PyMuPDF
+import pymupdf as PyMuPDF  # Updated import
 from pdf2image import convert_from_bytes
 import pytesseract
 from PIL import Image
@@ -30,7 +30,15 @@ import re
 app = Flask(__name__)
 CORS(app)
 app.config['SECRET_KEY'] = 'your_secret_key'
-redis_client = redis.Redis(host='localhost', port=6379, db=0)
+
+# Initialize Redis with error handling
+try:
+    redis_client = redis.Redis(host='localhost', port=6379, db=0)
+    redis_client.ping()  # Test the connection
+except Exception as e:
+    print(f"Failed to connect to Redis: {e}")
+    redis_client = None  # Fallback to None; handle this in routes
+
 socketio = SocketIO(app, cors_allowed_origins="*", message_queue='redis://localhost:6379')
 
 # API credentials (replace with your own)
@@ -48,8 +56,20 @@ SMTP_PASSWORD = "your_email_password"
 
 # Initialize clients
 mailchimp = None
-twilio_client = TwilioClient(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-openai_client = OpenAI(api_key=OPENAI_API_KEY)
+
+# Initialize Twilio with error handling
+try:
+    twilio_client = TwilioClient(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+except Exception as e:
+    print(f"Failed to initialize Twilio client: {e}")
+    twilio_client = None
+
+# Initialize OpenAI with error handling
+try:
+    openai_client = OpenAI(api_key=OPENAI_API_KEY)
+except Exception as e:
+    print(f"Failed to initialize OpenAI client: {e}")
+    openai_client = None
 
 # Database setup
 conn = sqlite3.connect('user_data.db', check_same_thread=False)
@@ -307,6 +327,8 @@ def match_fields(uploaded_headers, template_fields, user_id="default"):
 
 # 2FA setup and verification
 def register_user_for_2fa(user_id, email, phone):
+    if not twilio_client:
+        return None
     authy = twilio_client.authy.users.create(
         email=email,
         phone=phone,
@@ -320,6 +342,8 @@ def register_user_for_2fa(user_id, email, phone):
     return None
 
 def send_2fa_code(user_id):
+    if not twilio_client:
+        return False
     cursor.execute("SELECT authy_id FROM user_2fa WHERE user_id = ?", (user_id,))
     result = cursor.fetchone()
     if not result:
@@ -329,6 +353,8 @@ def send_2fa_code(user_id):
     return authy.status == "success"
 
 def check_2fa(user_id, code):
+    if not twilio_client:
+        return False
     cursor.execute("SELECT authy_id FROM user_2fa WHERE user_id = ?", (user_id,))
     result = cursor.fetchone()
     if not result:
@@ -356,6 +382,8 @@ def extract_text_from_file(file):
 
 # Cached RealNex API call
 async def get_realnex_data(user_id, endpoint):
+    if not redis_client:
+        return None
     cache_key = f"realnex:{user_id}:{endpoint}"
     cached_data = redis_client.get(cache_key)
     if cached_data:
@@ -407,14 +435,15 @@ def check_new_imports():
                             'tts': message
                         })
                     if settings["sms_alerts_enabled"] and settings["phone_number"]:
-                        try:
-                            twilio_client.messages.create(
-                                body=message,
-                                from_='+1234567890',  # Replace with your Twilio number
-                                to=settings["phone_number"]
-                            )
-                        except Exception as e:
-                            print(f"Failed to send SMS: {e}")
+                        if twilio_client:
+                            try:
+                                twilio_client.messages.create(
+                                    body=message,
+                                    from_='+1234567890',  # Replace with your Twilio number
+                                    to=settings["phone_number"]
+                                )
+                            except Exception as e:
+                                print(f"Failed to send SMS: {e}")
                 else:
                     socketio.emit('deal_alert', {
                         'user_id': user_id,
@@ -424,6 +453,11 @@ def check_new_imports():
 
 # Start the background task
 threading.Thread(target=check_new_imports, daemon=True).start()
+
+# Health check route
+@app.route('/health', methods=['GET'])
+def health_check():
+    return jsonify({"status": "healthy"}), 200
 
 # Route to fetch RealNex JWT token
 @app.route('/fetch-realnex-jwt', methods=['POST'])
@@ -448,6 +482,9 @@ async def upload_file():
     token = get_token(user_id, "realnex")
     if not token:
         return jsonify({"answer": "Please fetch your RealNex JWT token in Settings to import data. 🔑"})
+
+    if not twilio_client:
+        return jsonify({"error": "Twilio client not initialized. Check server logs for details."}), 500
 
     data = request.form.to_dict()
     two_fa_code = data.get('two_fa_code')
@@ -625,6 +662,9 @@ async def negotiate_deal():
     if not token:
         return jsonify({"error": "Please fetch your RealNex JWT token in Settings to negotiate a deal. 🔑"}), 400
 
+    if not openai_client:
+        return jsonify({"error": "OpenAI client not initialized. Check server logs for details."}), 500
+
     data = request.json
     deal_type = data.get('deal_type', 'LeaseComp')
     sq_ft = data.get('sq_ft')
@@ -756,6 +796,9 @@ def generate_subject():
     settings = get_user_settings(user_id)
     if not settings["subject_generator_enabled"]:
         return jsonify({"error": "Subject line generator is disabled in settings. Enable it to generate subjects."}), 400
+
+    if not openai_client:
+        return jsonify({"error": "OpenAI client not initialized. Check server logs for details."}), 500
 
     data = request.json
     campaign_type = data.get('campaign_type', 'RealBlast')
@@ -964,6 +1007,8 @@ async def ask():
     # Translate non-English commands to English
     original_message = message
     if settings["language"] != "en":
+        if not openai_client:
+            return jsonify({"error": "OpenAI client not initialized. Check server logs for details."}), 500
         try:
             response = openai_client.chat.completions.create(
                 model="gpt-3.5-turbo",
@@ -1035,6 +1080,8 @@ async def ask():
             return jsonify({"answer": answer, "tts": answer})
 
         campaign_type = "RealBlast" if "realblast" in message else "Mailchimp"
+        if not openai_client:
+            return jsonify({"error": "OpenAI client not initialized. Check server logs for details."}), 500
         try:
             response = openai_client.chat.completions.create(
                 model="gpt-3.5-turbo",
@@ -1057,6 +1104,8 @@ async def ask():
 
     elif 'group id' in message:
         audience_id = message.split('group id')[-1].strip()
+        if not openai_client:
+            return jsonify({"error": "OpenAI client not initialized. Check server logs for details."}), 500
         try:
             response = openai_client.chat.completions.create(
                 model="gpt-3.5-turbo",
@@ -1079,6 +1128,8 @@ async def ask():
 
     elif 'audience id' in message:
         audience_id = message.split('audience id')[-1].strip()
+        if not openai_client:
+            return jsonify({"error": "OpenAI client not initialized. Check server logs for details."}), 500
         try:
             response = openai_client.chat.completions.create(
                 model="gpt-3.5-turbo",
@@ -1110,6 +1161,9 @@ async def ask():
         if not token:
             answer = "Please fetch your RealNex JWT token in Settings to send a RealBlast. 🔑"
             return jsonify({"answer": answer, "tts": answer})
+
+        if not twilio_client:
+            return jsonify({"error": "Twilio client not initialized. Check server logs for details."}), 500
 
         two_fa_code = data.get('two_fa_code')
         if not two_fa_code:
@@ -1171,6 +1225,9 @@ async def ask():
         global mailchimp
         mailchimp = MailchimpClient()
         mailchimp.set_config({"api_key": token, "server": MAILCHIMP_SERVER_PREFIX})
+
+        if not twilio_client:
+            return jsonify({"error": "Twilio client not initialized. Check server logs for details."}), 500
 
         two_fa_code = data.get('two_fa_code')
         if not two_fa_code:
@@ -1337,6 +1394,9 @@ async def ask():
             answer = "Please fetch your RealNex JWT token in Settings to negotiate a deal. 🔑"
             return jsonify({"answer": answer, "tts": answer})
 
+        if not openai_client:
+            return jsonify({"error": "OpenAI client not initialized. Check server logs for details."}), 500
+
         historical_data = await get_realnex_data(user_id, f"{deal_type}s")
         if not historical_data:
             answer = "No historical data available for negotiation."
@@ -1402,6 +1462,8 @@ async def ask():
             answer = "Please provide the text to summarize. Say something like 'summarize text This is my text to summarize'. What’s the text? 📝"
             return jsonify({"answer": answer, "tts": answer})
 
+        if not openai_client:
+            return jsonify({"error": "OpenAI client not initialized. Check server logs for details."}), 500
         try:
             response = openai_client.chat.completions.create(
                 model="gpt-3.5-turbo",
@@ -1434,79 +1496,4 @@ async def ask():
         token = get_token(user_id, "realnex")
         if not token:
             answer = "Please fetch your RealNex JWT token in Settings to sync contacts. 🔑"
-            return jsonify({"answer": answer, "tts": answer})
-
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                "https://www.googleapis.com/oauth2/v1/userinfo",
-                headers={"Authorization": f"Bearer {google_token}"}
-            )
-        if response.status_code != 200:
-            answer = f"Failed to fetch Google contacts: {response.text}"
-            return jsonify({"answer": answer, "tts": answer})
-
-        contacts = response.json().get("contacts", [])
-        if contacts:
-            df = pd.DataFrame(contacts)
-            csv_buffer = io.StringIO()
-            df.to_csv(csv_buffer, index=False)
-            csv_data = csv_buffer.getvalue()
-
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{REALNEX_API_BASE}/ImportData",
-                    headers={'Authorization': f'Bearer {token}', 'Content-Type': 'text/csv'},
-                    data=csv_data
-                )
-
-            if response.status_code == 200:
-                answer = f"Synced {len(contacts)} contacts into RealNex. 📇"
-                return jsonify({"answer": answer, "tts": answer})
-            answer = f"Failed to import contacts into RealNex: {response.text}"
-            return jsonify({"answer": answer, "tts": answer})
-        answer = "No contacts to sync."
-
-    elif 'training reminder' in message:
-        user_email = None
-        if 'email' in message:
-            user_email = message.split('email')[-1].strip()
-        if not user_email:
-            answer = "I need your email to send a training reminder. Say something like 'send training reminder to email myemail@example.com'. What’s your email? 📚"
-            return jsonify({"answer": answer, "tts": answer})
-
-        subject = "RealNex Training Reminder"
-        body = (
-            "Hey there, CRE Pro!\n\n"
-            "Don’t miss out on mastering RealNex! Join our training webinars or check out our Knowledge Base:\n"
-            "- Training Webinars: [Link to RealNex Webinars]\n"
-            "- Knowledge Base: https://realnex.zendesk.com\n\n"
-            "Let’s get you closing deals faster! 🏆\n"
-            "- Matty’s Maverick & Goose"
-        )
-        msg = MIMEText(body)
-        msg['Subject'] = subject
-        msg['From'] = SMTP_USER
-        msg['To'] = user_email
-
-        try:
-            with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-                server.starttls()
-                server.login(SMTP_USER, SMTP_PASSWORD)
-                server.sendmail(SMTP_USER, user_email, msg.as_string())
-            update_onboarding(user_id, "send_training_reminder")
-            answer = "Training reminder sent! Check your email. 📚"
-        except Exception as e:
-            answer = f"Failed to send training reminder: {str(e)}. Try again."
-
-    elif 'my status' in message:
-        status_message = f"Here’s your status:\n"
-        status_message += f"Points: {points}\n"
-        status_message += f"Email Credits: {email_credits} (reach 1000 points to unlock 1000 credits!)\n"
-        status_message += f"Free RealBlast MSA: {'Yes' if has_msa else 'No'} (complete onboarding to earn one!)\n"
-        status_message += f"Onboarding Progress: {len(completed_steps)}/{len(onboarding_steps)} steps completed\n"
-        if completed_steps:
-            status_message += f"Completed Steps: {', '.join(completed_steps)}\n"
-        remaining_steps = [step for step in onboarding_steps if step not in completed_steps]
-        if remaining_steps:
-            status_message += f"Remaining Steps: {', '.join(remaining_steps)}\n"
-        answer = status_message
+            return jsonify({"answer":
