@@ -64,6 +64,5 @@ COPY . .
 # Expose the dynamic port
 EXPOSE $PORT
 
-# Start Redis (optional) and Gunicorn app
-# If Redis causes issues on Render, REMOVE 'redis-server --daemonize yes &&'
-CMD ["sh", "-c", "redis-server --daemonize yes && gunicorn --bind 0.0.0.0:$PORT --workers 4 --threads 8 --timeout 120 --log-level info app:app"]
+# Start only Gunicorn, without Redis (for Render or Docker)
+CMD ["gunicorn", "--bind", "0.0.0.0:$PORT", "--workers", "4", "--threads", "8", "--timeout", "120", "--log-level", "info", "app:app"]
