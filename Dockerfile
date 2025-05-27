@@ -59,18 +59,13 @@ RUN npm run build
 # Update pip to the latest version
 RUN pip install --upgrade pip
 
-# Copy Python requirements and install dependencies to leverage caching
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt --use-pep517 || { echo "Failed to install dependencies"; exit 1; }
+# Copy Python requirements and install dependencies with better error handling
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt --use-pep517
+# Debug step: Verify python-dotenv installation
+RUN python -c "import dotenv; print('python-dotenv is installed successfully!')"
 
-# Debug step: Verify PyMuPDF installation and Python path
-RUN echo "Python path:" && python -c "import sys; print(sys.path)" && \
-    echo "Installed packages:" && pip list && \
-    echo "Trying import PyMuPDF..." && (python -c "import PyMuPDF; print('PyMuPDF (uppercase) installed successfully:', PyMuPDF.__version__)" || echo "Failed to import PyMuPDF (uppercase)") && \
-    echo "Trying import pymupdf..." && (python -c "import pymupdf; print('pymupdf (lowercase) installed successfully:', pymupdf.__version__)" || echo "Failed to import pymupdf (lowercase)") && \
-    echo "Debug complete"
-
-# Copy the rest of the application
+# Copy the rest of the application (after requirements to leverage caching)
 COPY . .
 
 # Expose the port
