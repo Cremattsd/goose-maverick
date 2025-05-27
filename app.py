@@ -1,990 +1,464 @@
-from flask import Flask, request, jsonify, render_template
-from flask_cors import CORS
-from flask_socketio import SocketIO, emit
-import pandas as pd
+import os
 import io
+import json
+import re
+import smtplib
+import logging
+import base64
+import hashlib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.application import MIMEApplication
+from datetime import datetime, timedelta
+import sqlite3
+import pandas as pd
 import numpy as np
 from sklearn.linear_model import LinearRegression
-import pymupdf as PyMuPDF  # Updated import
-from pdf2image import convert_from_bytes
-import pytesseract
-from PIL import Image
-import httpx
-from fuzzywuzzy import fuzz
-from collections import defaultdict
-import sqlite3
-from datetime import datetime
-import json
 import redis
-from mailchimp_marketing import Client as MailchimpClient
+import jwt
+from flask import Flask, request, jsonify, render_template, send_file
+from flask_socketio import SocketIO
+import httpx
+import openai
 from twilio.rest import Client as TwilioClient
-from openai import OpenAI
-import smtplib
-from email.mime.text import MIMEText
-import threading
-import time
-import pyttsx3
-import uuid
-import re
+from mailchimp_marketing import Client as MailchimpClient
+from dotenv import load_dotenv
+from goose_parser_tools import extract_text_from_pdf, extract_text_from_image
+from fpdf import FPDF
+from PIL import Image
+import matplotlib.pyplot as plt
+import seaborn as sns
+from io import BytesIO
 
+# Configure logging for better debugging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.FileHandler("chatbot.log"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Load environment variables
+load_dotenv()
+
+# Flask app setup
 app = Flask(__name__)
-CORS(app)
-app.config['SECRET_KEY'] = 'your_secret_key'
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key')
+socketio = SocketIO(app, cors_allowed_origins="*")
 
-# Initialize Redis with error handling
+# Redis setup for caching
 try:
-    redis_client = redis.Redis(host='localhost', port=6379, db=0)
-    redis_client.ping()  # Test the connection
-except Exception as e:
-    print(f"Failed to connect to Redis: {e}")
-    redis_client = None  # Fallback to None; handle this in routes
+    redis_client = redis.Redis(host='localhost', port=6379, decode_responses=True)
+    redis_client.ping()
+    logger.info("Redis connection established successfully.")
+except redis.ConnectionError as e:
+    logger.error(f"Redis connection failed: {e}. Ensure Redis is running.")
+    redis_client = None
 
-socketio = SocketIO(app, cors_allowed_origins="*", message_queue='redis://localhost:6379')
-
-# API credentials (replace with your own)
-REALNEX_API_BASE = "https://sync.realnex.com/api/v1/CrmOData"
-REALNEX_AUTH_URL = "https://imports.realnex.com/integrations/api"
-MAILCHIMP_SERVER_PREFIX = "us1"
-TWILIO_ACCOUNT_SID = "your_twilio_account_sid"
-TWILIO_AUTH_TOKEN = "your_twilio_auth_token"
-TWILIO_AUTHY_API_KEY = "your_authy_api_key"
-OPENAI_API_KEY = "your_openai_api_key"
-SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 587
-SMTP_USER = "your_email@gmail.com"
-SMTP_PASSWORD = "your_email_password"
-
-# Initialize clients
-mailchimp = None
-
-# Initialize Twilio with error handling
-try:
-    twilio_client = TwilioClient(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-except Exception as e:
-    print(f"Failed to initialize Twilio client: {e}")
-    twilio_client = None
-
-# Initialize OpenAI with error handling
-try:
-    openai_client = OpenAI(api_key=OPENAI_API_KEY)
-except Exception as e:
-    print(f"Failed to initialize OpenAI client: {e}")
-    openai_client = None
-
-# Database setup
-conn = sqlite3.connect('user_data.db', check_same_thread=False)
+# Database setup with SQLite
+conn = sqlite3.connect('chatbot.db', check_same_thread=False)
 cursor = conn.cursor()
-cursor.execute('''CREATE TABLE IF NOT EXISTS user_mappings 
-                 (user_id TEXT, header TEXT, mapped_field TEXT, frequency INTEGER)''')
-cursor.execute('''CREATE TABLE IF NOT EXISTS user_points 
-                 (user_id TEXT, points INTEGER, email_credits INTEGER, has_msa INTEGER, last_updated TEXT)''')
-cursor.execute('''CREATE TABLE IF NOT EXISTS points_history 
-                 (user_id TEXT, points INTEGER, timestamp TEXT)''')
-cursor.execute('''CREATE TABLE IF NOT EXISTS user_2fa 
-                 (user_id TEXT, authy_id TEXT)''')
-cursor.execute('''CREATE TABLE IF NOT EXISTS user_onboarding 
-                 (user_id TEXT, step TEXT, completed INTEGER)''')
-cursor.execute('''CREATE TABLE IF NOT EXISTS user_tokens 
-                 (user_id TEXT, service TEXT, token TEXT)''')
-cursor.execute('''CREATE TABLE IF NOT EXISTS user_imports 
-                 (user_id TEXT, import_id TEXT, record_type TEXT, record_data TEXT, import_date TEXT)''')
-cursor.execute('''CREATE TABLE IF NOT EXISTS deal_alerts 
-                 (user_id TEXT, threshold REAL)''')
-cursor.execute('''CREATE TABLE IF NOT EXISTS user_achievements 
-                 (user_id TEXT, achievement_id TEXT, name TEXT, description TEXT, awarded_date TEXT)''')
-cursor.execute('''CREATE TABLE IF NOT EXISTS user_settings 
-                 (user_id TEXT, deal_alerts_enabled INTEGER, deal_alert_volume INTEGER, 
-                  subject_generator_enabled INTEGER, achievements_enabled INTEGER, 
-                  sms_alerts_enabled INTEGER, phone_number TEXT, language TEXT)''')
-# Add indexes for performance
-cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_imports_date ON user_imports (user_id, import_date)")
-cursor.execute("CREATE INDEX IF NOT EXISTS idx_points_history ON points_history (user_id, timestamp)")
+
+# Create tables for user data, settings, tokens, onboarding, alerts, 2FA, and duplicates
+cursor.execute('''CREATE TABLE IF NOT EXISTS user_points
+                  (user_id TEXT PRIMARY KEY, points INTEGER, email_credits INTEGER, has_msa INTEGER)''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS user_settings
+                  (user_id TEXT PRIMARY KEY, language TEXT, subject_generator_enabled INTEGER, 
+                   deal_alerts_enabled INTEGER, email_notifications INTEGER, sms_notifications INTEGER)''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS user_tokens
+                  (user_id TEXT, service TEXT, token TEXT, PRIMARY KEY (user_id, service))''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS user_onboarding
+                  (user_id TEXT, step TEXT, completed INTEGER, PRIMARY KEY (user_id, step))''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS deal_alerts
+                  (user_id TEXT PRIMARY KEY, threshold REAL, deal_type TEXT)''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS two_fa_codes
+                  (user_id TEXT PRIMARY KEY, code TEXT, expiry TIMESTAMP)''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS duplicates_log
+                  (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, contact_hash TEXT, 
+                   contact_data TEXT, timestamp TIMESTAMP)''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS user_activity_log
+                  (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, action TEXT, 
+                   details TEXT, timestamp TIMESTAMP)''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS email_templates
+                  (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, template_name TEXT, 
+                   subject TEXT, body TEXT)''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS scheduled_tasks
+                  (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, task_type TEXT, 
+                   task_data TEXT, schedule_time TIMESTAMP, status TEXT)''')
 conn.commit()
 
-# RealNex template fields
-REALNEX_LEASECOMP_FIELDS = [
-    "Deal ID", "Property name", "Address 1", "Address 2", "City", "State", "Zip code", "Country",
-    "Lessee.Full Name", "Lessor.Full Name", "Rent/month", "Rent/sq ft", "Sq ft", "Lease term", "Lease type", "Deal date"
-]
-REALNEX_SALECOMP_FIELDS = [
-    "Deal ID", "Property name", "Address", "City", "State", "Zip code", "Buyer.Name", "Seller.Name", "Sale price", "Sq ft", "Property type", "Sale date"
-]
-REALNEX_SPACES_FIELDS = [
-    "Property.Property name", "Property.Address 1", "Property.City", "Property.State", "Property.Zip code", "Suite", "Floor", "Sq Ft", "Rent/SqFt", "Rent/Month", "Lease type"
-]
-REALNEX_PROJECTS_FIELDS = ["Project", "Type", "Size", "Deal amt", "Commission", "Date opened", "Date closed"]
-REALNEX_COMPANIES_FIELDS = ["Company", "Address1", "City", "State", "Zip Code", "Phone", "Email"]
-REALNEX_CONTACTS_FIELDS = ["Full Name", "First Name", "Last Name", "Company", "Address1", "City", "State", "Postal Code", "Work Phone", "Email"]
-REALNEX_PROPERTIES_FIELDS = ["Property Name", "Property Type", "Property Address", "Property City", "Property State", "Property Postal Code", "Building Size", "Sale Price"]
+# Environment variables
+SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
+SMTP_PORT = int(os.getenv('SMTP_PORT', 587))
+SMTP_USER = os.getenv('SMTP_USER', 'your-email@gmail.com')
+SMTP_PASSWORD = os.getenv('SMTP_PASSWORD', 'your-password')
+REALNEX_API_BASE = os.getenv('REALNEX_API_BASE', 'https://sync.realnex.com/api/v1')
+TWILIO_SID = os.getenv('TWILIO_SID', 'your-twilio-sid')
+TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN', 'your-twilio-auth-token')
+TWILIO_PHONE = os.getenv('TWILIO_PHONE', 'your-twilio-phone')
+MAILCHIMP_SERVER_PREFIX = os.getenv('MAILCHIMP_SERVER_PREFIX', 'us1')
+GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY', 'your-google-api-key')
 
-USER_MAPPINGS = defaultdict(dict)
+# Initialize clients with error handling
+try:
+    openai_client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY', 'your-openai-api-key'))
+    logger.info("OpenAI client initialized successfully.")
+except Exception as e:
+    logger.error(f"OpenAI client initialization failed: {e}")
+    openai_client = None
 
-# Helper to get token
-def get_token(user_id, service):
-    cursor.execute("SELECT token FROM user_tokens WHERE user_id = ? AND service = ?", (user_id, service))
-    result = cursor.fetchone()
-    return result[0] if result else None
+try:
+    twilio_client = TwilioClient(TWILIO_SID, TWILIO_AUTH_TOKEN)
+    logger.info("Twilio client initialized successfully.")
+except Exception as e:
+    logger.error(f"Twilio client initialization failed: {e}")
+    twilio_client = None
 
-# Helper to fetch JWT token from RealNex
-async def fetch_realnex_jwt(user_id, username, password):
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            REALNEX_AUTH_URL,
-            json={"username": username, "password": password}
-        )
-    if response.status_code == 200:
-        jwt_token = response.json().get("token")
-        cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
-                       (user_id, "realnex", jwt_token))
-        conn.commit()
-        return jwt_token
-    return None
+mailchimp = None
 
-# Helper to validate token
-def validate_token(token, service):
-    if service == "realnex":
-        response = httpx.get(
-            f"{REALNEX_API_BASE}/ValidateToken",
-            headers={'Authorization': f'Bearer {token}'}
-        )
-        return response.status_code == 200
-    elif service == "mailchimp":
-        try:
-            client = MailchimpClient()
-            client.set_config({"api_key": token, "server": MAILCHIMP_SERVER_PREFIX})
-            client.ping.get()
-            return True
-        except:
-            return False
-    return False
+# Helper functions
+def log_user_activity(user_id, action, details):
+    """Log user activity for auditing and analytics."""
+    timestamp = datetime.now().isoformat()
+    cursor.execute("INSERT INTO user_activity_log (user_id, action, details, timestamp) VALUES (?, ?, ?, ?)",
+                   (user_id, action, json.dumps(details), timestamp))
+    conn.commit()
+    logger.info(f"Logged activity for user {user_id}: {action} - {details}")
 
-# Helper to get user settings
 def get_user_settings(user_id):
-    cursor.execute("SELECT deal_alerts_enabled, deal_alert_volume, subject_generator_enabled, achievements_enabled, sms_alerts_enabled, phone_number, language FROM user_settings WHERE user_id = ?", (user_id,))
+    """Retrieve user settings from the database or return defaults."""
+    cursor.execute("SELECT language, subject_generator_enabled, deal_alerts_enabled, email_notifications, sms_notifications FROM user_settings WHERE user_id = ?", (user_id,))
     result = cursor.fetchone()
     if result:
         return {
-            "deal_alerts_enabled": bool(result[0]),
-            "deal_alert_volume": result[1],
-            "subject_generator_enabled": bool(result[2]),
-            "achievements_enabled": bool(result[3]),
-            "sms_alerts_enabled": bool(result[4]),
-            "phone_number": result[5],
-            "language": result[6] or "en"
+            "language": result[0],
+            "subject_generator_enabled": bool(result[1]),
+            "deal_alerts_enabled": bool(result[2]),
+            "email_notifications": bool(result[3]),
+            "sms_notifications": bool(result[4])
         }
-    return {
-        "deal_alerts_enabled": True,
-        "deal_alert_volume": 90,
+    default_settings = {
+        "language": "en",
         "subject_generator_enabled": True,
-        "achievements_enabled": True,
-        "sms_alerts_enabled": False,
-        "phone_number": "",
-        "language": "en"
+        "deal_alerts_enabled": True,
+        "email_notifications": True,
+        "sms_notifications": True
     }
+    cursor.execute("INSERT INTO user_settings (user_id, language, subject_generator_enabled, deal_alerts_enabled, email_notifications, sms_notifications) VALUES (?, ?, ?, ?, ?, ?)",
+                   (user_id, default_settings["language"], 1, 1, 1, 1))
+    conn.commit()
+    return default_settings
 
-# Points system helper with email credits, MSA, and achievements
-def award_points(user_id, points_to_add, action):
-    settings = get_user_settings(user_id)
-    cursor.execute("SELECT points, email_credits, has_msa FROM user_points WHERE user_id = ?", (user_id,))
+def get_token(user_id, service):
+    """Retrieve a token from Redis or the database, with caching."""
+    cache_key = f"token:{user_id}:{service}"
+    if redis_client:
+        token = redis_client.get(cache_key)
+        if token:
+            logger.debug(f"Token for {user_id}:{service} retrieved from Redis cache.")
+            return token
+    cursor.execute("SELECT token FROM user_tokens WHERE user_id = ? AND service = ?", (user_id, service))
     result = cursor.fetchone()
-    current_points = result[0] if result else 0
-    email_credits = result[1] if result else 0
-    has_msa = result[2] if result else 0
-    new_points = current_points + points_to_add
-
-    # Check for email credits unlock at 1000 points
-    if current_points < 1000 and new_points >= 1000:
-        email_credits += 1000
-        socketio.emit('credits_update', {'user_id': user_id, 'email_credits': email_credits, 'message': "You've hit 1000 points and unlocked 1000 email credits for RealBlasts! 🚀"})
-
-    # Check for achievements
-    achievements = []
-    if settings["achievements_enabled"] and new_points >= 1000 and current_points < 1000:
-        achievement_id = str(uuid.uuid4())
-        cursor.execute("INSERT INTO user_achievements (user_id, achievement_id, name, description, awarded_date) VALUES (?, ?, ?, ?, ?)",
-                       (user_id, achievement_id, "1000 Points Ace", "Earned 1000 points!", datetime.now().isoformat()))
-        achievements.append({"name": "1000 Points Ace", "description": "Earned 1000 points!"})
-    if settings["achievements_enabled"] and new_points >= 5000 and current_points < 5000:
-        achievement_id = str(uuid.uuid4())
-        cursor.execute("INSERT INTO user_achievements (user_id, achievement_id, name, description, awarded_date) VALUES (?, ?, ?, ?, ?)",
-                       (user_id, achievement_id, "5000 Points Pro", "Earned 5000 points!", datetime.now().isoformat()))
-        achievements.append({"name": "5000 Points Pro", "description": "Earned 5000 points!"})
-
-    cursor.execute("INSERT OR REPLACE INTO user_points (user_id, points, email_credits, has_msa, last_updated) VALUES (?, ?, ?, ?, ?)",
-                   (user_id, new_points, email_credits, has_msa, datetime.now().isoformat()))
-    cursor.execute("INSERT INTO points_history (user_id, points, timestamp) VALUES (?, ?, ?)",
-                   (user_id, new_points, datetime.now().isoformat()))
-    conn.commit()
-    socketio.emit('points_update', {'user_id': user_id, 'points': new_points, 'message': f"Earned {points_to_add} points for {action}! Total points: {new_points} 🏆"})
-    if achievements:
-        socketio.emit('achievement_unlocked', {'user_id': user_id, 'achievements': achievements})
-    return new_points, email_credits, has_msa, f"Earned {points_to_add} points for {action}! Total points: {new_points} 🏆"
-
-# Onboarding helper
-def update_onboarding(user_id, step):
-    cursor.execute("INSERT OR REPLACE INTO user_onboarding (user_id, step, completed) VALUES (?, ?, 1)", (user_id, step))
-    conn.commit()
-
-    onboarding_steps = ["save_settings", "sync_crm_data", "send_realblast", "send_training_reminder"]
-    completed_steps = []
-    for step in onboarding_steps:
-        cursor.execute("SELECT completed FROM user_onboarding WHERE user_id = ? AND step = ?", (user_id, step))
-        result = cursor.fetchone()
-        if result and result[0] == 1:
-            completed_steps.append(step)
-
-    if set(completed_steps) == set(onboarding_steps):
-        cursor.execute("SELECT has_msa FROM user_points WHERE user_id = ?", (user_id,))
-        result = cursor.fetchone()
-        has_msa = result[0] if result else 0
-        if not has_msa:
-            cursor.execute("UPDATE user_points SET has_msa = 1 WHERE user_id = ?", (user_id,))
-            conn.commit()
-            socketio.emit('msa_update', {'user_id': user_id, 'message': "Congrats! You've completed onboarding and earned a free RealBlast MSA! 🚀"})
-
-# Normalize field names for matching
-def normalize_field_name(field):
-    return re.sub(r'[^a-z0-9]', '', field.lower())
-
-# Suggest field mappings
-def suggest_mappings(uploaded_headers, template_fields, user_id):
-    suggestions = {}
-    for header in uploaded_headers:
-        norm_header = normalize_field_name(header)
-        cursor.execute("SELECT mapped_field, frequency FROM user_mappings WHERE user_id = ? AND header = ? ORDER BY frequency DESC LIMIT 1",
-                       (user_id, header))
-        result = cursor.fetchone()
-        if result:
-            suggestions[header] = result[0]
-        else:
-            best_match = None
-            best_score = 0
-            for template_field in template_fields:
-                norm_template_field = normalize_field_name(template_field)
-                score = fuzz.token_sort_ratio(norm_header, norm_template_field)
-                if score > 80:
-                    best_match = template_field
-                    best_score = score
-                    break
-                elif score > best_score:
-                    best_match = template_field
-                    best_score = score
-            if best_score > 50:
-                suggestions[header] = best_match
-    return suggestions
-
-# Match uploaded headers to RealNex fields
-def match_fields(uploaded_headers, template_fields, user_id="default"):
-    matched_fields = {}
-    unmatched_fields = []
-    custom_fields = ["User 1", "User 2", "User 3", "User 4", "User 5", "User 6", "User 7", "User 8", "User 9", "User 10",
-                     "UserDate 1", "UserDate 2", "UserDate 3", "UserNumber 1", "UserNumber 2", "UserNumber 3", "UserMulti"]
-    custom_field_index = 0
-
-    user_mappings = USER_MAPPINGS[user_id]
-    suggestions = suggest_mappings(uploaded_headers, template_fields, user_id)
-
-    for header in uploaded_headers:
-        if header in user_mappings:
-            matched_fields[header] = user_mappings[header]
-            cursor.execute("INSERT INTO user_mappings (user_id, header, mapped_field, frequency) VALUES (?, ?, ?, 1) "
-                           "ON CONFLICT(user_id, header) DO UPDATE SET frequency = frequency + 1",
-                           (user_id, header, user_mappings[header]))
-        elif header in suggestions:
-            matched_fields[header] = suggestions[header]
-            cursor.execute("INSERT INTO user_mappings (user_id, header, mapped_field, frequency) VALUES (?, ?, ?, 1) "
-                           "ON CONFLICT(user_id, header) DO UPDATE SET frequency = frequency + 1",
-                           (user_id, header, suggestions[header]))
-        else:
-            norm_header = normalize_field_name(header)
-            best_match = None
-            best_score = 0
-            for template_field in template_fields:
-                norm_template_field = normalize_field_name(template_field)
-                score = fuzz.token_sort_ratio(norm_header, norm_template_field)
-                if score > 80:
-                    best_match = template_field
-                    best_score = score
-                    break
-                elif score > best_score:
-                    best_match = template_field
-                    best_score = score
-
-            if best_score > 50:
-                matched_fields[header] = best_match
-                cursor.execute("INSERT INTO user_mappings (user_id, header, mapped_field, frequency) VALUES (?, ?, ?, 1)",
-                               (user_id, header, best_match))
-            else:
-                if custom_field_index < len(custom_fields):
-                    matched_fields[header] = custom_fields[custom_field_index]
-                    cursor.execute("INSERT INTO user_mappings (user_id, header, mapped_field, frequency) VALUES (?, ?, ?, 1)",
-                                   (user_id, header, custom_fields[custom_field_index]))
-                    custom_field_index += 1
-                else:
-                    unmatched_fields.append(header)
-    conn.commit()
-    return matched_fields, unmatched_fields
-
-# 2FA setup and verification
-def register_user_for_2fa(user_id, email, phone):
-    if not twilio_client:
-        return None
-    authy = twilio_client.authy.users.create(
-        email=email,
-        phone=phone,
-        country_code="1"
-    )
-    if authy.id:
-        cursor.execute("INSERT OR REPLACE INTO user_2fa (user_id, authy_id) VALUES (?, ?)",
-                       (user_id, authy.id))
-        conn.commit()
-        return authy.id
+    if result:
+        token = result[0]
+        if redis_client:
+            redis_client.setex(cache_key, 3600, token)
+            logger.debug(f"Token for {user_id}:{service} cached in Redis.")
+        return token
+    logger.warning(f"No token found for {user_id}:{service}.")
     return None
 
-def send_2fa_code(user_id):
-    if not twilio_client:
-        return False
-    cursor.execute("SELECT authy_id FROM user_2fa WHERE user_id = ?", (user_id,))
-    result = cursor.fetchone()
-    if not result:
-        return False
-    authy_id = result[0]
-    authy = twilio_client.authy.users(authy_id).sms()
-    return authy.status == "success"
-
-def check_2fa(user_id, code):
-    if not twilio_client:
-        return False
-    cursor.execute("SELECT authy_id FROM user_2fa WHERE user_id = ?", (user_id,))
-    result = cursor.fetchone()
-    if not result:
-        return False
-    authy_id = result[0]
-    verification = twilio_client.authy.users(authy_id).verify(token=code)
-    return verification.status == "success"
-
-# OCR helper for PDFs and images
-def extract_text_from_file(file):
-    if file.content_type == 'application/pdf':
-        pdf_file = PyMuPDF.open(stream=file.read(), filetype="pdf")
-        text = ""
-        for page in pdf_file:
-            text += page.get_text()
-        if not text.strip():
-            images = convert_from_bytes(file.read())
-            for image in images:
-                text += pytesseract.image_to_string(image)
-        return text
-    elif file.content_type in ['image/jpeg', 'image/png']:
-        image = Image.open(file.stream)
-        return pytesseract.image_to_string(image)
-    return ""
-
-# Cached RealNex API call
-async def get_realnex_data(user_id, endpoint):
-    if not redis_client:
-        return None
-    cache_key = f"realnex:{user_id}:{endpoint}"
-    cached_data = redis_client.get(cache_key)
-    if cached_data:
-        return json.loads(cached_data)
-
-    token = get_token(user_id, "realnex")
-    if not token:
-        return None
-
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            f"{REALNEX_API_BASE}/{endpoint}",
-            headers={'Authorization': f'Bearer {token}'}
-        )
-    if response.status_code == 200:
-        data = response.json().get('value', [])
-        redis_client.setex(cache_key, 3600, json.dumps(data))  # Cache for 1 hour
-        return data
-    return None
-
-# Background task to check for new imports and emit deal alerts
-def check_new_imports():
-    settings = get_user_settings("default")
-    if not settings["deal_alerts_enabled"] and not settings["sms_alerts_enabled"]:
-        return
-    last_checked = datetime.now().isoformat()
-    while True:
-        time.sleep(10)
-        user_id = "default"
-        cursor.execute("SELECT threshold FROM deal_alerts WHERE user_id = ?", (user_id,))
-        result = cursor.fetchone()
-        threshold = result[0] if result else None
-
-        cursor.execute("SELECT import_id, record_type, record_data, import_date FROM user_imports WHERE user_id = ? AND import_date > ?",
-                       (user_id, last_checked))
-        new_imports = cursor.fetchall()
-        for imp in new_imports:
-            import_id, record_type, record_data, import_date = imp
-            record_data = json.loads(record_data)
-            if record_type == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
-                deal_value = record_data.get('Rent/month', record_data.get('Sale price', 0))
-                deal_type = 'LeaseComp' if 'Rent/month' in record_data else 'SaleComp'
-                message = f"New {deal_type} Alert! Deal value: ${deal_value} (exceeds your threshold of ${threshold}) at {import_date}."
-                if threshold and deal_value and deal_value > threshold:
-                    if settings["deal_alerts_enabled"]:
-                        socketio.emit('deal_alert', {
-                            'user_id': user_id,
-                            'message': message,
-                            'tts': message
-                        })
-                    if settings["sms_alerts_enabled"] and settings["phone_number"]:
-                        if twilio_client:
-                            try:
-                                twilio_client.messages.create(
-                                    body=message,
-                                    from_='+1234567890',  # Replace with your Twilio number
-                                    to=settings["phone_number"]
-                                )
-                            except Exception as e:
-                                print(f"Failed to send SMS: {e}")
-                else:
-                    socketio.emit('deal_alert', {
-                        'user_id': user_id,
-                        'message': f"New {deal_type} Imported: Value ${deal_value} at {import_date}."
-                    })
-        last_checked = datetime.now().isoformat()
-
-# Start the background task
-threading.Thread(target=check_new_imports, daemon=True).start()
-
-# Health check route
-@app.route('/health', methods=['GET'])
-def health_check():
-    return jsonify({"status": "healthy"}), 200
-
-# Route to fetch RealNex JWT token
-@app.route('/fetch-realnex-jwt', methods=['POST'])
-async def fetch_realnex_jwt_route():
-    data = request.json
-    user_id = "default"
-    username = data.get('username')
-    password = data.get('password')
-
-    if not username or not password:
-        return jsonify({"error": "Please provide RealNex username and password."}), 400
-
-    jwt_token = await fetch_realnex_jwt(user_id, username, password)
-    if jwt_token:
-        return jsonify({"message": "RealNex JWT token fetched successfully! 🚀"}), 200
-    return jsonify({"error": "Failed to fetch RealNex JWT token. Check your credentials."}), 400
-
-# File upload route
-@app.route('/upload-file', methods=['POST'])
-async def upload_file():
-    user_id = "default"
-    token = get_token(user_id, "realnex")
-    if not token:
-        return jsonify({"answer": "Please fetch your RealNex JWT token in Settings to import data. 🔑"})
-
-    if not twilio_client:
-        return jsonify({"error": "Twilio client not initialized. Check server logs for details."}), 500
-
-    data = request.form.to_dict()
-    two_fa_code = data.get('two_fa_code')
-    if not two_fa_code:
-        if not send_2fa_code(user_id):
-            return jsonify({"error": "Failed to send 2FA code. Ensure user is registered for 2FA."}), 400
-        return jsonify({"message": "2FA code sent to your phone. Please provide the code to proceed."}), 200
-
-    if not check_2fa(user_id, two_fa_code):
-        return jsonify({"error": "Invalid 2FA code"}), 403
-
-    if 'file' not in request.files:
-        return jsonify({"error": "No file provided"}), 400
-
-    file = request.files['file']
-    valid_types = ['application/pdf', 'image/jpeg', 'image/png', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
-    
-    if file.content_type not in valid_types:
-        return jsonify({"error": "Invalid file type. Only PDFs, JPEG/PNG images, and XLSX files are allowed."}), 400
-
-    record_count = 0
-    records = []
-    import_id = str(uuid.uuid4())
-
-    if file.content_type == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
-        df = pd.read_excel(file, engine='openpyxl')
-        record_count = len(df)
-        records = df.to_dict('records')
-    elif file.content_type == 'application/pdf':
-        pdf_file = PyMuPDF.open(stream=file.read(), filetype="pdf")
-        record_count = len(pdf_file)
-        for page_num in range(record_count):
-            records.append({"page": page_num + 1, "text": pdf_file[page_num].get_text()})
-    else:
-        record_count = 1
-        text = pytesseract.image_to_string(Image.open(file.stream))
-        records.append({"text": text})
-
-    for record in records:
-        cursor.execute("INSERT INTO user_imports (user_id, import_id, record_type, record_data, import_date) VALUES (?, ?, ?, ?, ?)",
-                       (user_id, import_id, file.content_type, json.dumps(record), datetime.now().isoformat()))
-    conn.commit()
-
-    points_to_add = record_count
-    points, email_credits, has_msa, points_message = award_points(user_id, points_to_add, f"importing {record_count} records")
-
-    if file.content_type == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
-        uploaded_headers = list(df.columns)
-        templates = {
-            "LeaseComps": REALNEX_LEASECOMP_FIELDS,
-            "SaleComps": REALNEX_SALECOMP_FIELDS,
-            "Spaces": REALNEX_SPACES_FIELDS,
-            "Projects": REALNEX_PROJECTS_FIELDS,
-            "Companies": REALNEX_COMPANIES_FIELDS,
-            "Contacts": REALNEX_CONTACTS_FIELDS,
-            "Properties": REALNEX_PROPERTIES_FIELDS
-        }
-
-        best_match_template = None
-        best_match_count = 0
-        matched_fields = {}
-        unmatched_fields = []
-
-        for template_name, template_fields in templates.items():
-            matched, unmatched = match_fields(uploaded_headers, template_fields, user_id)
-            match_count = len(matched)
-            if match_count > best_match_count:
-                best_match_count = match_count
-                best_match_template = template_name
-                matched_fields = matched
-                unmatched_fields = unmatched
-
-        renamed_df = df.rename(columns=matched_fields)
-        csv_buffer = io.StringIO()
-        renamed_df.to_csv(csv_buffer, index=False)
-        csv_data = csv_buffer.getvalue()
-
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f'{REALNEX_API_BASE}/ImportData',
-                headers={'Authorization': f'Bearer {token}', 'Content-Type': 'text/csv'},
-                content=csv_data
-            )
-
-        if response.status_code == 200:
-            message = f"Imported {record_count} records into RealNex as {best_match_template}! "
-            message += f"Matched fields: {', '.join([f'{k} → {v}' for k, v in matched_fields.items()])}. "
-            if unmatched_fields:
-                message += f"Unmatched fields: {', '.join(unmatched_fields)}. Map these in RealNex or adjust your file."
-            else:
-                message += "All fields matched—smooth sailing!"
-            message += f" {points_message}"
-            return jsonify({"message": message, "points": points, "email_credits": email_credits, "has_msa": has_msa}), 200
-        return jsonify({"error": f"Failed to import data into RealNex: {response.text}"}), 400
-    else:
-        message = f"Imported {record_count} records (non-CSV data stored locally). {points_message}"
-        return jsonify({"message": message, "points": points, "email_credits": email_credits, "has_msa": has_msa}), 200
-
-# Deal prediction route
-@app.route('/predict-deal', methods=['POST'])
-async def predict_deal():
-    user_id = "default"
-    data = request.json
-    deal_type = data.get('deal_type', 'LeaseComp')
-    sq_ft = data.get('sq_ft')
-
-    if not sq_ft or not isinstance(sq_ft, (int, float)) or sq_ft <= 0:
-        return jsonify({"error": "Please provide a valid square footage. 🔮"}), 400
-
-    if deal_type not in ["LeaseComp", "SaleComp"]:
-        return jsonify({"error": "Deal type must be 'LeaseComp' or 'SaleComp'. 🔮"}), 400
-
-    historical_data = await get_realnex_data(user_id, f"{deal_type}s")
-    if not historical_data:
-        return jsonify({"error": "Failed to fetch historical data or no data available."}), 400
-
-    X = []
-    y = []
-    labels = []
-    for item in historical_data:
-        date = item.get('deal_date') or item.get('sale_date')
-        if not date:
-            continue
-        sq_ft_value = item.get("sq_ft", 0)
-        if deal_type == "LeaseComp":
-            value = item.get("rent_month", 0)
-        else:
-            value = item.get("sale_price", 0)
-        X.append([sq_ft_value])
-        y.append(value)
-        labels.append(date)
-
-    if not X or not y:
-        return jsonify({"error": "Insufficient data for prediction."}), 400
-
-    model = LinearRegression()
-    model.fit(X, y)
-    predicted_value = model.predict([[sq_ft]])[0]
-
-    chart_data = {
-        "labels": labels,
-        "datasets": [
-            {
-                "label": f"Historical {deal_type} Data",
-                "data": y,
-                "borderColor": "rgba(59, 130, 246, 1)",
-                "backgroundColor": "rgba(59, 130, 246, 0.2)",
-                "fill": True
-            },
-            {
-                "label": "Prediction",
-                "data": [{"x": sq_ft, "y": predicted_value}],
-                "borderColor": "rgba(34, 197, 94, 1)",
-                "backgroundColor": "rgba(34, 197, 94, 0.5)",
-                "pointRadius": 8,
-                "pointHoverRadius": 12
-            }
-        ]
-    }
-
-    prediction = {
-        "deal_type": deal_type,
-        "sq_ft": sq_ft,
-        "predicted_value": round(predicted_value, 2),
-        "unit": "month" if deal_type == "LeaseComp" else "total",
-        "chart_data": chart_data
-    }
-    return jsonify({"prediction": prediction}), 200
-
-# Deal negotiation route
-@app.route('/negotiate-deal', methods=['POST'])
-async def negotiate_deal():
-    user_id = "default"
-    token = get_token(user_id, "realnex")
-    if not token:
-        return jsonify({"error": "Please fetch your RealNex JWT token in Settings to negotiate a deal. 🔑"}), 400
-
-    if not openai_client:
-        return jsonify({"error": "OpenAI client not initialized. Check server logs for details."}), 500
-
-    data = request.json
-    deal_type = data.get('deal_type', 'LeaseComp')
-    sq_ft = data.get('sq_ft')
-    offered_value = data.get('offered_value')
-
-    if not sq_ft or not isinstance(sq_ft, (int, float)) or sq_ft <= 0:
-        return jsonify({"error": "Please provide a valid square footage. 🤝"}), 400
-    if not offered_value or not isinstance(offered_value, (int, float)) or offered_value <= 0:
-        return jsonify({"error": "Please provide a valid offered value. 🤝"}), 400
-    if deal_type not in ["LeaseComp", "SaleComp"]:
-        return jsonify({"error": "Deal type must be 'LeaseComp' or 'SaleComp'. 🤝"}), 400
-
-    historical_data = await get_realnex_data(user_id, f"{deal_type}s")
-    if not historical_data:
-        return jsonify({"error": "No historical data available for negotiation."}), 400
-
-    sq_ft_values = []
-    values = []
-    for item in historical_data:
-        sq_ft_value = item.get("sq_ft", 0)
-        if deal_type == "LeaseComp":
-            value = item.get("rent_month", 0)
-        else:
-            value = item.get("sale_price", 0)
-        sq_ft_values.append(sq_ft_value)
-        values.append(value)
-
-    if not sq_ft_values or not values:
-        return jsonify({"error": "Insufficient data for negotiation."}), 400
-
-    prompt = (
-        f"You are a commercial real estate negotiation expert. Based on the following historical {deal_type} data, "
-        f"suggest a counteroffer for a property with {sq_ft} square feet, where the offered value is ${offered_value} "
-        f"({'per month' if deal_type == 'LeaseComp' else 'total'}). Historical data (square footage, value):\n"
-    )
-    for sf, val in zip(sq_ft_values, values):
-        prompt += f"- {sf} sq ft: ${val} {'per month' if deal_type == 'LeaseComp' else 'total'}\n"
-    prompt += "Provide a counteroffer with a confidence score (0-100) and a brief explanation."
-
-    try:
-        response = openai_client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are a commercial real estate negotiation expert."},
-                {"role": "user", "content": prompt}
-            ]
-        )
-        ai_response = response.choices[0].message.content
-
-        counteroffer_match = re.search(r'Counteroffer: \$([\d.]+)', ai_response)
-        confidence_match = re.search(r'Confidence: (\d+)%', ai_response)
-        explanation_match = re.search(r'Explanation: (.*?)(?:\n|$)', ai_response)
-
-        counteroffer = float(counteroffer_match.group(1)) if counteroffer_match else offered_value * 1.1
-        confidence = int(confidence_match.group(1)) if confidence_match else 75
-        explanation = explanation_match.group(1) if explanation_match else "Based on historical data trends."
-
-        negotiation_result = {
-            "deal_type": deal_type,
-            "sq_ft": sq_ft,
-            "offered_value": offered_value,
-            "counteroffer": round(counteroffer, 2),
-            "confidence": confidence,
-            "explanation": explanation,
-            "unit": "month" if deal_type == "LeaseComp" else "total"
-        }
-        return jsonify({"negotiation": negotiation_result}), 200
-    except Exception as e:
-        return jsonify({"error": f"Failed to negotiate deal: {str(e)}. Try again."}), 400
-
-# Text-to-Speech route with volume control and language support
-@app.route('/tts', methods=['POST'])
-def text_to_speech():
-    settings = get_user_settings("default")
-    data = request.json
-    text = data.get('text', '')
-    if not text:
-        return jsonify({"error": "No text provided for TTS."}), 400
-
-    engine = pyttsx3.init()
-    engine.setProperty('rate', 150)
-    engine.setProperty('volume', settings["deal_alert_volume"] / 100.0)
-    
-    # Set voice based on language (simplified; may need additional voices installed)
-    voices = engine.getProperty('voices')
-    if settings["language"] == "es":
-        for voice in voices:
-            if "spanish" in voice.name.lower():
-                engine.setProperty('voice', voice.id)
-                break
-    elif settings["language"] == "fr":
-        for voice in voices:
-            if "french" in voice.name.lower():
-                engine.setProperty('voice', voice.id)
-                break
-    else:
-        for voice in voices:
-            if "english" in voice.name.lower():
-                engine.setProperty('voice', voice.id)
-                break
-
-    engine.say(text)
-    engine.runAndWait()
-    return jsonify({"message": "TTS played successfully! 🎙️"}), 200
-
-# Set deal alert threshold
-@app.route('/set-deal-alert', methods=['POST'])
-def set_deal_alert():
-    user_id = "default"
-    settings = get_user_settings(user_id)
-    if not settings["deal_alerts_enabled"]:
-        return jsonify({"error": "Deal alerts are disabled in settings. Enable them to set a threshold."}), 400
-
-    data = request.json
-    threshold = data.get('threshold')
-
-    if not threshold or not isinstance(threshold, (int, float)) or threshold <= 0:
-        return jsonify({"error": "Please provide a valid threshold value."}), 400
-
-    cursor.execute("INSERT OR REPLACE INTO deal_alerts (user_id, threshold) VALUES (?, ?)",
-                   (user_id, threshold))
-    conn.commit()
-    return jsonify({"message": f"Deal alert set! You'll be notified for deals over ${threshold}. 🔔"}), 200
-
-# Generate email subject line
-@app.route('/generate-subject', methods=['POST'])
-def generate_subject():
-    user_id = "default"
-    settings = get_user_settings(user_id)
-    if not settings["subject_generator_enabled"]:
-        return jsonify({"error": "Subject line generator is disabled in settings. Enable it to generate subjects."}), 400
-
-    if not openai_client:
-        return jsonify({"error": "OpenAI client not initialized. Check server logs for details."}), 500
-
-    data = request.json
-    campaign_type = data.get('campaign_type', 'RealBlast')
-
-    try:
-        response = openai_client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are an expert in email marketing for commercial real estate."},
-                {"role": "user", "content": f"Generate a catchy subject line for a {campaign_type} email campaign."}
-            ]
-        )
-        subject = response.choices[0].message.content.strip()
-        return jsonify({"subject": subject}), 200
-    except Exception as e:
-        return jsonify({"error": f"Failed to generate subject line: {str(e)}."}), 400
-
-# Fetch user achievements
-@app.route('/achievements', methods=['GET'])
-def get_achievements():
-    user_id = "default"
-    settings = get_user_settings(user_id)
-    if not settings["achievements_enabled"]:
-        return jsonify({"message": "Achievements are disabled in settings. Enable them to view your badges! 🏅"}), 200
-
-    cursor.execute("SELECT name, description, awarded_date FROM user_achievements WHERE user_id = ? ORDER BY awarded_date DESC",
-                   (user_id,))
-    achievements = cursor.fetchall()
-    return jsonify({
-        "achievements": [{"name": a[0], "description": a[1], "awarded_date": a[2]} for a in achievements]
-    }), 200
-
-# Fetch points history
-@app.route('/points-history', methods=['GET'])
-def get_points_history():
-    user_id = "default"
-    cursor.execute("SELECT points, timestamp FROM points_history WHERE user_id = ? ORDER BY timestamp ASC",
-                   (user_id,))
-    history = cursor.fetchall()
-    return jsonify({
-        "history": [{"points": h[0], "timestamp": h[1]} for h in history]
-    }), 200
-
-# Settings route to get current settings
-@app.route('/settings', methods=['GET'])
-def get_settings():
-    user_id = "default"
-    settings = get_user_settings(user_id)
-    return jsonify({"settings": settings}), 200
-
-# Settings route to update settings
-@app.route('/settings', methods=['POST'])
-def update_settings():
-    user_id = "default"
-    data = request.json
-    deal_alerts_enabled = int(data.get('deal_alerts_enabled', True))
-    deal_alert_volume = max(0, min(100, int(data.get('deal_alert_volume', 90))))
-    subject_generator_enabled = int(data.get('subject_generator_enabled', True))
-    achievements_enabled = int(data.get('achievements_enabled', True))
-    sms_alerts_enabled = int(data.get('sms_alerts_enabled', False))
-    phone_number = data.get('phone_number', '')
-    language = data.get('language', 'en')
-
-    cursor.execute("INSERT OR REPLACE INTO user_settings (user_id, deal_alerts_enabled, deal_alert_volume, subject_generator_enabled, achievements_enabled, sms_alerts_enabled, phone_number, language) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                   (user_id, deal_alerts_enabled, deal_alert_volume, subject_generator_enabled, achievements_enabled, sms_alerts_enabled, phone_number, language))
-    conn.commit()
-    socketio.emit('settings_update', {'user_id': user_id, 'settings': {
-        "deal_alerts_enabled": bool(deal_alerts_enabled),
-        "deal_alert_volume": deal_alert_volume,
-        "subject_generator_enabled": bool(subject_generator_enabled),
-        "achievements_enabled": bool(achievements_enabled),
-        "sms_alerts_enabled": bool(sms_alerts_enabled),
-        "phone_number": phone_number,
-        "language": language
-    }})
-    return jsonify({"message": "Settings updated successfully! ⚙️"}), 200
-
-# Settings page route
-@app.route('/settings-page')
-def settings_page():
-    return render_template('settings.html')
-
-# Dashboard page route
-@app.route('/dashboard')
-def dashboard():
-    return render_template('dashboard.html')
-
-# Dashboard data route
-@app.route('/dashboard-data', methods=['GET'])
-async def dashboard_data():
-    user_id = "default"
-    token = get_token(user_id, "realnex")
+def award_points(user_id, points, reason):
+    """Award points to a user and update their email credits and MSA status."""
     cursor.execute("SELECT points, email_credits, has_msa FROM user_points WHERE user_id = ?", (user_id,))
     user_data = cursor.fetchone()
-    points = user_data[0] if user_data else 0
+    current_points = user_data[0] if user_data else 0
     email_credits = user_data[1] if user_data else 0
     has_msa = user_data[2] if user_data else 0
 
-    cursor.execute("SELECT record_type, import_date FROM user_imports WHERE user_id = ? ORDER BY import_date DESC LIMIT 5",
-                   (user_id,))
-    imports = cursor.fetchall()
+    new_points = current_points + points
+    points_message = f"Awarded {points} points for {reason}. Total points: {new_points}."
 
-    data = {
-        "points": points,
-        "email_credits": email_credits,
-        "has_msa": bool(has_msa),
-        "imports": [{"record_type": imp[0], "import_date": imp[1]} for imp in imports]
-    }
-    return jsonify(data), 200
+    if new_points >= 1000 and email_credits == 0:
+        email_credits = 1000
+        points_message += " Congrats! You’ve earned 1000 email credits! 🎉"
 
-# Duplicates route
+    cursor.execute("INSERT OR REPLACE INTO user_points (user_id, points, email_credits, has_msa) VALUES (?, ?, ?, ?)",
+                   (user_id, new_points, email_credits, has_msa))
+    conn.commit()
+    log_user_activity(user_id, "award_points", {"points": points, "reason": reason})
+    return new_points, email_credits, has_msa, points_message
+
+def update_onboarding(user_id, step):
+    """Mark an onboarding step as completed for a user."""
+    cursor.execute("INSERT OR REPLACE INTO user_onboarding (user_id, step, completed) VALUES (?, ?, 1)", (user_id, step))
+    conn.commit()
+    log_user_activity(user_id, "update_onboarding", {"step": step})
+
+async def get_realnex_data(user_id, endpoint):
+    """Fetch data from the RealNex API for a given endpoint."""
+    token = get_token(user_id, "realnex")
+    if not token:
+        logger.error(f"No RealNex token for user {user_id}.")
+        return None
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(f"{REALNEX_API_BASE}/{endpoint}", headers={'Authorization': f'Bearer {token}'})
+            if response.status_code == 200:
+                return response.json()
+            logger.error(f"Failed to fetch RealNex data: {response.text}")
+            return None
+        except Exception as e:
+            logger.error(f"RealNex API request failed: {e}")
+            return None
+
+def send_2fa_code(user_id):
+    """Send a 2FA code to the user via SMS."""
+    if not twilio_client:
+        logger.error("Twilio client not initialized.")
+        return False
+    code = str(np.random.randint(100000, 999999))
+    expiry = datetime.now() + timedelta(minutes=10)
+    cursor.execute("INSERT OR REPLACE INTO two_fa_codes (user_id, code, expiry) VALUES (?, ?, ?)",
+                   (user_id, code, expiry.isoformat()))
+    conn.commit()
+
+    try:
+        twilio_client.messages.create(
+            body=f"Your 2FA code is {code}. It expires in 10 minutes.",
+            from_=TWILIO_PHONE,
+            to="+1234567890"  # Replace with actual user phone number from database
+        )
+        log_user_activity(user_id, "send_2fa_code", {"code": code})
+        return True
+    except Exception as e:
+        logger.error(f"Failed to send 2FA code: {e}")
+        return False
+
+def check_2fa(user_id, code):
+    """Verify a 2FA code for a user."""
+    cursor.execute("SELECT code, expiry FROM two_fa_codes WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+    if not result:
+        logger.warning(f"No 2FA code found for user {user_id}.")
+        return False
+    stored_code, expiry = result
+    if datetime.fromisoformat(expiry) < datetime.now():
+        logger.warning(f"2FA code expired for user {user_id}.")
+        return False
+    if stored_code == code:
+        log_user_activity(user_id, "check_2fa", {"status": "success"})
+        return True
+    log_user_activity(user_id, "check_2fa", {"status": "failed"})
+    return False
+
+def hash_contact(contact):
+    """Generate a hash of a contact's key fields to detect duplicates."""
+    key_fields = f"{contact.get('Email', '')}{contact.get('Full Name', '')}{contact.get('Work Phone', '')}"
+    return hashlib.sha256(key_fields.encode()).hexdigest()
+
+def log_duplicate(user_id, contact):
+    """Log a duplicate contact in the database."""
+    contact_hash = hash_contact(contact)
+    timestamp = datetime.now().isoformat()
+    cursor.execute("INSERT INTO duplicates_log (user_id, contact_hash, contact_data, timestamp) VALUES (?, ?, ?, ?)",
+                   (user_id, contact_hash, json.dumps(contact), timestamp))
+    conn.commit()
+    log_user_activity(user_id, "log_duplicate", {"contact_hash": contact_hash})
+
+def generate_pdf_report(user_id, data, report_title):
+    """Generate a PDF report from given data."""
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    pdf.cell(200, 10, txt=report_title, ln=True, align='C')
+    pdf.ln(10)
+
+    for key, value in data.items():
+        pdf.cell(200, 10, txt=f"{key}: {value}", ln=True)
+    
+    pdf_output = BytesIO()
+    pdf.output(pdf_output, 'F')
+    pdf_output.seek(0)
+    return pdf_output
+
+def generate_deal_trend_chart(user_id, historical_data, deal_type):
+    """Generate a trend chart for deal predictions."""
+    plt.figure(figsize=(10, 6))
+    sns.set(style="whitegrid")
+    
+    sq_ft = [item.get("sq_ft", 0) for item in historical_data]
+    values = [item.get("rent_month", 0) if deal_type == "LeaseComp" else item.get("sale_price", 0) for item in historical_data]
+    
+    plt.scatter(sq_ft, values, color='blue', label='Historical Data')
+    plt.xlabel('Square Footage')
+    plt.ylabel('Rent/Month ($)' if deal_type == "LeaseComp" else 'Sale Price ($)')
+    plt.title(f'{deal_type} Trends for User {user_id}')
+    plt.legend()
+    
+    chart_output = BytesIO()
+    plt.savefig(chart_output, format='png')
+    plt.close()
+    chart_output.seek(0)
+    return chart_output
+
+# Routes
+@app.route('/health', methods=['GET'])
+def health():
+    """Health check endpoint for Render to detect the app."""
+    return jsonify({"status": "healthy"})
+
+@app.route('/', methods=['GET'])
+def index():
+    """Serve the main frontend page."""
+    return render_template('index.html')
+
+@app.route('/dashboard', methods=['GET'])
+def dashboard():
+    """Serve the dashboard page for visualizing duplicates and stats."""
+    return render_template('dashboard.html')
+
+@app.route('/settings', methods=['GET', 'POST'])
+def settings():
+    """Manage user settings via a web interface."""
+    user_id = "default"  # Replace with actual user authentication
+    if request.method == 'POST':
+        data = request.json
+        language = data.get('language', 'en')
+        subject_generator_enabled = int(data.get('subject_generator_enabled', True))
+        deal_alerts_enabled = int(data.get('deal_alerts_enabled', True))
+        email_notifications = int(data.get('email_notifications', True))
+        sms_notifications = int(data.get('sms_notifications', True))
+        
+        cursor.execute("INSERT OR REPLACE INTO user_settings (user_id, language, subject_generator_enabled, deal_alerts_enabled, email_notifications, sms_notifications) VALUES (?, ?, ?, ?, ?, ?)",
+                       (user_id, language, subject_generator_enabled, deal_alerts_enabled, email_notifications, sms_notifications))
+        conn.commit()
+        log_user_activity(user_id, "update_settings", data)
+        return jsonify({"status": "Settings updated successfully"})
+    
+    settings = get_user_settings(user_id)
+    return jsonify(settings)
+
+@app.route('/save_token', methods=['POST'])
+def save_token():
+    """Save an API token for a user and service."""
+    data = request.json
+    user_id = data.get('user_id', 'default')
+    service = data.get('service')
+    token = data.get('token')
+    
+    if not service or not token:
+        return jsonify({"error": "Service and token are required"}), 400
+    
+    cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
+                   (user_id, service, token))
+    conn.commit()
+    if redis_client:
+        redis_client.setex(f"token:{user_id}:{service}", 3600, token)
+    log_user_activity(user_id, "save_token", {"service": service})
+    return jsonify({"status": f"Token for {service} saved successfully"})
+
 @app.route('/duplicates', methods=['GET'])
 def get_duplicates():
+    """Retrieve duplicate contacts for the user."""
     user_id = "default"
-    cursor.execute("SELECT import_id, record_type, record_data, import_date FROM user_imports WHERE user_id = ? ORDER BY import_date DESC",
-                   (user_id,))
-    imports = cursor.fetchall()
+    cursor.execute("SELECT contact_hash, contact_data, timestamp FROM duplicates_log WHERE user_id = ? ORDER BY timestamp DESC", (user_id,))
+    duplicates = cursor.fetchall()
+    result = []
+    for dup in duplicates:
+        result.append({
+            "contact_hash": dup[0],
+            "contact_data": json.loads(dup[1]),
+            "timestamp": dup[2]
+        })
+    return jsonify({"duplicates": result})
 
-    # Dictionary to group records by type and identify duplicates
-    records_by_type = defaultdict(list)
-    duplicates = defaultdict(list)
+@app.route('/activity_log', methods=['GET'])
+def get_activity_log():
+    """Retrieve the user's activity log."""
+    user_id = "default"
+    cursor.execute("SELECT action, details, timestamp FROM user_activity_log WHERE user_id = ? ORDER BY timestamp DESC LIMIT 100", (user_id,))
+    logs = cursor.fetchall()
+    result = [{"action": log[0], "details": json.loads(log[1]), "timestamp": log[2]} for log in logs]
+    return jsonify({"activity_log": result})
 
-    for imp in imports:
-        import_id, record_type, record_data, import_date = imp
-        record_data = json.loads(record_data)
-        record = {
-            "import_id": import_id,
-            "record_type": record_type,
-            "record_data": record_data,
-            "import_date": import_date
-        }
-        records_by_type[record_type].append(record)
+@app.route('/save_email_template', methods=['POST'])
+def save_email_template():
+    """Save a custom email template for the user."""
+    data = request.json
+    user_id = data.get('user_id', 'default')
+    template_name = data.get('template_name')
+    subject = data.get('subject')
+    body = data.get('body')
+    
+    if not all([template_name, subject, body]):
+        return jsonify({"error": "Template name, subject, and body are required"}), 400
+    
+    cursor.execute("INSERT INTO email_templates (user_id, template_name, subject, body) VALUES (?, ?, ?, ?)",
+                   (user_id, template_name, subject, body))
+    conn.commit()
+    log_user_activity(user_id, "save_email_template", {"template_name": template_name})
+    return jsonify({"status": "Email template saved successfully"})
 
-    # Identify duplicates within each record type
-    for record_type, records in records_by_type.items():
-        seen = {}
-        for record in records:
-            data = record["record_data"]
-            # Define key fields for duplicate detection based on record type
-            if record_type == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
-                # For Excel files, use fields like Property name and Deal date
-                key_fields = (
-                    data.get('Property name', ''),
-                    data.get('Deal date', data.get('Sale date', ''))
-                )
-            else:
-                # For PDFs/Images, use extracted text as a key (simplified)
-                key_fields = (data.get('text', ''),)
+@app.route('/get_email_templates', methods=['GET'])
+def get_email_templates():
+    """Retrieve all email templates for the user."""
+    user_id = "default"
+    cursor.execute("SELECT template_name, subject, body FROM email_templates WHERE user_id = ?", (user_id,))
+    templates = cursor.fetchall()
+    result = [{"template_name": t[0], "subject": t[1], "body": t[2]} for t in templates]
+    return jsonify({"templates": result})
 
-            key = (record_type, key_fields)
-            if key in seen:
-                duplicates[record_type].append({
-                    "original": seen[key],
-                    "duplicate": record
-                })
-            else:
-                seen[key] = record
+@app.route('/schedule_task', methods=['POST'])
+def schedule_task():
+    """Schedule a task like sending a RealBlast or generating a report."""
+    data = request.json
+    user_id = data.get('user_id', 'default')
+    task_type = data.get('task_type')
+    task_data = data.get('task_data')
+    schedule_time = data.get('schedule_time')  # ISO format
+    
+    if not all([task_type, task_data, schedule_time]):
+        return jsonify({"error": "Task type, data, and schedule time are required"}), 400
+    
+    cursor.execute("INSERT INTO scheduled_tasks (user_id, task_type, task_data, schedule_time, status) VALUES (?, ?, ?, ?, ?)",
+                   (user_id, task_type, json.dumps(task_data), schedule_time, "pending"))
+    conn.commit()
+    log_user_activity(user_id, "schedule_task", {"task_type": task_type, "schedule_time": schedule_time})
+    return jsonify({"status": "Task scheduled successfully"})
 
-    # Format the response
-    duplicates_response = {}
-    for record_type, dups in duplicates.items():
-        duplicates_response[record_type] = [
-            {
-                "original": {
-                    "import_id": dup["original"]["import_id"],
-                    "record_data": dup["original"]["record_data"],
-                    "import_date": dup["original"]["import_date"]
-                },
-                "duplicate": {
-                    "import_id": dup["duplicate"]["import_id"],
-                    "record_data": dup["duplicate"]["record_data"],
-                    "import_date": dup["duplicate"]["import_date"]
-                }
-            } for dup in dups
-        ]
-
-    return jsonify({"duplicates": duplicates_response}), 200
-
-# Duplicates dashboard route
-@app.route('/duplicates-dashboard')
-def duplicates_dashboard():
-    return render_template('duplicates_dashboard.html')
+@app.route('/generate_report', methods=['POST'])
+def generate_report():
+    """Generate a PDF report based on user data."""
+    data = request.json
+    user_id = data.get('user_id', 'default')
+    report_type = data.get('report_type', 'activity')
+    
+    if report_type == 'activity':
+        cursor.execute("SELECT action, details, timestamp FROM user_activity_log WHERE user_id = ? ORDER BY timestamp DESC LIMIT 10", (user_id,))
+        logs = cursor.fetchall()
+        report_data = {}
+        for i, log in enumerate(logs, 1):
+            report_data[f"Activity {i}"] = f"{log[0]} at {log[2]}: {json.loads(log[1])}"
+        title = "Recent Activity Report"
+    
+    pdf_output = generate_pdf_report(user_id, report_data, title)
+    log_user_activity(user_id, "generate_report", {"report_type": report_type})
+    
+    return send_file(
+        pdf_output,
+        attachment_filename=f"{report_type}_report_{user_id}.pdf",
+        as_attachment=True,
+        mimetype='application/pdf'
+    )
 
 # Natural language query route
 @app.route('/ask', methods=['POST'])
 async def ask():
+    """Handle natural language queries for CRE tasks."""
     data = request.json
     message = data.get('message', '').lower()
     user_id = "default"
@@ -1018,8 +492,9 @@ async def ask():
                 ]
             )
             message = response.choices[0].message.content.lower()
+            log_user_activity(user_id, "translate_message", {"from": settings["language"], "to": "en", "original": original_message, "translated": message})
         except Exception as e:
-            print(f"Translation failed: {e}")
+            logger.error(f"Translation failed: {e}")
 
     # Handle human help requests
     help_phrases = ["i need a human", "more help", "support help", "billing help", "sales support"]
@@ -1055,6 +530,7 @@ async def ask():
                 "📧 Email: info@realnex.com (general inquiries), sales@realnex.com (sales/billing), support@realnex.com (support)\n"
                 "Hang tight! 🛠️"
             )
+            log_user_activity(user_id, "request_support", {"issue": issue, "to_email": to_email})
             return jsonify({"answer": contact_info, "tts": contact_info})
         except Exception as e:
             error_message = f"Failed to send support request: {str(e)}. Please try again or contact RealNex directly at (281) 299-3161 or support@realnex.com."
@@ -1092,6 +568,7 @@ async def ask():
             )
             subject = response.choices[0].message.content.strip()
             answer = f"Suggested subject: '{subject}'. Does this work? Say the subject to use it, or provide your own!"
+            log_user_activity(user_id, "suggest_subject", {"campaign_type": campaign_type, "subject": subject})
             return jsonify({"answer": answer, "tts": answer})
         except Exception as e:
             answer = f"Failed to generate subject line: {str(e)}. Try providing your own subject."
@@ -1116,6 +593,7 @@ async def ask():
             )
             content = response.choices[0].message.content
             answer = f"Here’s your RealBlast email for group {audience_id}:\nSubject: Your CRE Update\nContent:\n{content}\n\nCopy and paste this into your RealNex RealBlast setup. 📧"
+            log_user_activity(user_id, "draft_email", {"type": "RealBlast", "group_id": audience_id})
             return jsonify({"answer": answer, "tts": answer})
         except Exception as e:
             answer = f"Failed to draft email: {str(e)}. Try again."
@@ -1140,6 +618,7 @@ async def ask():
             )
             content = response.choices[0].message.content
             answer = f"Here’s your Mailchimp email for audience {audience_id}:\nSubject: Your CRE Update\nContent:\n{content}\n\nCopy and paste this into your Mailchimp campaign setup. 📧"
+            log_user_activity(user_id, "draft_email", {"type": "Mailchimp", "audience_id": audience_id})
             return jsonify({"answer": answer, "tts": answer})
         except Exception as e:
             answer = f"Failed to draft email: {str(e)}. Try again."
@@ -1201,6 +680,13 @@ async def ask():
             socketio.emit('campaign_sent', {'user_id': user_id, 'message': f"RealBlast sent to group {group_id}!"})
             update_onboarding(user_id, "send_realblast")
             answer = f"RealBlast sent to group {group_id}! 📧 {points_message}"
+            if settings["sms_notifications"] and twilio_client:
+                twilio_client.messages.create(
+                    body=f"RealBlast sent to group {group_id}! {points_message}",
+                    from_=TWILIO_PHONE,
+                    to="+1234567890"
+                )
+            log_user_activity(user_id, "send_realblast", {"group_id": group_id})
             return jsonify({"answer": answer, "tts": answer})
         answer = f"Failed to send RealBlast: {response.text}"
         return jsonify({"answer": answer, "tts": answer})
@@ -1255,6 +741,16 @@ async def ask():
             mailchimp.campaigns.actions.send(campaign_id)
             socketio.emit('campaign_sent', {'user_id': user_id, 'message': f"Mailchimp campaign sent to audience {audience_id}!"})
             answer = f"Mailchimp campaign sent to audience {audience_id}! 📧"
+            if settings["email_notifications"]:
+                msg = MIMEText(f"Mailchimp campaign sent to audience {audience_id}!")
+                msg['Subject'] = "Campaign Sent Notification"
+                msg['From'] = SMTP_USER
+                msg['To'] = "user@example.com"
+                with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+                    server.starttls()
+                    server.login(SMTP_USER, SMTP_PASSWORD)
+                    server.sendmail(SMTP_USER, "user@example.com", msg.as_string())
+            log_user_activity(user_id, "send_mailchimp_campaign", {"audience_id": audience_id})
             return jsonify({"answer": answer, "tts": answer})
         except Exception as e:
             answer = f"Failed to send Mailchimp campaign: {str(e)}"
@@ -1296,7 +792,13 @@ async def ask():
                 return jsonify({"answer": answer, "tts": answer})
 
         contacts = []
+        seen_hashes = set()
         for contact in zoominfo_contacts + apollo_contacts:
+            contact_hash = hash_contact(contact)
+            if contact_hash in seen_hashes:
+                log_duplicate(user_id, contact)
+                continue
+            seen_hashes.add(contact_hash)
             formatted_contact = {
                 "Full Name": contact.get("name", ""),
                 "First Name": contact.get("first_name", ""),
@@ -1328,6 +830,7 @@ async def ask():
                 points, email_credits, has_msa, points_message = award_points(user_id, 10, "bringing in data")
                 update_onboarding(user_id, "sync_crm_data")
                 answer = f"Synced {len(contacts)} contacts into RealNex. 📇 {points_message}"
+                log_user_activity(user_id, "sync_crm_data", {"num_contacts": len(contacts)})
                 return jsonify({"answer": answer, "tts": answer})
             answer = f"Failed to import contacts into RealNex: {response.text}"
             return jsonify({"answer": answer, "tts": answer})
@@ -1365,6 +868,11 @@ async def ask():
             model.fit(X, y)
             predicted_rent = model.predict([[sq_ft]])[0]
             answer = f"Predicted rent for {sq_ft} sq ft: ${predicted_rent:.2f}/month. 🔮"
+            chart_output = generate_deal_trend_chart(user_id, historical_data, deal_type)
+            chart_base64 = base64.b64encode(chart_output.read()).decode('utf-8')
+            answer += f"\nTrend chart: data:image/png;base64,{chart_base64}"
+            log_user_activity(user_id, "predict_deal", {"deal_type": deal_type, "sq_ft": sq_ft, "prediction": predicted_rent})
+            return jsonify({"answer": answer, "tts": f"Predicted rent for {sq_ft} square feet: ${predicted_rent:.2f} per month."})
         elif deal_type == "SaleComp":
             for item in historical_data:
                 X.append([item.get("sq_ft", 0)])
@@ -1373,6 +881,11 @@ async def ask():
             model.fit(X, y)
             predicted_price = model.predict([[sq_ft]])[0]
             answer = f"Predicted sale price for {sq_ft} sq ft: ${predicted_price:.2f}. 🔮"
+            chart_output = generate_deal_trend_chart(user_id, historical_data, deal_type)
+            chart_base64 = base64.b64encode(chart_output.read()).decode('utf-8')
+            answer += f"\nTrend chart: data:image/png;base64,{chart_base64}"
+            log_user_activity(user_id, "predict_deal", {"deal_type": deal_type, "sq_ft": sq_ft, "prediction": predicted_price})
+            return jsonify({"answer": answer, "tts": f"Predicted sale price for {sq_ft} square feet: ${predicted_price:.2f}."})
 
     elif 'negotiate deal' in message:
         deal_type = "LeaseComp" if "leasecomp" in message else "SaleComp" if "salecomp" in message else None
@@ -1439,22 +952,30 @@ async def ask():
                 f"Explanation: {explanation}\n"
                 f"Ready to close this deal? 🤝"
             )
+            log_user_activity(user_id, "negotiate_deal", {"deal_type": deal_type, "sq_ft": sq_ft, "offered_value": offered_value, "counteroffer": counteroffer})
+            return jsonify({"answer": answer, "tts": answer})
         except Exception as e:
             answer = f"Failed to negotiate deal: {str(e)}. Try again."
+            return jsonify({"answer": answer, "tts": answer})
 
     elif 'notify me of new deals over' in message:
         if not settings["deal_alerts_enabled"]:
             answer = "Deal alerts are disabled in settings. Enable them to set notifications! ⚙️"
+            return jsonify({"answer": answer, "tts": answer})
         else:
             threshold = re.search(r'over\s*\$\s*([\d.]+)', message)
             threshold = float(threshold.group(1)) if threshold else None
+            deal_type = "LeaseComp" if "leasecomp" in message else "SaleComp" if "salecomp" in message else "Any"
             if not threshold:
                 answer = "Please specify a deal value threshold, like 'notify me of new deals over $5000'. What’s the threshold? 🔔"
+                return jsonify({"answer": answer, "tts": answer})
             else:
-                cursor.execute("INSERT OR REPLACE INTO deal_alerts (user_id, threshold) VALUES (?, ?)",
-                               (user_id, threshold))
+                cursor.execute("INSERT OR REPLACE INTO deal_alerts (user_id, threshold, deal_type) VALUES (?, ?, ?)",
+                               (user_id, threshold, deal_type))
                 conn.commit()
-                answer = f"Deal alert set! I’ll notify you of new deals over ${threshold}. 🔔"
+                answer = f"Deal alert set! I’ll notify you of new {deal_type} deals over ${threshold}. 🔔"
+                log_user_activity(user_id, "set_deal_alert", {"threshold": threshold, "deal_type": deal_type})
+                return jsonify({"answer": answer, "tts": answer})
 
     elif 'summarize text' in message:
         text = message.split('summarize text')[-1].strip()
@@ -1474,8 +995,11 @@ async def ask():
             )
             summary = response.choices[0].message.content
             answer = f"Summary: {summary}. 📝"
+            log_user_activity(user_id, "summarize_text", {"original_length": len(text), "summary_length": len(summary)})
+            return jsonify({"answer": answer, "tts": answer})
         except Exception as e:
             answer = f"Failed to summarize text: {str(e)}. Try again."
+            return jsonify({"answer": answer, "tts": answer})
 
     elif 'verify emails' in message:
         emails = message.split('verify emails')[-1].strip().split(',')
@@ -1484,8 +1008,14 @@ async def ask():
             answer = "Please provide emails to verify. Say something like 'verify emails email1@example.com, email2@example.com'. What are the emails? 📧"
             return jsonify({"answer": answer, "tts": answer})
 
-        verified_emails = [{"email": email, "status": "valid"} for email in emails]
+        verified_emails = []
+        for email in emails:
+            # Placeholder for email verification logic (e.g., using an external API)
+            status = "valid"  # Simplified for demo
+            verified_emails.append({"email": email, "status": status})
         answer = f"Verified {len(verified_emails)} emails: {json.dumps(verified_emails)}. ✨"
+        log_user_activity(user_id, "verify_emails", {"num_emails": len(emails)})
+        return jsonify({"answer": answer, "tts": answer})
 
     elif 'sync contacts' in message:
         google_token = data.get('google_token')
@@ -1496,4 +1026,99 @@ async def ask():
         token = get_token(user_id, "realnex")
         if not token:
             answer = "Please fetch your RealNex JWT token in Settings to sync contacts. 🔑"
-            return jsonify({"answer":
+            return jsonify({"answer": answer, "tts": answer})
+
+        # Fetch Google contacts
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://www.googleapis.com/contacts/v3/users/me/connections",
+                headers={"Authorization": f"Bearer {google_token}"}
+            )
+        if response.status_code != 200:
+            answer = f"Failed to fetch Google contacts: {response.text}. Check your Google token."
+            return jsonify({"answer": answer, "tts": answer})
+
+        google_contacts = response.json().get("connections", [])
+        contacts = []
+        seen_hashes = set()
+        for contact in google_contacts:
+            formatted_contact = {
+                "Full Name": contact.get("names", [{}])[0].get("displayName", ""),
+                "First Name": contact.get("names", [{}])[0].get("givenName", ""),
+                "Last Name": contact.get("names", [{}])[0].get("familyName", ""),
+                "Company": contact.get("organizations", [{}])[0].get("name", ""),
+                "Address1": contact.get("addresses", [{}])[0].get("streetAddress", ""),
+                "City": contact.get("addresses", [{}])[0].get("city", ""),
+                "State": contact.get("addresses", [{}])[0].get("region", ""),
+                "Postal Code": contact.get("addresses", [{}])[0].get("postalCode", ""),
+                "Work Phone": contact.get("phoneNumbers", [{}])[0].get("value", ""),
+                "Email": contact.get("emailAddresses", [{}])[0].get("value", "")
+            }
+            contact_hash = hash_contact(formatted_contact)
+            if contact_hash in seen_hashes:
+                log_duplicate(user_id, formatted_contact)
+                continue
+            seen_hashes.add(contact_hash)
+            contacts.append(formatted_contact)
+
+        if contacts:
+            df = pd.DataFrame(contacts)
+            csv_buffer = io.StringIO()
+            df.to_csv(csv_buffer, index=False)
+            csv_data = csv_buffer.getvalue()
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{REALNEX_API_BASE}/ImportData",
+                    headers={'Authorization': f'Bearer {token}', 'Content-Type': 'text/csv'},
+                    data=csv_data
+                )
+
+            if response.status_code == 200:
+                points, email_credits, has_msa, points_message = award_points(user_id, 10, "syncing Google contacts")
+                answer = f"Synced {len(contacts)} Google contacts into RealNex. 📇 {points_message}"
+                log_user_activity(user_id, "sync_contacts", {"source": "Google", "num_contacts": len(contacts)})
+                return jsonify({"answer": answer, "tts": answer})
+            answer = f"Failed to import Google contacts into RealNex: {response.text}"
+            return jsonify({"answer": answer, "tts": answer})
+        answer = "No Google contacts to sync."
+        return jsonify({"answer": answer, "tts": answer})
+
+    elif 'my status' in message:
+        answer = (
+            f"Here’s your status, champ:\n"
+            f"Points: {points}\n"
+            f"Email Credits: {email_credits}\n"
+            f"Free RealBlast MSA: {'Yes' if has_msa else 'No'}\n"
+            f"Onboarding Steps Completed: {', '.join(completed_steps) if completed_steps else 'None'}\n"
+            f"Keep rocking it! 🏆"
+        )
+        log_user_activity(user_id, "check_status", {"points": points, "email_credits": email_credits, "has_msa": has_msa})
+        return jsonify({"answer": answer, "tts": answer})
+
+    elif 'generate market report' in message:
+        if not openai_client:
+            return jsonify({"error": "OpenAI client not initialized. Check server logs for details."}), 500
+        try:
+            response = openai_client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "You are a commercial real estate market analyst."},
+                    {"role": "user", "content": "Generate a brief market report for commercial real estate in the current market."}
+                ]
+            )
+            report = response.choices[0].message.content
+            answer = f"Market Report:\n{report}\n📊 Would you like to save this as a PDF?"
+            log_user_activity(user_id, "generate_market_report", {"report_length": len(report)})
+            return jsonify({"answer": answer, "tts": f"Market report generated. Would you like to save this as a PDF?"})
+        except Exception as e:
+            answer = f"Failed to generate market report: {str(e)}. Try again."
+            return jsonify({"answer": answer, "tts": answer})
+
+    else:
+        answer = "I’m not sure how to help with that. Try something like 'sync crm data', 'predict deal for LeaseComp with 5000 sq ft', or 'draft an email'. What else can I do for you? 🤔"
+        return jsonify({"answer": answer, "tts": answer})
+
+# Start the app
+if __name__ == '__main__':
+    socketio.run(app, host='0.0.0.0', port=int(os.getenv('PORT', 10000)))
