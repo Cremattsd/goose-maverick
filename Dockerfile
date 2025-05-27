@@ -4,8 +4,10 @@ FROM python:3.11-slim
 # Set environment variables for Python and Gunicorn
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PORT=10000 \
     PYTHONPATH=/usr/local/lib/python3.11/site-packages
+
+# Use dynamic port from Render or fallback to 10000
+ENV PORT=${PORT:-10000}
 
 # Set working directory
 WORKDIR /app
@@ -44,32 +46,24 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 COPY package.json tailwind.config.js ./
 COPY static/ static/
 RUN npm install
-
-# Update Browserslist database to fix caniuse-lite warning
 RUN npx update-browserslist-db@latest
-
-# Copy Chart.js and Socket.io to static/js for local use
 RUN mkdir -p static/js && \
     cp node_modules/chart.js/dist/chart.umd.js static/js/chart.js && \
     cp node_modules/socket.io-client/dist/socket.io.min.js static/js/socket.io.min.js
-
-# Build Tailwind CSS
 RUN npm run build
 
-# Update pip to the latest version
+# Update pip and install Python dependencies
 RUN pip install --upgrade pip
-
-# Copy Python requirements and install dependencies with better error handling
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt --use-pep517
-# Debug step: Verify python-dotenv installation
-RUN python -c "import dotenv; print('python-dotenv is installed successfully!')"
+RUN python -c "import dotenv; print('python-dotenv is installed!')"
 
-# Copy the rest of the application (after requirements to leverage caching)
+# Copy the rest of the app
 COPY . .
 
-# Expose the port
-EXPOSE 10000
+# Expose the dynamic port
+EXPOSE $PORT
 
-# Command to start Redis and run the app with optimized Gunicorn settings
+# Start Redis (optional) and Gunicorn app
+# If Redis causes issues on Render, REMOVE 'redis-server --daemonize yes &&'
 CMD ["sh", "-c", "redis-server --daemonize yes && gunicorn --bind 0.0.0.0:$PORT --workers 4 --threads 8 --timeout 120 --log-level info app:app"]
