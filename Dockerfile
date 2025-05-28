@@ -1,6 +1,7 @@
 # Use a lightweight Python 3.11 base image
 FROM python:3.11-slim
 
+# Set environment variables for Python and Gunicorn
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/usr/local/lib/python3.11/site-packages
@@ -38,7 +39,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && npm install -g npm@latest
 
-# Copy Node.js stuff first to leverage caching
+# Copy Node.js files first to leverage Docker caching
 COPY package.json tailwind.config.js ./
 COPY static/ static/
 RUN npm install
@@ -48,17 +49,19 @@ RUN mkdir -p static/js && \
     cp node_modules/socket.io-client/dist/socket.io.min.js static/js/socket.io.min.js
 RUN npm run build
 
-# Update pip and install Python dependencies
-RUN pip install --upgrade pip
+# Upgrade pip and install Python dependencies
 COPY requirements.txt ./
+RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt --use-pep517
-RUN python -c "import dotenv; print('python-dotenv is installed!')"
 
-# Copy the rest of the app
+# Debug: confirm required modules are installed
+RUN python -c "import seaborn, matplotlib, fpdf, dotenv; print('All required modules installed')"
+
+# Copy the rest of the application code
 COPY . .
 
-# Expose the app port for Docker (Render sets $PORT)
+# Expose dynamic port, Render sets $PORT
 EXPOSE 10000
 
-# Run Gunicorn with dynamic port from Render
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-10000} --workers 4 --threads 8 --timeout 120 --log-level info app:app"]
+# Start Redis in background and launch Gunicorn with dynamic PORT
+CMD ["sh", "-c", "redis-server --daemonize yes && gunicorn --bind 0.0.0.0:${PORT:-10000} --workers 4 --threads 8 --timeout 120 --log-level info app:app"]
