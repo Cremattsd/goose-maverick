@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Field Mapping Editor</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: Arial, sans-serif; padding: 2rem; }
+    h1 { color: #333; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+    th, td { border: 1px solid #ddd; padding: 8px; }
+    th { background-color: #f4f4f4; }
+    input, select { width: 100%; }
+    .btn { margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Field Mapping Editor</h1>
+  <label for="mapName">Select Mapping Name:</label>
+  <input type="text" id="mapName" placeholder="e.g. contacts" value="contacts"/>
+  <button onclick="loadMapping()">Load Mapping</button>
+  <button onclick="saveMapping()">Save Mapping</button>
+
+  <div class="btn">
+    <button onclick="addRow()">➕ Add Row</button>
+    <button onclick="deleteLastRow()">🗑️ Delete Last Row</button>
+  </div>
+
+  <table>
+    <thead><tr><th>CSV Column</th><th>RealNex Field</th></tr></thead>
+    <tbody id="mappingTable"></tbody>
+  </table>
+
+  <h3>📥 Upload CSV for Preview</h3>
+  <input type="file" id="csvFile" accept=".csv"/>
+  <button onclick="previewCSV()">Preview Columns</button>
+  <ul id="csvPreview"></ul>
+
+  <script>
+    let fieldOptions = {};
+
+    async function fetchFieldOptions() {
+      const res = await fetch('/static/realnex_fields.json');
+      fieldOptions = await res.json();
+    }
+
+    function addRow(csvVal = '', rnField = '') {
+      const mapType = document.getElementById('mapName').value;
+      const options = (fieldOptions[mapType] || []).map(f => {
+        return `<option value="${f}" ${f === rnField ? 'selected' : ''}>${f}</option>`;
+      }).join('');
+      const row = document.createElement('tr');
+      row.innerHTML = `<td><input value="${csvVal}"/></td><td><select>${options}</select></td>`;
+      document.getElementById('mappingTable').appendChild(row);
+    }
+
+    function deleteLastRow() {
+      const table = document.getElementById('mappingTable');
+      if (table.rows.length > 0) table.deleteRow(table.rows.length - 1);
+    }
+
+    async function loadMapping() {
+      await fetchFieldOptions();
+      const mapName = document.getElementById('mapName').value;
+      const res = await fetch(`/field-map/saved/${mapName}`);
+      const data = await res.json();
+      const contacts = data.contacts || {};
+      const table = document.getElementById('mappingTable');
+      table.innerHTML = '';
+      for (const [key, value] of Object.entries(contacts)) {
+        addRow(value, key);
+      }
+    }
+
+    async function saveMapping() {
+      const mapName = document.getElementById('mapName').value;
+      const rows = document.querySelectorAll('#mappingTable tr');
+      const contacts = {};
+      rows.forEach(row => {
+        const csv = row.cells[0].querySelector('input').value.trim().toLowerCase();
+        const rnField = row.cells[1].querySelector('select').value.trim();
+        if (csv && rnField) contacts[rnField] = csv;
+      });
+      const payload = { contacts };
+      await fetch(`/field-map/save/${mapName}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      alert('Mapping saved!');
+    }
+
+    function previewCSV() {
+      const file = document.getElementById('csvFile').files[0];
+      const preview = document.getElementById('csvPreview');
+      preview.innerHTML = '';
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        const lines = e.target.result.split('\n');
+        if (lines.length > 0) {
+          const cols = lines[0].split(',');
+          cols.forEach(col => {
+            const li = document.createElement('li');
+            li.textContent = col.trim();
+            preview.appendChild(li);
+          });
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    fetchFieldOptions();
+  </script>
+</body>
+</html>
