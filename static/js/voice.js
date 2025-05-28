@@ -1,4 +1,4 @@
-window.onload = function () {
+swindow.onload = function () {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
     console.error("Speech Recognition API not supported in this browser.");
