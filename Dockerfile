@@ -1,18 +1,14 @@
 # Use a lightweight Python 3.11 base image
 FROM python:3.11-slim
 
-# Set environment variables for Python and Gunicorn
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/usr/local/lib/python3.11/site-packages
 
-# Use dynamic port from Render or fallback to 10000
-ENV PORT=${PORT:-10000}
-
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies for PyMuPDF, pdf2image, pytesseract, pyttsx3, build tools, swig, and Redis
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
     make \
@@ -42,7 +38,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && npm install -g npm@latest
 
-# Copy Node.js dependency files and static assets first to leverage caching
+# Copy Node.js stuff first to leverage caching
 COPY package.json tailwind.config.js ./
 COPY static/ static/
 RUN npm install
@@ -61,8 +57,8 @@ RUN python -c "import dotenv; print('python-dotenv is installed!')"
 # Copy the rest of the app
 COPY . .
 
-# Expose the dynamic port
-EXPOSE $PORT
+# Expose the app port for Docker (Render sets $PORT)
+EXPOSE 10000
 
-# Start only Gunicorn, without Redis (for Render or Docker)
-CMD ["gunicorn", "--bind", "0.0.0.0:$PORT", "--workers", "4", "--threads", "8", "--timeout", "120", "--log-level", "info", "app:app"]
+# Run Gunicorn with dynamic port from Render
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-10000} --workers 4 --threads 8 --timeout 120 --log-level info app:app"]
