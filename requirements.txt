@@ -24,4 +24,5 @@ pyttsx3==2.90
 python-dotenv
 fpdf==1.7.2  
 matplotlib==3.7.3
+seaborn==0.12.2
 
