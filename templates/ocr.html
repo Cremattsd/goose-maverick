@@ -6,70 +6,58 @@
     <title>OCR Scanner</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
+        body {
+            background: linear-gradient(135deg, #1e3a8a, #3b82f6);
+            font-family: 'Inter', sans-serif;
+        }
+        .glass {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 1rem;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+        }
+        .btn {
+            transition: transform 0.2s ease;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+        }
         .drop-zone {
+            border: 2px dashed rgba(255, 255, 255, 0.5);
             transition: all 0.3s ease;
         }
         .drop-zone.dragover {
-            background-color: rgba(255, 255, 255, 0.2);
+            background: rgba(255, 255, 255, 0.2);
             border-color: #3b82f6;
         }
     </style>
 </head>
-<body class="bg-gradient-to-br from-gray-900 to-blue-900 min-h-screen flex items-center justify-center">
-    <div class="container mx-auto p-6">
-        <div class="bg-white bg-opacity-10 backdrop-blur-lg rounded-xl shadow-2xl p-6 max-w-2xl mx-auto border border-white border-opacity-20">
-            <h1 class="text-3xl font-bold text-center text-white">OCR Scanner</h1>
-            <p class="mt-2 text-center text-gray-200">Upload a business card or document to extract text!</p>
-            <div class="mt-4 flex justify-center">
-                <div id="dropZone" class="drop-zone w-full p-6 border-2 border-dashed border-gray-300 rounded-lg text-center cursor-pointer hover:border-blue-500 transition-colors">
-                    <input type="file" id="imageUpload" accept="image/*" class="hidden">
-                    <p class="text-gray-200">Drag & Drop an image here or click to select</p>
-                </div>
+<body class="min-h-screen flex items-center justify-center">
+    <div class="container mx-auto p-6 glass max-w-4xl">
+        <h1 class="text-3xl font-bold text-white text-center mb-6">OCR Scanner</h1>
+        <p class="text-center text-white mb-4">Upload a business card or document to extract text!</p>
+        <div class="flex justify-center mb-4">
+            <div id="dropZone" class="drop-zone p-6 rounded-lg text-center text-white">
+                <p>Drag & Drop Image Here or Click to Upload</p>
+                <input type="file" id="imageUpload" accept="image/*" class="hidden" onchange="processImage(event)">
             </div>
-            <div class="mt-4 flex justify-center">
-                <button onclick="processImage()" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors">Scan</button>
-            </div>
-            <div id="ocrResult" class="mt-4 p-4 bg-white bg-opacity-10 backdrop-blur-lg rounded-lg border border-white border-opacity-20 hidden">
-                <h2 class="text-xl font-semibold mb-2 text-white">Extracted Text</h2>
-                <pre id="extractedText" class="whitespace-pre-wrap text-gray-200"></pre>
-            </div>
-            <div class="mt-6 flex justify-center">
-                <a href="/chat-hub" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors">Back to Chat Hub</a>
-            </div>
+        </div>
+        <div class="flex justify-center">
+            <button onclick="processImage()" class="btn bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Scan</button>
+        </div>
+        <div id="ocrResult" class="mt-4 p-4 glass rounded-lg hidden">
+            <h2 class="text-xl font-semibold text-white mb-2">Extracted Text</h2>
+            <pre id="extractedText" class="text-white whitespace-pre-wrap"></pre>
+        </div>
+        <div class="mt-6 flex justify-center">
+            <a href="/chat-hub" class="btn bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Back to Chat Hub</a>
         </div>
     </div>
     <script>
-        const dropZone = document.getElementById('dropZone');
-        const imageUpload = document.getElementById('imageUpload');
-
-        dropZone.addEventListener('click', () => imageUpload.click());
-
-        dropZone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            dropZone.classList.add('dragover');
-        });
-
-        dropZone.addEventListener('dragleave', () => {
-            dropZone.classList.remove('dragover');
-        });
-
-        dropZone.addEventListener('drop', (e) => {
-            e.preventDefault();
-            dropZone.classList.remove('dragover');
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                imageUpload.files = files;
-            }
-        });
-
-        imageUpload.addEventListener('change', () => {
-            if (imageUpload.files.length > 0) {
-                dropZone.querySelector('p').textContent = `Selected: ${imageUpload.files[0].name}`;
-            }
-        });
-
-        async function processImage() {
-            const file = imageUpload.files[0];
+        async function processImage(event) {
+            const fileInput = document.getElementById('imageUpload');
+            const file = event ? (event.target.files[0] || event.dataTransfer.files[0]) : fileInput.files[0];
             if (!file) {
                 alert('Please select an image!');
                 return;
@@ -79,6 +67,11 @@
             formData.append('image', file);
 
             const token = localStorage.getItem('token');
+            if (!token) {
+                window.location.href = '/login?redirect=/ocr';
+                return;
+            }
+
             const response = await fetchWithErrorHandling('/process-ocr', {
                 method: 'POST',
                 headers: { 'Authorization': 'Bearer ' + token },
@@ -96,6 +89,10 @@
         async function fetchWithErrorHandling(url, options) {
             try {
                 const response = await fetch(url, options);
+                if (response.status === 401) {
+                    window.location.href = '/login?redirect=/ocr';
+                    return null;
+                }
                 if (!response.ok) {
                     alert(`Error: ${response.statusText}`);
                     return null;
@@ -106,6 +103,32 @@
                 return null;
             }
         }
+
+        const dropZone = document.getElementById('dropZone');
+        const imageUploadInput = document.getElementById('imageUpload');
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                imageUploadInput.files = files;
+                processImage(e);
+            }
+        });
+
+        dropZone.addEventListener('click', () => {
+            imageUploadInput.click();
+        });
     </script>
 </body>
 </html>
