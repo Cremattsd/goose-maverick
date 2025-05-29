@@ -26,10 +26,13 @@ from mailchimp_marketing import Client as MailchimpClient
 from dotenv import load_dotenv
 from fpdf import FPDF
 from PIL import Image
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pytesseract
 from io import BytesIO
+from fuzzywuzzy import fuzz
 
 # Configure logging for better debugging
 logging.basicConfig(
@@ -53,7 +56,12 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Redis setup for caching
 try:
-    redis_client = redis.Redis(host='localhost', port=6379, decode_responses=True)
+    redis_client = redis.Redis(
+        host='redis-12345.us-east-1-2.ec2.cloud.redislabs.com',  # Replace with your Redis host
+        port=12345,  # Replace with your Redis port
+        password='your-redis-password',  # Replace with your Redis password
+        decode_responses=True
+    )
     redis_client.ping()
     logger.info("Redis connection established successfully.")
 except redis.ConnectionError as e:
@@ -97,13 +105,21 @@ cursor.execute('''CREATE TABLE IF NOT EXISTS chat_messages
                   message TEXT,
                   timestamp TEXT)''')
 cursor.execute('''CREATE TABLE IF NOT EXISTS contacts
-                 (id TEXT PRIMARY KEY,
+                 (id TEXT,
                   name TEXT,
-                  email TEXT)''')
+                  email TEXT,
+                  user_id TEXT,
+                  PRIMARY KEY (id, user_id))''')
 cursor.execute('''CREATE TABLE IF NOT EXISTS deals
-                 (id TEXT PRIMARY KEY,
+                 (id TEXT,
                   amount INTEGER,
-                  close_date TEXT)''')
+                  close_date TEXT,
+                  user_id TEXT,
+                  PRIMARY KEY (id, user_id))''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS webhooks
+                 (user_id TEXT,
+                  webhook_url TEXT,
+                  PRIMARY KEY (user_id))''')
 conn.commit()
 
 # Environment variables
@@ -142,7 +158,8 @@ def token_required(f):
         if not token:
             return jsonify({"error": "Token is missing"}), 401
         try:
-            jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+            kwargs['user_id'] = data.get('user_id', 'default')
         except jwt.ExpiredSignatureError:
             return jsonify({"error": "Token has expired"}), 401
         except jwt.InvalidTokenError:
@@ -344,50 +361,50 @@ def health():
     return jsonify({"status": "healthy"})
 
 @app.route('/', methods=['GET'])
-def index():
-    """Serve the main dashboard page."""
+@token_required
+def index(user_id):
     logger.info("Main dashboard page accessed.")
     return render_template('main_dashboard.html')
 
 @app.route('/chat-hub', methods=['GET'])
-def chat_hub():
-    """Serve the chat hub page."""
+@token_required
+def chat_hub(user_id):
     logger.info("Chat hub page accessed.")
     return render_template('index.html')
 
 @app.route('/dashboard', methods=['GET'])
-def dashboard():
-    """Serve the duplicates dashboard page."""
+@token_required
+def dashboard(user_id):
     logger.info("Duplicates dashboard page accessed.")
     return render_template('duplicates_dashboard.html')
 
 @app.route('/activity', methods=['GET'])
-def activity():
-    """Serve the activity log dashboard page."""
+@token_required
+def activity(user_id):
     logger.info("Activity log page accessed.")
     return render_template('activity.html')
 
 @app.route('/deal-trends', methods=['GET'])
-def deal_trends():
-    """Serve the deal trends dashboard page."""
+@token_required
+def deal_trends(user_id):
     logger.info("Deal trends page accessed.")
     return render_template('deal_trends.html')
 
 @app.route('/field-map', methods=['GET'])
-def field_map():
-    """Serve the field mapping editor page."""
+@token_required
+def field_map(user_id):
     logger.info("Field mapping editor page accessed.")
     return render_template('field_map.html')
 
 @app.route('/ocr', methods=['GET'])
-def ocr_page():
-    """Serve the OCR scanner page."""
+@token_required
+def ocr_page(user_id):
     logger.info("OCR scanner page accessed.")
     return render_template('ocr.html')
 
 @app.route('/settings', methods=['GET'])
-def settings_page():
-    """Serve the settings page."""
+@token_required
+def settings_page(user_id):
     logger.info("Settings page accessed.")
     return render_template('settings.html')
 
@@ -403,7 +420,9 @@ def login():
 
     # For demo, use a hardcoded user (replace with database lookup in production)
     if username == 'admin' and password == 'password123':
+        user_id = 'default'  # Replace with actual user ID from database
         token = jwt.encode({
+            'user_id': user_id,
             'user': username,
             'exp': datetime.utcnow() + timedelta(hours=24)
         }, app.config['SECRET_KEY'], algorithm='HS256')
@@ -412,10 +431,9 @@ def login():
 
 @app.route('/save_token', methods=['POST'])
 @token_required
-def save_token():
+def save_token(user_id):
     """Save an API token for a user and service."""
     data = request.json
-    user_id = data.get('user_id', 'default')
     service = data.get('service')
     token = data.get('token')
     
@@ -432,9 +450,8 @@ def save_token():
 
 @app.route('/duplicates', methods=['GET'])
 @token_required
-def get_duplicates():
+def get_duplicates(user_id):
     """Retrieve duplicate contacts for the user."""
-    user_id = "default"
     cursor.execute("SELECT contact_hash, contact_data, timestamp FROM duplicates_log WHERE user_id = ? ORDER BY timestamp DESC", (user_id,))
     duplicates = cursor.fetchall()
     result = []
@@ -448,9 +465,8 @@ def get_duplicates():
 
 @app.route('/activity_log', methods=['GET'])
 @token_required
-def get_activity_log():
+def get_activity_log(user_id):
     """Retrieve the user's activity log."""
-    user_id = "default"
     cursor.execute("SELECT action, details, timestamp FROM user_activity_log WHERE user_id = ? ORDER BY timestamp DESC LIMIT 100", (user_id,))
     logs = cursor.fetchall()
     result = [{"action": log[0], "details": json.loads(log[1]), "timestamp": log[2]} for log in logs]
@@ -458,10 +474,9 @@ def get_activity_log():
 
 @app.route('/save_email_template', methods=['POST'])
 @token_required
-def save_email_template():
+def save_email_template(user_id):
     """Save a custom email template for the user."""
     data = request.json
-    user_id = data.get('user_id', 'default')
     template_name = data.get('template_name')
     subject = data.get('subject')
     body = data.get('body')
@@ -477,9 +492,8 @@ def save_email_template():
 
 @app.route('/get_email_templates', methods=['GET'])
 @token_required
-def get_email_templates():
+def get_email_templates(user_id):
     """Retrieve all email templates for the user."""
-    user_id = "default"
     cursor.execute("SELECT template_name, subject, body FROM email_templates WHERE user_id = ?", (user_id,))
     templates = cursor.fetchall()
     result = [{"template_name": t[0], "subject": t[1], "body": t[2]} for t in templates]
@@ -487,10 +501,9 @@ def get_email_templates():
 
 @app.route('/schedule_task', methods=['POST'])
 @token_required
-def schedule_task():
+def schedule_task(user_id):
     """Schedule a task like sending a RealBlast or generating a report."""
     data = request.json
-    user_id = data.get('user_id', 'default')
     task_type = data.get('task_type')
     task_data = data.get('task_data')
     schedule_time = data.get('schedule_time')  # ISO format
@@ -506,10 +519,9 @@ def schedule_task():
 
 @app.route('/generate_report', methods=['POST'])
 @token_required
-def generate_report():
+def generate_report(user_id):
     """Generate a PDF report based on user data."""
     data = request.json
-    user_id = data.get('user_id', 'default')
     report_type = data.get('report_type', 'activity')
     
     if report_type == 'activity':
@@ -533,10 +545,9 @@ def generate_report():
 # Chat Hub Endpoints
 @app.route('/save-message', methods=['POST'])
 @token_required
-def save_message():
+def save_message(user_id):
     """Save a chat message to the database."""
     data = request.json
-    user_id = "default"  # Replace with actual user ID from JWT
     sender = data.get('sender')
     message = data.get('message')
     timestamp = datetime.now().isoformat()
@@ -548,9 +559,8 @@ def save_message():
 
 @app.route('/get-messages', methods=['GET'])
 @token_required
-def get_messages():
+def get_messages(user_id):
     """Retrieve chat messages for the user."""
-    user_id = "default"  # Replace with actual user ID from JWT
     cursor.execute("SELECT sender, message, timestamp FROM chat_messages WHERE user_id = ? ORDER BY timestamp",
                    (user_id,))
     messages = cursor.fetchall()
@@ -560,41 +570,120 @@ def get_messages():
 # Main Dashboard Endpoints
 @app.route('/dashboard-data', methods=['GET'])
 @token_required
-def dashboard_data():
-    """Fetch data for the main dashboard (lead scores)."""
-    # Placeholder data (replace with real lead scoring logic)
+def dashboard_data(user_id):
+    """Fetch data for the main dashboard (lead scores) with caching."""
+    cache_key = f"dashboard_data:{user_id}"
+    if redis_client:
+        cached_data = redis_client.get(cache_key)
+        if cached_data:
+            logger.debug(f"Cache hit for {cache_key}")
+            return jsonify(json.loads(cached_data))
+
     lead_scores = [
         {"contact_id": "contact1", "score": 85},
         {"contact_id": "contact2", "score": 92}
     ]
-    return jsonify({"lead_scores": lead_scores})
+    data = {"lead_scores": lead_scores}
+
+    if redis_client:
+        redis_client.setex(cache_key, 300, json.dumps(data))
+        logger.debug(f"Cache set for {cache_key}")
+    return jsonify(data)
 
 @app.route('/import-stats', methods=['GET'])
 @token_required
-def import_stats():
-    """Fetch import statistics."""
-    # Placeholder data (replace with real stats)
+def import_stats(user_id):
+    """Fetch import statistics with caching."""
+    cache_key = f"import_stats:{user_id}"
+    if redis_client:
+        cached_data = redis_client.get(cache_key)
+        if cached_data:
+            logger.debug(f"Cache hit for {cache_key}")
+            return jsonify(json.loads(cached_data))
+
     stats = {
         "total_imports": 150,
         "successful_imports": 140,
         "duplicates_detected": 10
     }
+
+    if redis_client:
+        redis_client.setex(cache_key, 300, json.dumps(stats))
+        logger.debug(f"Cache set for {cache_key}")
     return jsonify(stats)
 
 @app.route('/mission-summary', methods=['GET'])
 @token_required
-def mission_summary():
-    """Fetch a mission summary."""
-    # Placeholder summary (replace with real logic)
-    summary = "Mission Summary: Synced 150 contacts, detected 10 duplicates, predicted 2 deals."
-    return jsonify({"summary": summary})
+def mission_summary(user_id):
+    """Fetch a mission summary with caching."""
+    cache_key = f"mission_summary:{user_id}"
+    if redis_client:
+        cached_data = redis_client.get(cache_key)
+        if cached_data:
+            logger.debug(f"Cache hit for {cache_key}")
+            return jsonify(json.loads(cached_data))
+
+    summary = {"summary": "Mission Summary: Synced 150 contacts, detected 10 duplicates, predicted 2 deals."}
+
+    if redis_client:
+        redis_client.setex(cache_key, 300, json.dumps(summary))
+        logger.debug(f"Cache set for {cache_key}")
+    return jsonify(summary)
+
+@app.route('/market-insights', methods=['GET'])
+@token_required
+async def market_insights(user_id):
+    """Generate AI-powered market insights using OpenAI."""
+    if not openai_client:
+        return jsonify({"error": "OpenAI client not initialized. Check server logs for details."}), 500
+
+    cursor.execute("SELECT amount, close_date FROM deals WHERE user_id = ? ORDER BY close_date DESC LIMIT 5", (user_id,))
+    deals = cursor.fetchall()
+    deal_context = "Recent Deals:\n"
+    for deal in deals:
+        deal_context += f"- Amount: ${deal[0]}, Close Date: {deal[1]}\n"
+
+    cursor.execute("SELECT action, details, timestamp FROM user_activity_log WHERE user_id = ? ORDER BY timestamp DESC LIMIT 5", (user_id,))
+    activities = cursor.fetchall()
+    activity_context = "Recent Activity:\n"
+    for activity in activities:
+        activity_context += f"- Action: {activity[0]}, Details: {activity[1]}, Timestamp: {activity[2]}\n"
+
+    prompt = (
+        f"You are a commercial real estate market analyst. Based on the following data, provide a brief market insight or trend prediction for the user:\n\n"
+        f"{deal_context}\n"
+        f"{activity_context}\n"
+        "Provide a concise insight (2-3 sentences) about the market trends or opportunities the user should be aware of."
+    )
+
+    try:
+        response = openai_client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a commercial real estate market analyst."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        insight = response.choices[0].message.content
+        log_user_activity(user_id, "generate_market_insight", {"insight": insight})
+        return jsonify({"insight": insight})
+    except Exception as e:
+        logger.error(f"Failed to generate market insight: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 # Duplicates Dashboard Endpoint
 @app.route('/duplicates-data', methods=['GET'])
 @token_required
-def duplicates_data():
-    """Fetch duplicate contacts based on fuzzy matching from contacts table."""
-    cursor.execute("SELECT id, name, email FROM contacts")
+def duplicates_data(user_id):
+    """Fetch duplicate contacts based on fuzzy matching from contacts table with caching."""
+    cache_key = f"duplicates_data:{user_id}"
+    if redis_client:
+        cached_data = redis_client.get(cache_key)
+        if cached_data:
+            logger.debug(f"Cache hit for {cache_key}")
+            return jsonify(json.loads(cached_data))
+
+    cursor.execute("SELECT id, name, email FROM contacts WHERE user_id = ?", (user_id,))
     contacts = cursor.fetchall()
     duplicates = []
     
@@ -610,18 +699,32 @@ def duplicates_data():
                     "email_similarity": email_similarity
                 })
     
-    return jsonify({"duplicates": duplicates})
+    data = {"duplicates": duplicates}
+    if redis_client:
+        redis_client.setex(cache_key, 300, json.dumps(data))
+        logger.debug(f"Cache set for {cache_key}")
+    return jsonify(data)
 
 # Deal Trends Endpoint
 @app.route('/deal-trends-data', methods=['GET'])
 @token_required
-def deal_trends_data():
-    """Fetch and predict deal trends."""
-    cursor.execute("SELECT amount, close_date FROM deals ORDER BY close_date")
+def deal_trends_data(user_id):
+    """Fetch and predict deal trends with caching."""
+    cache_key = f"deal_trends_data:{user_id}"
+    if redis_client:
+        cached_data = redis_client.get(cache_key)
+        if cached_data:
+            logger.debug(f"Cache hit for {cache_key}")
+            return jsonify(json.loads(cached_data))
+
+    cursor.execute("SELECT amount, close_date FROM deals WHERE user_id = ? ORDER BY close_date", (user_id,))
     deals = cursor.fetchall()
     
     if not deals:
-        return jsonify({"trends": [], "predictions": []})
+        data = {"trends": [], "predictions": []}
+        if redis_client:
+            redis_client.setex(cache_key, 300, json.dumps(data))
+        return jsonify(data)
     
     dates = [datetime.strptime(deal[1], '%Y-%m-%d').timestamp() for deal in deals]
     amounts = [deal[0] for deal in deals]
@@ -640,19 +743,23 @@ def deal_trends_data():
     trends = [{"date": deal[1], "amount": deal[0]} for deal in deals]
     future_predictions = [{"date": datetime.fromtimestamp(fd).strftime('%Y-%m-%d'), "amount": int(pred)} for fd, pred in zip(future_dates, predictions)]
     
-    return jsonify({"trends": trends, "predictions": future_predictions})
+    data = {"trends": trends, "predictions": future_predictions}
+    if redis_client:
+        redis_client.setex(cache_key, 300, json.dumps(data))
+        logger.debug(f"Cache set for {cache_key}")
+    return jsonify(data)
 
 # Field Mapping Endpoints
 @app.route('/field-map/saved/<name>', methods=['GET'])
 @token_required
-def load_field_mapping(name):
+def load_field_mapping(user_id, name):
     """Load a saved field mapping."""
     mappings = {"contacts": {"Full Name": "name", "Email": "email"}}
     return jsonify(mappings.get(name, {"contacts": {}}))
 
 @app.route('/field-map/save/<name>', methods=['POST'])
 @token_required
-def save_field_mapping(name):
+def save_field_mapping(user_id, name):
     """Save a field mapping."""
     data = request.json
     contacts = data.get('contacts', {})
@@ -662,9 +769,8 @@ def save_field_mapping(name):
 # OCR Endpoint
 @app.route('/process-ocr', methods=['POST'])
 @token_required
-def process_ocr():
-    """Process an image with OCR and return extracted text."""
-    user_id = "default"
+async def process_ocr(user_id):
+    """Process an image with OCR, parse text, and auto-sync to RealNex."""
     if 'image' not in request.files:
         return jsonify({"error": "No image uploaded"}), 400
 
@@ -672,20 +778,59 @@ def process_ocr():
     try:
         img = Image.open(image)
         text = pytesseract.image_to_string(img)
-        details = {"filename": image.filename, "extracted_text": text}
+
+        name_pattern = r"(?:Mr\.|Ms\.|Mrs\.|Dr\.|[A-Z][a-z]+)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?"
+        email_pattern = r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
+        phone_pattern = r"\b\d{3}[-.]?\d{3}[-.]?\d{4}\b"
+
+        name = re.search(name_pattern, text)
+        email = re.search(email_pattern, text)
+        phone = re.search(phone_pattern, text)
+
+        contact = {
+            "Full Name": name.group(0) if name else "Unknown",
+            "Email": email.group(0) if email else "",
+            "Work Phone": phone.group(0) if phone else ""
+        }
+
+        details = {"filename": image.filename, "extracted_text": text, "parsed_contact": contact}
         timestamp = datetime.now().isoformat()
         cursor.execute("INSERT INTO user_activity_log (user_id, action, details, timestamp) VALUES (?, ?, ?, ?)",
                        (user_id, "process_ocr", json.dumps(details), timestamp))
         conn.commit()
-        return jsonify({"text": text})
+
+        token = get_token(user_id, "realnex")
+        if token and contact["Email"]:
+            contacts = [contact]
+            df = pd.DataFrame(contacts)
+            csv_buffer = io.StringIO()
+            df.to_csv(csv_buffer, index=False)
+            csv_data = csv_buffer.getvalue()
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{REALNEX_API_BASE}/ImportData",
+                    headers={'Authorization': f'Bearer {token}', 'Content-Type': 'text/csv'},
+                    data=csv_data
+                )
+
+            if response.status_code == 200:
+                cursor.execute("INSERT OR IGNORE INTO contacts (id, name, email, user_id) VALUES (?, ?, ?, ?)",
+                               (contact["Email"], contact["Full Name"], contact["Email"], user_id))
+                conn.commit()
+                log_user_activity(user_id, "auto_sync_ocr_contact", {"contact": contact})
+                return jsonify({"text": text, "parsed_contact": contact, "sync_status": "Contact synced to RealNex"})
+            else:
+                return jsonify({"text": text, "parsed_contact": contact, "sync_status": f"Failed to sync: {response.text}"})
+        return jsonify({"text": text, "parsed_contact": contact, "sync_status": "No RealNex token or email found"})
     except Exception as e:
         logger.error(f"OCR processing failed: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
-# Settings Endpoints (Updated to match your existing /settings route)
+# Settings Endpoints
 @app.route('/settings-data', methods=['GET'])
 @token_required
-def get_settings():
+def get_settings(user_id):
     """Fetch current settings."""
     try:
         with open('settings.json', 'r') as f:
@@ -697,7 +842,7 @@ def get_settings():
 
 @app.route('/save-settings', methods=['POST'])
 @token_required
-def save_settings():
+def save_settings(user_id):
     """Save updated settings."""
     try:
         settings = request.json
@@ -708,14 +853,33 @@ def save_settings():
         logger.error(f"Failed to save settings: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/register-webhook', methods=['POST'])
+@token_required
+async def register_webhook(user_id):
+    """Register a webhook URL for the user to receive deal alerts."""
+    data = request.json
+    webhook_url = data.get('webhook_url')
+
+    if not webhook_url:
+        return jsonify({"error": "Webhook URL is required"}), 400
+
+    if not re.match(r'^https?://', webhook_url):
+        return jsonify({"error": "Invalid webhook URL format"}), 400
+
+    cursor.execute("INSERT OR REPLACE INTO webhooks (user_id, webhook_url) VALUES (?, ?)",
+                   (user_id, webhook_url))
+    conn.commit()
+
+    log_user_activity(user_id, "register_webhook", {"webhook_url": webhook_url})
+    return jsonify({"status": "Webhook registered successfully"})
+
 # Natural language query route
 @app.route('/ask', methods=['POST'])
 @token_required
-async def ask():
+async def ask(user_id):
     """Handle natural language queries for CRE tasks."""
     data = request.json
     message = data.get('message', '').lower()
-    user_id = "default"
 
     cursor.execute("SELECT points, email_credits, has_msa FROM user_points WHERE user_id = ?", (user_id,))
     user_data = cursor.fetchone()
@@ -1083,10 +1247,9 @@ async def ask():
             if response.status_code == 200:
                 points, email_credits, has_msa, points_message = award_points(user_id, 10, "bringing in data")
                 update_onboarding(user_id, "sync_crm_data")
-                # Save contacts to the database for duplicates dashboard
                 for contact in contacts:
-                    cursor.execute("INSERT OR IGNORE INTO contacts (id, name, email) VALUES (?, ?, ?)",
-                                   (contact["Email"], contact["Full Name"], contact["Email"]))
+                    cursor.execute("INSERT OR IGNORE INTO contacts (id, name, email, user_id) VALUES (?, ?, ?, ?)",
+                                   (contact["Email"], contact["Full Name"], contact["Email"], user_id))
                 conn.commit()
                 answer = f"Synced {len(contacts)} contacts into RealNex. 📇 {points_message}"
                 log_user_activity(user_id, "sync_crm_data", {"num_contacts": len(contacts)})
@@ -1119,40 +1282,79 @@ async def ask():
 
         X = []
         y = []
+        prediction = 0
         if deal_type == "LeaseComp":
             for item in historical_data:
                 X.append([item.get("sq_ft", 0)])
                 y.append(item.get("rent_month", 0))
             model = LinearRegression()
             model.fit(X, y)
-            predicted_rent = model.predict([[sq_ft]])[0]
-            answer = f"Predicted rent for {sq_ft} sq ft: ${predicted_rent:.2f}/month. 🔮"
+            prediction = model.predict([[sq_ft]])[0]
+            answer = f"Predicted rent for {sq_ft} sq ft: ${prediction:.2f}/month. 🔮"
             chart_output = generate_deal_trend_chart(user_id, historical_data, deal_type)
             chart_base64 = base64.b64encode(chart_output.read()).decode('utf-8')
             answer += f"\nTrend chart: data:image/png;base64,{chart_base64}"
-            # Save prediction to deals table for deal trends dashboard
-            cursor.execute("INSERT OR IGNORE INTO deals (id, amount, close_date) VALUES (?, ?, ?)",
-                           (f"deal_{datetime.now().isoformat()}", predicted_rent, datetime.now().strftime('%Y-%m-%d')))
+            cursor.execute("INSERT OR IGNORE INTO deals (id, amount, close_date, user_id) VALUES (?, ?, ?, ?)",
+                           (f"deal_{datetime.now().isoformat()}", prediction, datetime.now().strftime('%Y-%m-%d'), user_id))
             conn.commit()
-            log_user_activity(user_id, "predict_deal", {"deal_type": deal_type, "sq_ft": sq_ft, "prediction": predicted_rent})
-            return jsonify({"answer": answer, "tts": f"Predicted rent for {sq_ft} square feet: ${predicted_rent:.2f} per month."})
+            log_user_activity(user_id, "predict_deal", {"deal_type": deal_type, "sq_ft": sq_ft, "prediction": prediction})
+            tts = f"Predicted rent for {sq_ft} square feet: ${prediction:.2f} per month."
         elif deal_type == "SaleComp":
             for item in historical_data:
                 X.append([item.get("sq_ft", 0)])
                 y.append(item.get("sale_price", 0))
             model = LinearRegression()
             model.fit(X, y)
-            predicted_price = model.predict([[sq_ft]])[0]
-            answer = f"Predicted sale price for {sq_ft} sq ft: ${predicted_price:.2f}. 🔮"
+            prediction = model.predict([[sq_ft]])[0]
+            answer = f"Predicted sale price for {sq_ft} sq ft: ${prediction:.2f}. 🔮"
             chart_output = generate_deal_trend_chart(user_id, historical_data, deal_type)
             chart_base64 = base64.b64encode(chart_output.read()).decode('utf-8')
             answer += f"\nTrend chart: data:image/png;base64,{chart_base64}"
-            # Save prediction to deals table for deal trends dashboard
-            cursor.execute("INSERT OR IGNORE INTO deals (id, amount, close_date) VALUES (?, ?, ?)",
-                           (f"deal_{datetime.now().isoformat()}", predicted_price, datetime.now().strftime('%Y-%m-%d')))
+            cursor.execute("INSERT OR IGNORE INTO deals (id, amount, close_date, user_id) VALUES (?, ?, ?, ?)",
+                           (f"deal_{datetime.now().isoformat()}", prediction, datetime.now().strftime('%Y-%m-%d'), user_id))
             conn.commit()
-            log_user_activity(user_id, "predict_deal", {"deal_type": deal_type, "sq_ft": sq_ft, "prediction": predicted_price})
-            return jsonify({"answer": answer, "tts": f"Predicted sale price for {sq_ft} square feet: ${predicted_price:.2f}."})
+            log_user_activity(user_id, "predict_deal", {"deal_type": deal_type, "sq_ft": sq_ft, "prediction": prediction})
+            tts = f"Predicted sale price for {sq_ft} square feet: ${prediction:.2f}."
+
+        cursor.execute("SELECT threshold, deal_type FROM deal_alerts WHERE user_id = ?", (user_id,))
+        alert = cursor.fetchone()
+        if alert:
+            threshold, alert_deal_type = alert
+            if (alert_deal_type == "Any" or alert_deal_type == deal_type) and prediction > threshold:
+                cursor.execute("SELECT webhook_url FROM webhooks WHERE user_id = ?", (user_id,))
+                webhook = cursor.fetchone()
+                if webhook:
+                    webhook_url = webhook[0]
+                    alert_data = {
+                        "user_id": user_id,
+                        "deal_type": deal_type,
+                        "prediction": prediction,
+                        "threshold": threshold,
+                        "message": f"New {deal_type} deal predicted: ${prediction:.2f} exceeds your threshold of ${threshold}."
+                    }
+                    async with httpx.AsyncClient() as client:
+                        try:
+                            await client.post(webhook_url, json=alert_data)
+                            log_user_activity(user_id, "trigger_webhook", {"webhook_url": webhook_url, "data": alert_data})
+                        except Exception as e:
+                            logger.error(f"Failed to trigger webhook: {str(e)}")
+                if settings["sms_notifications"] and twilio_client:
+                    twilio_client.messages.create(
+                        body=f"New {deal_type} deal predicted: ${prediction:.2f} exceeds your threshold of ${threshold}.",
+                        from_=TWILIO_PHONE,
+                        to="+1234567890"  # Replace with user phone from users table
+                    )
+                if settings["email_notifications"]:
+                    msg = MIMEText(f"New {deal_type} deal predicted: ${prediction:.2f} exceeds your threshold of ${threshold}.")
+                    msg['Subject'] = "Deal Alert Notification"
+                    msg['From'] = SMTP_USER
+                    msg['To'] = "user@example.com"  # Replace with user email from users table
+                    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+                        server.starttls()
+                        server.login(SMTP_USER, SMTP_PASSWORD)
+                        server.sendmail(SMTP_USER, "user@example.com", msg.as_string())
+
+        return jsonify({"answer": answer, "tts": tts})
 
     elif 'negotiate deal' in message:
         deal_type = "LeaseComp" if "leasecomp" in message else "SaleComp" if "salecomp" in message else None
@@ -1302,90 +1504,4 @@ async def ask():
                 headers={"Authorization": f"Bearer {google_token}"}
             )
         if response.status_code != 200:
-            answer = f"Failed to fetch Google contacts: {response.text}. Check your Google token."
-            return jsonify({"answer": answer, "tts": answer})
-
-        google_contacts = response.json().get("connections", [])
-        contacts = []
-        seen_hashes = set()
-        for contact in google_contacts:
-            formatted_contact = {
-                "Full Name": contact.get("names", [{}])[0].get("displayName", ""),
-                "First Name": contact.get("names", [{}])[0].get("givenName", ""),
-                "Last Name": contact.get("names", [{}])[0].get("familyName", ""),
-                "Company": contact.get("organizations", [{}])[0].get("name", ""),
-                "Address1": contact.get("addresses", [{}])[0].get("streetAddress", ""),
-                "City": contact.get("addresses", [{}])[0].get("city", ""),
-                "State": contact.get("addresses", [{}])[0].get("region", ""),
-                "Postal Code": contact.get("addresses", [{}])[0].get("postalCode", ""),
-                "Work Phone": contact.get("phoneNumbers", [{}])[0].get("value", ""),
-                "Email": contact.get("emailAddresses", [{}])[0].get("value", "")
-            }
-            contact_hash = hash_contact(formatted_contact)
-            if contact_hash in seen_hashes:
-                log_duplicate(user_id, formatted_contact)
-                continue
-            seen_hashes.add(contact_hash)
-            contacts.append(formatted_contact)
-
-        if contacts:
-            df = pd.DataFrame(contacts)
-            csv_buffer = io.StringIO()
-            df.to_csv(csv_buffer, index=False)
-            csv_data = csv_buffer.getvalue()
-
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{REALNEX_API_BASE}/ImportData",
-                    headers={'Authorization': f'Bearer {token}', 'Content-Type': 'text/csv'},
-                    data=csv_data
-                )
-
-            if response.status_code == 200:
-                points, email_credits, has_msa, points_message = award_points(user_id, 10, "syncing Google contacts")
-                answer = f"Synced {len(contacts)} Google contacts into RealNex. 📇 {points_message}"
-                log_user_activity(user_id, "sync_contacts", {"source": "Google", "num_contacts": len(contacts)})
-                return jsonify({"answer": answer, "tts": answer})
-            answer = f"Failed to import Google contacts into RealNex: {response.text}"
-            return jsonify({"answer": answer, "tts": answer})
-        answer = "No Google contacts to sync."
-        return jsonify({"answer": answer, "tts": answer})
-
-    elif 'my status' in message:
-        answer = (
-            f"Here’s your status, champ:\n"
-            f"Points: {points}\n"
-            f"Email Credits: {email_credits}\n"
-            f"Free RealBlast MSA: {'Yes' if has_msa else 'No'}\n"
-            f"Onboarding Steps Completed: {', '.join(completed_steps) if completed_steps else 'None'}\n"
-            f"Keep rocking it! 🏆"
-        )
-        log_user_activity(user_id, "check_status", {"points": points, "email_credits": email_credits, "has_msa": has_msa})
-        return jsonify({"answer": answer, "tts": answer})
-
-    elif 'generate market report' in message:
-        if not openai_client:
-            return jsonify({"error": "OpenAI client not initialized. Check server logs for details."}), 500
-        try:
-            response = openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": "You are a commercial real estate market analyst."},
-                    {"role": "user", "content": "Generate a brief market report for commercial real estate in the current market."}
-                ]
-            )
-            report = response.choices[0].message.content
-            answer = f"Market Report:\n{report}\n📊 Would you like to save this as a PDF?"
-            log_user_activity(user_id, "generate_market_report", {"report_length": len(report)})
-            return jsonify({"answer": answer, "tts": f"Market report generated. Would you like to save this as a PDF?"})
-        except Exception as e:
-            answer = f"Failed to generate market report: {str(e)}. Try again."
-            return jsonify({"answer": answer, "tts": answer})
-
-    else:
-        answer = "I’m not sure how to help with that. Try something like 'sync crm data', 'predict deal for LeaseComp with 5000 sq ft', or 'draft an email'. What else can I do for you? 🤔"
-        return jsonify({"answer": answer, "tts": answer})
-
-# Start the app
-if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=int(os.getenv('PORT', 8000)))
+            answer = f
