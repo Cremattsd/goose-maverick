@@ -18,16 +18,17 @@ import redis
 import jwt
 from flask import Flask, request, jsonify, render_template, send_file
 from flask_socketio import SocketIO
+from flask_cors import CORS
 import httpx
 import openai
 from twilio.rest import Client as TwilioClient
 from mailchimp_marketing import Client as MailchimpClient
 from dotenv import load_dotenv
-from goose_parser_tools import extract_text_from_pdf, extract_text_from_image
 from fpdf import FPDF
 from PIL import Image
 import matplotlib.pyplot as plt
 import seaborn as sns
+import pytesseract
 from io import BytesIO
 
 # Configure logging for better debugging
@@ -47,6 +48,7 @@ load_dotenv()
 # Flask app setup
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key')
+CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Redis setup for caching
@@ -62,7 +64,7 @@ except redis.ConnectionError as e:
 conn = sqlite3.connect('chatbot.db', check_same_thread=False)
 cursor = conn.cursor()
 
-# Create tables for user data, settings, tokens, onboarding, alerts, 2FA, and duplicates
+# Create tables for user data, settings, tokens, onboarding, alerts, 2FA, duplicates, and more
 cursor.execute('''CREATE TABLE IF NOT EXISTS user_points
                   (user_id TEXT PRIMARY KEY, points INTEGER, email_credits INTEGER, has_msa INTEGER)''')
 cursor.execute('''CREATE TABLE IF NOT EXISTS user_settings
@@ -88,6 +90,20 @@ cursor.execute('''CREATE TABLE IF NOT EXISTS email_templates
 cursor.execute('''CREATE TABLE IF NOT EXISTS scheduled_tasks
                   (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, task_type TEXT, 
                    task_data TEXT, schedule_time TIMESTAMP, status TEXT)''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS chat_messages
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  user_id TEXT,
+                  sender TEXT,
+                  message TEXT,
+                  timestamp TEXT)''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS contacts
+                 (id TEXT PRIMARY KEY,
+                  name TEXT,
+                  email TEXT)''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS deals
+                 (id TEXT PRIMARY KEY,
+                  amount INTEGER,
+                  close_date TEXT)''')
 conn.commit()
 
 # Environment variables
@@ -118,6 +134,22 @@ except Exception as e:
     twilio_client = None
 
 mailchimp = None
+
+# JWT Token Required Decorator
+def token_required(f):
+    def decorated(*args, **kwargs):
+        token = request.headers.get('Authorization', '').replace('Bearer ', '')
+        if not token:
+            return jsonify({"error": "Token is missing"}), 401
+        try:
+            jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+        except jwt.ExpiredSignatureError:
+            return jsonify({"error": "Token has expired"}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({"error": "Invalid token"}), 401
+        return f(*args, **kwargs)
+    decorated.__name__ = f.__name__
+    return decorated
 
 # Helper functions
 def log_user_activity(user_id, action, details):
@@ -313,36 +345,73 @@ def health():
 
 @app.route('/', methods=['GET'])
 def index():
-    """Serve the main frontend page."""
+    """Serve the main dashboard page."""
+    logger.info("Main dashboard page accessed.")
+    return render_template('main_dashboard.html')
+
+@app.route('/chat-hub', methods=['GET'])
+def chat_hub():
+    """Serve the chat hub page."""
+    logger.info("Chat hub page accessed.")
     return render_template('index.html')
 
 @app.route('/dashboard', methods=['GET'])
 def dashboard():
-    """Serve the dashboard page for visualizing duplicates and stats."""
-    return render_template('dashboard.html')
+    """Serve the duplicates dashboard page."""
+    logger.info("Duplicates dashboard page accessed.")
+    return render_template('duplicates_dashboard.html')
 
-@app.route('/settings', methods=['GET', 'POST'])
-def settings():
-    """Manage user settings via a web interface."""
-    user_id = "default"  # Replace with actual user authentication
-    if request.method == 'POST':
-        data = request.json
-        language = data.get('language', 'en')
-        subject_generator_enabled = int(data.get('subject_generator_enabled', True))
-        deal_alerts_enabled = int(data.get('deal_alerts_enabled', True))
-        email_notifications = int(data.get('email_notifications', True))
-        sms_notifications = int(data.get('sms_notifications', True))
-        
-        cursor.execute("INSERT OR REPLACE INTO user_settings (user_id, language, subject_generator_enabled, deal_alerts_enabled, email_notifications, sms_notifications) VALUES (?, ?, ?, ?, ?, ?)",
-                       (user_id, language, subject_generator_enabled, deal_alerts_enabled, email_notifications, sms_notifications))
-        conn.commit()
-        log_user_activity(user_id, "update_settings", data)
-        return jsonify({"status": "Settings updated successfully"})
-    
-    settings = get_user_settings(user_id)
-    return jsonify(settings)
+@app.route('/activity', methods=['GET'])
+def activity():
+    """Serve the activity log dashboard page."""
+    logger.info("Activity log page accessed.")
+    return render_template('activity.html')
+
+@app.route('/deal-trends', methods=['GET'])
+def deal_trends():
+    """Serve the deal trends dashboard page."""
+    logger.info("Deal trends page accessed.")
+    return render_template('deal_trends.html')
+
+@app.route('/field-map', methods=['GET'])
+def field_map():
+    """Serve the field mapping editor page."""
+    logger.info("Field mapping editor page accessed.")
+    return render_template('field_map.html')
+
+@app.route('/ocr', methods=['GET'])
+def ocr_page():
+    """Serve the OCR scanner page."""
+    logger.info("OCR scanner page accessed.")
+    return render_template('ocr.html')
+
+@app.route('/settings', methods=['GET'])
+def settings_page():
+    """Serve the settings page."""
+    logger.info("Settings page accessed.")
+    return render_template('settings.html')
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Handle user login and issue JWT token."""
+    if request.method == 'GET':
+        return render_template('login.html')
+
+    data = request.json
+    username = data.get('username')
+    password = data.get('password')
+
+    # For demo, use a hardcoded user (replace with database lookup in production)
+    if username == 'admin' and password == 'password123':
+        token = jwt.encode({
+            'user': username,
+            'exp': datetime.utcnow() + timedelta(hours=24)
+        }, app.config['SECRET_KEY'], algorithm='HS256')
+        return jsonify({"token": token})
+    return jsonify({"error": "Invalid credentials"}), 401
 
 @app.route('/save_token', methods=['POST'])
+@token_required
 def save_token():
     """Save an API token for a user and service."""
     data = request.json
@@ -362,6 +431,7 @@ def save_token():
     return jsonify({"status": f"Token for {service} saved successfully"})
 
 @app.route('/duplicates', methods=['GET'])
+@token_required
 def get_duplicates():
     """Retrieve duplicate contacts for the user."""
     user_id = "default"
@@ -377,6 +447,7 @@ def get_duplicates():
     return jsonify({"duplicates": result})
 
 @app.route('/activity_log', methods=['GET'])
+@token_required
 def get_activity_log():
     """Retrieve the user's activity log."""
     user_id = "default"
@@ -386,6 +457,7 @@ def get_activity_log():
     return jsonify({"activity_log": result})
 
 @app.route('/save_email_template', methods=['POST'])
+@token_required
 def save_email_template():
     """Save a custom email template for the user."""
     data = request.json
@@ -404,6 +476,7 @@ def save_email_template():
     return jsonify({"status": "Email template saved successfully"})
 
 @app.route('/get_email_templates', methods=['GET'])
+@token_required
 def get_email_templates():
     """Retrieve all email templates for the user."""
     user_id = "default"
@@ -413,6 +486,7 @@ def get_email_templates():
     return jsonify({"templates": result})
 
 @app.route('/schedule_task', methods=['POST'])
+@token_required
 def schedule_task():
     """Schedule a task like sending a RealBlast or generating a report."""
     data = request.json
@@ -431,6 +505,7 @@ def schedule_task():
     return jsonify({"status": "Task scheduled successfully"})
 
 @app.route('/generate_report', methods=['POST'])
+@token_required
 def generate_report():
     """Generate a PDF report based on user data."""
     data = request.json
@@ -455,8 +530,187 @@ def generate_report():
         mimetype='application/pdf'
     )
 
+# Chat Hub Endpoints
+@app.route('/save-message', methods=['POST'])
+@token_required
+def save_message():
+    """Save a chat message to the database."""
+    data = request.json
+    user_id = "default"  # Replace with actual user ID from JWT
+    sender = data.get('sender')
+    message = data.get('message')
+    timestamp = datetime.now().isoformat()
+    
+    cursor.execute("INSERT INTO chat_messages (user_id, sender, message, timestamp) VALUES (?, ?, ?, ?)",
+                   (user_id, sender, message, timestamp))
+    conn.commit()
+    return jsonify({"status": "Message saved"})
+
+@app.route('/get-messages', methods=['GET'])
+@token_required
+def get_messages():
+    """Retrieve chat messages for the user."""
+    user_id = "default"  # Replace with actual user ID from JWT
+    cursor.execute("SELECT sender, message, timestamp FROM chat_messages WHERE user_id = ? ORDER BY timestamp",
+                   (user_id,))
+    messages = cursor.fetchall()
+    result = [{"sender": msg[0], "message": msg[1], "timestamp": msg[2]} for msg in messages]
+    return jsonify({"messages": result})
+
+# Main Dashboard Endpoints
+@app.route('/dashboard-data', methods=['GET'])
+@token_required
+def dashboard_data():
+    """Fetch data for the main dashboard (lead scores)."""
+    # Placeholder data (replace with real lead scoring logic)
+    lead_scores = [
+        {"contact_id": "contact1", "score": 85},
+        {"contact_id": "contact2", "score": 92}
+    ]
+    return jsonify({"lead_scores": lead_scores})
+
+@app.route('/import-stats', methods=['GET'])
+@token_required
+def import_stats():
+    """Fetch import statistics."""
+    # Placeholder data (replace with real stats)
+    stats = {
+        "total_imports": 150,
+        "successful_imports": 140,
+        "duplicates_detected": 10
+    }
+    return jsonify(stats)
+
+@app.route('/mission-summary', methods=['GET'])
+@token_required
+def mission_summary():
+    """Fetch a mission summary."""
+    # Placeholder summary (replace with real logic)
+    summary = "Mission Summary: Synced 150 contacts, detected 10 duplicates, predicted 2 deals."
+    return jsonify({"summary": summary})
+
+# Duplicates Dashboard Endpoint
+@app.route('/duplicates-data', methods=['GET'])
+@token_required
+def duplicates_data():
+    """Fetch duplicate contacts based on fuzzy matching from contacts table."""
+    cursor.execute("SELECT id, name, email FROM contacts")
+    contacts = cursor.fetchall()
+    duplicates = []
+    
+    for i, contact in enumerate(contacts):
+        for j, other in enumerate(contacts[i+1:], start=i+1):
+            name_similarity = fuzz.token_sort_ratio(contact[1], other[1])
+            email_similarity = fuzz.token_sort_ratio(contact[2], other[2])
+            if name_similarity > 85 or email_similarity > 90:
+                duplicates.append({
+                    "contact1": {"id": contact[0], "name": contact[1], "email": contact[2]},
+                    "contact2": {"id": other[0], "name": other[1], "email": other[2]},
+                    "name_similarity": name_similarity,
+                    "email_similarity": email_similarity
+                })
+    
+    return jsonify({"duplicates": duplicates})
+
+# Deal Trends Endpoint
+@app.route('/deal-trends-data', methods=['GET'])
+@token_required
+def deal_trends_data():
+    """Fetch and predict deal trends."""
+    cursor.execute("SELECT amount, close_date FROM deals ORDER BY close_date")
+    deals = cursor.fetchall()
+    
+    if not deals:
+        return jsonify({"trends": [], "predictions": []})
+    
+    dates = [datetime.strptime(deal[1], '%Y-%m-%d').timestamp() for deal in deals]
+    amounts = [deal[0] for deal in deals]
+    
+    X = np.array(dates).reshape(-1, 1)
+    y = np.array(amounts)
+    
+    model = LinearRegression()
+    model.fit(X, y)
+    
+    last_date = dates[-1]
+    future_dates = [last_date + i * 30 * 24 * 60 * 60 for i in range(1, 4)]
+    future_X = np.array(future_dates).reshape(-1, 1)
+    predictions = model.predict(future_X).tolist()
+    
+    trends = [{"date": deal[1], "amount": deal[0]} for deal in deals]
+    future_predictions = [{"date": datetime.fromtimestamp(fd).strftime('%Y-%m-%d'), "amount": int(pred)} for fd, pred in zip(future_dates, predictions)]
+    
+    return jsonify({"trends": trends, "predictions": future_predictions})
+
+# Field Mapping Endpoints
+@app.route('/field-map/saved/<name>', methods=['GET'])
+@token_required
+def load_field_mapping(name):
+    """Load a saved field mapping."""
+    mappings = {"contacts": {"Full Name": "name", "Email": "email"}}
+    return jsonify(mappings.get(name, {"contacts": {}}))
+
+@app.route('/field-map/save/<name>', methods=['POST'])
+@token_required
+def save_field_mapping(name):
+    """Save a field mapping."""
+    data = request.json
+    contacts = data.get('contacts', {})
+    logger.info(f"Saved mapping: {name} - {contacts}")
+    return jsonify({"status": "Mapping saved"})
+
+# OCR Endpoint
+@app.route('/process-ocr', methods=['POST'])
+@token_required
+def process_ocr():
+    """Process an image with OCR and return extracted text."""
+    user_id = "default"
+    if 'image' not in request.files:
+        return jsonify({"error": "No image uploaded"}), 400
+
+    image = request.files['image']
+    try:
+        img = Image.open(image)
+        text = pytesseract.image_to_string(img)
+        details = {"filename": image.filename, "extracted_text": text}
+        timestamp = datetime.now().isoformat()
+        cursor.execute("INSERT INTO user_activity_log (user_id, action, details, timestamp) VALUES (?, ?, ?, ?)",
+                       (user_id, "process_ocr", json.dumps(details), timestamp))
+        conn.commit()
+        return jsonify({"text": text})
+    except Exception as e:
+        logger.error(f"OCR processing failed: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+# Settings Endpoints (Updated to match your existing /settings route)
+@app.route('/settings-data', methods=['GET'])
+@token_required
+def get_settings():
+    """Fetch current settings."""
+    try:
+        with open('settings.json', 'r') as f:
+            settings = json.load(f)
+        return jsonify(settings)
+    except Exception as e:
+        logger.error(f"Failed to load settings: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/save-settings', methods=['POST'])
+@token_required
+def save_settings():
+    """Save updated settings."""
+    try:
+        settings = request.json
+        with open('settings.json', 'w') as f:
+            json.dump(settings, f, indent=4)
+        return jsonify({"status": "Settings saved"})
+    except Exception as e:
+        logger.error(f"Failed to save settings: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
 # Natural language query route
 @app.route('/ask', methods=['POST'])
+@token_required
 async def ask():
     """Handle natural language queries for CRE tasks."""
     data = request.json
@@ -829,6 +1083,11 @@ async def ask():
             if response.status_code == 200:
                 points, email_credits, has_msa, points_message = award_points(user_id, 10, "bringing in data")
                 update_onboarding(user_id, "sync_crm_data")
+                # Save contacts to the database for duplicates dashboard
+                for contact in contacts:
+                    cursor.execute("INSERT OR IGNORE INTO contacts (id, name, email) VALUES (?, ?, ?)",
+                                   (contact["Email"], contact["Full Name"], contact["Email"]))
+                conn.commit()
                 answer = f"Synced {len(contacts)} contacts into RealNex. 📇 {points_message}"
                 log_user_activity(user_id, "sync_crm_data", {"num_contacts": len(contacts)})
                 return jsonify({"answer": answer, "tts": answer})
@@ -871,6 +1130,10 @@ async def ask():
             chart_output = generate_deal_trend_chart(user_id, historical_data, deal_type)
             chart_base64 = base64.b64encode(chart_output.read()).decode('utf-8')
             answer += f"\nTrend chart: data:image/png;base64,{chart_base64}"
+            # Save prediction to deals table for deal trends dashboard
+            cursor.execute("INSERT OR IGNORE INTO deals (id, amount, close_date) VALUES (?, ?, ?)",
+                           (f"deal_{datetime.now().isoformat()}", predicted_rent, datetime.now().strftime('%Y-%m-%d')))
+            conn.commit()
             log_user_activity(user_id, "predict_deal", {"deal_type": deal_type, "sq_ft": sq_ft, "prediction": predicted_rent})
             return jsonify({"answer": answer, "tts": f"Predicted rent for {sq_ft} square feet: ${predicted_rent:.2f} per month."})
         elif deal_type == "SaleComp":
@@ -884,6 +1147,10 @@ async def ask():
             chart_output = generate_deal_trend_chart(user_id, historical_data, deal_type)
             chart_base64 = base64.b64encode(chart_output.read()).decode('utf-8')
             answer += f"\nTrend chart: data:image/png;base64,{chart_base64}"
+            # Save prediction to deals table for deal trends dashboard
+            cursor.execute("INSERT OR IGNORE INTO deals (id, amount, close_date) VALUES (?, ?, ?)",
+                           (f"deal_{datetime.now().isoformat()}", predicted_price, datetime.now().strftime('%Y-%m-%d')))
+            conn.commit()
             log_user_activity(user_id, "predict_deal", {"deal_type": deal_type, "sq_ft": sq_ft, "prediction": predicted_price})
             return jsonify({"answer": answer, "tts": f"Predicted sale price for {sq_ft} square feet: ${predicted_price:.2f}."})
 
@@ -1121,4 +1388,4 @@ async def ask():
 
 # Start the app
 if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=int(os.getenv('PORT', 10000)))
+    socketio.run(app, host='0.0.0.0', port=int(os.getenv('PORT', 8000)))
