@@ -57,10 +57,13 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 # Redis setup for caching
 try:
     redis_client = redis.Redis(
-        host='redis-12345.us-east-1-2.ec2.cloud.redislabs.com',  # Replace with your Redis host
-        port=12345,  # Replace with your Redis port
-        password='your-redis-password',  # Replace with your Redis password
-        decode_responses=True
+        host='redis-11362.c265.us-east-1-2.ec2.redns.redis-cloud.com',
+        port=11362,
+        username='default',  # Replace with your Redis username (usually 'default')
+        password='5HtLYVThAxgVqBypw3WEXJVhiosOu53x',  # Replace with your Redis password
+        decode_responses=True,
+        ssl=True,
+        ssl_ca_certs='certs/redis_ca.pem'  # Update path if different
     )
     redis_client.ping()
     logger.info("Redis connection established successfully.")
@@ -1504,4 +1507,4 @@ async def ask(user_id):
                 headers={"Authorization": f"Bearer {google_token}"}
             )
         if response.status_code != 200:
-            answer = f
+            answer = f"Failed to fetch Google contacts: {response.text}. Check your Google token
