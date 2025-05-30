@@ -59,11 +59,11 @@ try:
     redis_client = redis.Redis(
         host='redis-11362.c265.us-east-1-2.ec2.redns.redis-cloud.com',
         port=11362,
-        username='default',  # Replace with your Redis username (usually 'default')
-        password='5HtLYVThAxgVqBypw3WEXJVhiosOu53x',  # Replace with your Redis password
+        username=os.getenv('REDIS_USERNAME', 'default'),
+        password=os.getenv('REDIS_PASSWORD', ''),
         decode_responses=True,
         ssl=True,
-        ssl_ca_certs='certs/redis_ca.pem'  # Update path if different
+        ssl_ca_certs='certs/redis_ca.pem'
     )
     redis_client.ping()
     logger.info("Redis connection established successfully.")
