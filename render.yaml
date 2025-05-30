@@ -3,10 +3,42 @@ services:
     name: realnex-chatbot
     env: python
     plan: free
-    buildCommand: bash install_tesseract.sh && pip install -r requirements.txt
-    startCommand: gunicorn -w 4 -k uvicorn.workers.UvicornWorker app:app
+    buildCommand: bash install_tesseract.sh && pip install -r requirements.txt && python -c "import matplotlib.pyplot"
+    startCommand: gunicorn -w 4 -k uvicorn.workers.UvicornWorker --timeout 60 app:app
     envVars:
       - key: XAI_API_KEY
         sync: false
       - key: PYTHON_VERSION
         value: 3.9
+      - key: REDIS_HOST
+        value: redis-11362.c265.us-east-1-2.ec2.redns.redis-cloud.com
+      - key: REDIS_PORT
+        value: 11362
+      - key: REDIS_USERNAME
+        sync: false  # You'll set this in the Render dashboard (likely 'default')
+      - key: REDIS_PASSWORD
+        sync: false  # You'll set this in the Render dashboard
+      - key: REDIS_CA_PATH
+        value: certs/redis_ca.pem
+      - key: OPENAI_API_KEY
+        sync: false  # You'll set this in the Render dashboard
+      - key: TWILIO_SID
+        sync: false  # You'll set this in the Render dashboard
+      - key: TWILIO_AUTH_TOKEN
+        sync: false  # You'll set this in the Render dashboard
+      - key: TWILIO_PHONE
+        sync: false  # You'll set this in the Render dashboard
+      - key: SMTP_SERVER
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: 587
+      - key: SMTP_USER
+        sync: false  # You'll set this in the Render dashboard
+      - key: SMTP_PASSWORD
+        sync: false  # You'll set this in the Render dashboard
+      - key: REALNEX_API_BASE
+        value: https://sync.realnex.com/api/v1
+      - key: MAILCHIMP_SERVER_PREFIX
+        value: us1
+      - key: GOOGLE_API_KEY
+        sync: false  # You'll set this in the Render dashboard
