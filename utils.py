@@ -1,22 +1,10 @@
 import os
 import json
-import re
-import smtplib
 import logging
-import base64
 import hashlib
-from email.mime.text import MIMEText
-from datetime import datetime, timedelta
-import pandas as pd
-import numpy as np
-from sklearn.linear_model import LinearRegression
 import redis
-import jwt
 import httpx
-from twilio.rest import Client as TwilioClient
-from fpdf import FPDF
-import matplotlib
-matplotlib.use('Agg')
+from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 import seaborn as sns
 from io import BytesIO
@@ -72,14 +60,6 @@ def init_redis():
         logger.error(f"Redis connection failed: {e}. Ensure Redis is running.")
         redis_client = None
         return None
-
-# Initialize Twilio client
-try:
-    twilio_client = TwilioClient(TWILIO_SID, TWILIO_AUTH_TOKEN)
-    logger.info("Twilio client initialized successfully.")
-except Exception as e:
-    logger.error(f"Twilio client initialization failed: {e}")
-    twilio_client = None
 
 def log_user_activity(user_id, action, details, cursor, conn):
     """Log user activity for auditing and analytics."""
@@ -177,7 +157,7 @@ async def get_realnex_data(user_id, endpoint, cursor):
             logger.error(f"RealNex API request failed: {e}")
             return None
 
-def send_2fa_code(user_id, cursor, conn):
+def send_2fa_code(user_id, twilio_client, cursor, conn):
     """Send a 2FA code to the user via SMS."""
     if not twilio_client:
         logger.error("Twilio client not initialized.")
@@ -230,22 +210,6 @@ def log_duplicate(user_id, contact, cursor, conn):
                    (user_id, contact_hash, json.dumps(contact), timestamp))
     conn.commit()
     log_user_activity(user_id, "log_duplicate", {"contact_hash": contact_hash}, cursor, conn)
-
-def generate_pdf_report(user_id, data, report_title, cursor, conn):
-    """Generate a PDF report from given data."""
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    pdf.cell(200, 10, txt=report_title, ln=True, align='C')
-    pdf.ln(10)
-
-    for key, value in data.items():
-        pdf.cell(200, 10, txt=f"{key}: {value}", ln=True)
-    
-    pdf_output = BytesIO()
-    pdf.output(pdf_output, 'F')
-    pdf_output.seek(0)
-    return pdf_output
 
 def generate_deal_trend_chart(user_id, historical_data, deal_type, cursor, conn):
     """Generate a trend chart for deal predictions."""
