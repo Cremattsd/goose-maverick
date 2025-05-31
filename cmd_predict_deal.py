@@ -1,169 +1,111 @@
 from flask import jsonify
-import httpx
-import pandas as pd
-from io import StringIO
+import re
+from datetime import datetime
+import base64
+from email.mime.text import MIMEText
+import smtplib
+from sklearn.linear_model import LinearRegression
 
-from config import REALNEX_API_BASE
+from config import *
 from database import conn, cursor
 from utils import *
 
-def handle_sync_data(message, user_id, data):
-    if 'sync crm data' in message:
-        token = get_token(user_id, "realnex", cursor)
-        if not token:
-            answer = "Please fetch your RealNex JWT token in Settings to sync CRM data. 🔑"
-            return jsonify({"answer": answer, "tts": answer})
+def handle_predict_deal(message, user_id, settings, twilio_client):
+    if 'predict deal' in message:
+        deal_type = "LeaseComp" if "leasecomp" in message else "SaleComp" if "salecomp" in message else None
+        sq_ft = None
+        if 'square footage' in message or 'sq ft' in message:
+            sq_ft = re.search(r'\d+', message)
+            sq_ft = int(sq_ft.group()) if sq_ft else None
 
-        zoominfo_token = get_token(user_id, "zoominfo", cursor)
-        apollo_token = get_token(user_id, "apollo", cursor)
-
-        zoominfo_contacts = []
-        if zoominfo_token:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    "https://api.zoominfo.com/v1/contacts",
-                    headers={"Authorization": f"Bearer {zoominfo_token}"}
-                )
-            if response.status_code == 200:
-                zoominfo_contacts = response.json().get("contacts", [])
-            else:
-                answer = f"Failed to fetch ZoomInfo contacts: {response.text}. Check your ZoomInfo token in Settings."
-                return jsonify({"answer": answer, "tts": answer})
-
-        apollo_contacts = []
-        if apollo_token:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    "https://api.apollo.io/v1/contacts",
-                    headers={"Authorization": f"Bearer {apollo_token}"}
-                )
-            if response.status_code == 200:
-                apollo_contacts = response.json().get("contacts", [])
-            else:
-                answer = f"Failed to fetch Apollo.io contacts: {response.text}. Check your Apollo.io token in Settings."
-                return jsonify({"answer": answer, "tts": answer})
-
-        contacts = []
-        seen_hashes = set()
-        for contact in zoominfo_contacts + apollo_contacts:
-            contact_hash = hash_contact(contact)
-            if contact_hash in seen_hashes:
-                log_duplicate(user_id, contact, cursor, conn)
-                continue
-            seen_hashes.add(contact_hash)
-            formatted_contact = {
-                "Full Name": contact.get("name", ""),
-                "First Name": contact.get("first_name", ""),
-                "Last Name": contact.get("last_name", ""),
-                "Company": contact.get("company", ""),
-                "Address1": contact.get("address", ""),
-                "City": contact.get("city", ""),
-                "State": contact.get("state", ""),
-                "Postal Code": contact.get("zip", ""),
-                "Work Phone": contact.get("phone", ""),
-                "Email": contact.get("email", "")
-            }
-            contacts.append(formatted_contact)
-
-        if contacts:
-            df = pd.DataFrame(contacts)
-            csv_buffer = StringIO()
-            df.to_csv(csv_buffer, index=False)
-            csv_data = csv_buffer.getvalue()
-
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{REALNEX_API_BASE}/ImportData",
-                    headers={'Authorization': f'Bearer {token}', 'Content-Type': 'text/csv'},
-                    data=csv_data
-                )
-
-            if response.status_code == 200:
-                points, email_credits, has_msa, points_message = award_points(user_id, 10, "bringing in data", cursor, conn)
-                update_onboarding(user_id, "sync_crm_data", cursor, conn)
-                for contact in contacts:
-                    cursor.execute("INSERT OR IGNORE INTO contacts (id, name, email, user_id) VALUES (?, ?, ?, ?)",
-                                   (contact["Email"], contact["Full Name"], contact["Email"], user_id))
-                conn.commit()
-                answer = f"Synced {len(contacts)} contacts into RealNex. 📇 {points_message}"
-                log_user_activity(user_id, "sync_crm_data", {"num_contacts": len(contacts)}, cursor, conn)
-                return jsonify({"answer": answer, "tts": answer})
-            answer = f"Failed to import contacts into RealNex: {response.text}"
-            return jsonify({"answer": answer, "tts": answer})
-        answer = "No contacts to sync."
-        return jsonify({"answer": answer, "tts": answer})
-
-    elif 'sync contacts' in message:
-        google_token = data.get('google_token')
-        if not google_token:
-            answer = "I need a Google token to sync contacts. Say something like 'sync contacts with google token your_token_here'. What’s your Google token?"
+        if not deal_type or not sq_ft:
+            answer = "To predict a deal, I need the deal type (LeaseComp or SaleComp) and square footage. Say something like 'predict deal for LeaseComp with 5000 sq ft'. What’s the deal type and square footage? 🔮"
             return jsonify({"answer": answer, "tts": answer})
 
         token = get_token(user_id, "realnex", cursor)
         if not token:
-            answer = "Please fetch your RealNex JWT token in Settings to sync contacts. 🔑"
+            answer = "Please fetch your RealNex JWT token in Settings to predict a deal. 🔑"
             return jsonify({"answer": answer, "tts": answer})
 
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.get(
-                    "https://people.googleapis.com/v1/people/me/connections",
-                    headers={"Authorization": f"Bearer {google_token}"},
-                    params={"personFields": "names,emailAddresses,phoneNumbers"}
-                )
-                if response.status_code != 200:
-                    answer = f"Failed to fetch Google contacts: {response.text}. Check your Google token in Settings."
-                    return jsonify({"answer": answer, "tts": answer})
-                google_contacts = response.json().get("connections", [])
-            except Exception as e:
-                answer = f"Error fetching Google contacts: {str(e)}. Check your Google token or try again."
-                return jsonify({"answer": answer, "tts": answer})
+        historical_data = await get_realnex_data(user_id, f"{deal_type}s", cursor)
+        if not historical_data:
+            answer = "No historical data available for prediction."
+            return jsonify({"answer": answer, "tts": answer})
 
-        contacts = []
-        seen_hashes = set()
-        for contact in google_contacts:
-            name = contact.get("names", [{}])[0].get("displayName", "Unknown")
-            email = contact.get("emailAddresses", [{}])[0].get("value", "")
-            phone = contact.get("phoneNumbers", [{}])[0].get("value", "")
+        X = []
+        y = []
+        prediction = 0
+        if deal_type == "LeaseComp":
+            for item in historical_data:
+                X.append([item.get("sq_ft", 0)])
+                y.append(item.get("rent_month", 0))
+            model = LinearRegression()
+            model.fit(X, y)
+            prediction = model.predict([[sq_ft]])[0]
+            answer = f"Predicted rent for {sq_ft} sq ft: ${prediction:.2f}/month. 🔮"
+            chart_output = generate_deal_trend_chart(user_id, historical_data, deal_type, cursor, conn)
+            chart_base64 = base64.b64encode(chart_output.read()).decode('utf-8')
+            answer += f"\nTrend chart: data:image/png;base64,{chart_base64}"
+            cursor.execute("INSERT OR IGNORE INTO deals (id, amount, close_date, user_id) VALUES (?, ?, ?, ?)",
+                           (f"deal_{datetime.now().isoformat()}", prediction, datetime.now().strftime('%Y-%m-%d'), user_id))
+            conn.commit()
+            log_user_activity(user_id, "predict_deal", {"deal_type": deal_type, "sq_ft": sq_ft, "prediction": prediction}, cursor, conn)
+            tts = f"Predicted rent for {sq_ft} square feet: ${prediction:.2f} per month."
+        elif deal_type == "SaleComp":
+            for item in historical_data:
+                X.append([item.get("sq_ft", 0)])
+                y.append(item.get("sale_price", 0))
+            model = LinearRegression()
+            model.fit(X, y)
+            prediction = model.predict([[sq_ft]])[0]
+            answer = f"Predicted sale price for {sq_ft} sq ft: ${prediction:.2f}. 🔮"
+            chart_output = generate_deal_trend_chart(user_id, historical_data, deal_type, cursor, conn)
+            chart_base64 = base64.b64encode(chart_output.read()).decode('utf-8')
+            answer += f"\nTrend chart: data:image/png;base64,{chart_base64}"
+            cursor.execute("INSERT OR IGNORE INTO deals (id, amount, close_date, user_id) VALUES (?, ?, ?, ?)",
+                           (f"deal_{datetime.now().isoformat()}", prediction, datetime.now().strftime('%Y-%m-%d'), user_id))
+            conn.commit()
+            log_user_activity(user_id, "predict_deal", {"deal_type": deal_type, "sq_ft": sq_ft, "prediction": prediction}, cursor, conn)
+            tts = f"Predicted sale price for {sq_ft} square feet: ${prediction:.2f}."
 
-            formatted_contact = {
-                "Full Name": name,
-                "Email": email,
-                "Work Phone": phone
-            }
-            contact_hash = hash_contact(formatted_contact)
-            if contact_hash in seen_hashes:
-                log_duplicate(user_id, formatted_contact, cursor, conn)
-                continue
-            seen_hashes.add(contact_hash)
-            contacts.append(formatted_contact)
+        cursor.execute("SELECT threshold, deal_type FROM deal_alerts WHERE user_id = ?", (user_id,))
+        alert = cursor.fetchone()
+        if alert:
+            threshold, alert_deal_type = alert
+            if (alert_deal_type == "Any" or alert_deal_type == deal_type) and prediction > threshold:
+                cursor.execute("SELECT webhook_url FROM webhooks WHERE user_id = ?", (user_id,))
+                webhook = cursor.fetchone()
+                if webhook:
+                    webhook_url = webhook[0]
+                    alert_data = {
+                        "user_id": user_id,
+                        "deal_type": deal_type,
+                        "prediction": prediction,
+                        "threshold": threshold,
+                        "message": f"New {deal_type} deal predicted: ${prediction:.2f} exceeds your threshold of ${threshold}."
+                    }
+                    async with httpx.AsyncClient() as client:
+                        try:
+                            await client.post(webhook_url, json=alert_data)
+                            log_user_activity(user_id, "trigger_webhook", {"webhook_url": webhook_url, "data": alert_data}, cursor, conn)
+                        except Exception as e:
+                            logger.error(f"Failed to trigger webhook: {str(e)}")
+                if settings["sms_notifications"] and twilio_client:
+                    twilio_client.messages.create(
+                        body=f"New {deal_type} deal predicted: ${prediction:.2f} exceeds your threshold of ${threshold}.",
+                        from_=TWILIO_PHONE,
+                        to="+1234567890"
+                    )
+                if settings["email_notifications"]:
+                    msg = MIMEText(f"New {deal_type} deal predicted: ${prediction:.2f} exceeds your threshold of ${threshold}.")
+                    msg['Subject'] = "Deal Alert Notification"
+                    msg['From'] = SMTP_USER
+                    msg['To'] = "user@example.com"
+                    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+                        server.starttls()
+                        server.login(SMTP_USER, SMTP_PASSWORD)
+                        server.sendmail(SMTP_USER, "user@example.com", msg.as_string())
 
-        if contacts:
-            df = pd.DataFrame(contacts)
-            csv_buffer = StringIO()
-            df.to_csv(csv_buffer, index=False)
-            csv_data = csv_buffer.getvalue()
-
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{REALNEX_API_BASE}/ImportData",
-                    headers={'Authorization': f'Bearer {token}', 'Content-Type': 'text/csv'},
-                    data=csv_data
-                )
-
-                if response.status_code == 200:
-                    points, email_credits, has_msa, points_message = award_points(user_id, 10, "syncing Google contacts", cursor, conn)
-                    update_onboarding(user_id, "sync_crm_data", cursor, conn)
-                    for contact in contacts:
-                        cursor.execute("INSERT OR IGNORE INTO contacts (id, name, email, user_id) VALUES (?, ?, ?, ?)",
-                                       (contact["Email"], contact["Full Name"], contact["Email"], user_id))
-                    conn.commit()
-                    answer = f"Synced {len(contacts)} Google contacts into RealNex. 📇 {points_message}"
-                    log_user_activity(user_id, "sync_google_contacts", {"num_contacts": len(contacts)}, cursor, conn)
-                    return jsonify({"answer": answer, "tts": answer})
-                answer = f"Failed to import Google contacts into RealNex: {response.text}"
-                return jsonify({"answer": answer, "tts": answer})
-        answer = "No Google contacts to sync."
-        return jsonify({"answer": answer, "tts": answer})
+        return jsonify({"answer": answer, "tts": tts})
 
     return None
