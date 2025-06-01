@@ -71,7 +71,7 @@ def log_user_activity(user_id, action, details, cursor, conn):
 
 def get_user_settings(user_id, cursor, conn):
     """Retrieve user settings from the database or return defaults."""
-    cursor.execute("SELECT language, subject_generator_enabled, deal_alerts_enabled, email_notifications, sms_notifications FROM user_settings WHERE user_id = ?", (user_id,))
+    cursor.execute("SELECT language, subject_generator_enabled, deal_alerts_enabled, email_notifications, sms_notifications, mailchimp_group_id, constant_contact_group_id FROM user_settings WHERE user_id = ?", (user_id,))
     result = cursor.fetchone()
     if result:
         return {
@@ -79,17 +79,21 @@ def get_user_settings(user_id, cursor, conn):
             "subject_generator_enabled": bool(result[1]),
             "deal_alerts_enabled": bool(result[2]),
             "email_notifications": bool(result[3]),
-            "sms_notifications": bool(result[4])
+            "sms_notifications": bool(result[4]),
+            "mailchimp_group_id": result[5],
+            "constant_contact_group_id": result[6]
         }
     default_settings = {
         "language": "en",
         "subject_generator_enabled": True,
         "deal_alerts_enabled": True,
         "email_notifications": True,
-        "sms_notifications": True
+        "sms_notifications": True,
+        "mailchimp_group_id": "",
+        "constant_contact_group_id": ""
     }
-    cursor.execute("INSERT INTO user_settings (user_id, language, subject_generator_enabled, deal_alerts_enabled, email_notifications, sms_notifications) VALUES (?, ?, ?, ?, ?, ?)",
-                   (user_id, default_settings["language"], 1, 1, 1, 1))
+    cursor.execute("INSERT INTO user_settings (user_id, language, subject_generator_enabled, deal_alerts_enabled, email_notifications, sms_notifications, mailchimp_group_id, constant_contact_group_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                   (user_id, default_settings["language"], 1, 1, 1, 1, "", ""))
     conn.commit()
     return default_settings
 
