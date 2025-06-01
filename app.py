@@ -951,4 +951,292 @@ def save_email_template(user_id):
                    (user_id, template_name, subject, body))
     conn.commit()
     logger.info(f"User {user_id} saved email template: {template_name}")
-    return jsonify({"status": "
+    return jsonify({"status": "Email template saved successfully"})
+
+@app.route('/get_email_templates', methods=['GET'])
+@token_required
+def get_email_templates(user_id):
+    cursor.execute("SELECT template_name, subject, body FROM email_templates WHERE user_id = ?", (user_id,))
+    templates = cursor.fetchall()
+    result = [{"template_name": t[0], "subject": t[1], "body": t[2]} for t in templates]
+    return jsonify({"templates": result})
+
+# Task scheduling endpoint
+@app.route('/schedule_task', methods=['POST'])
+@token_required
+def schedule_task(user_id):
+    data = request.json
+    task_type = data.get('task_type')
+    task_data = data.get('task_data')
+    schedule_time = data.get('schedule_time')
+    
+    if not all([task_type, task_data, schedule_time]):
+        return jsonify({"error": "Task type, data, and schedule time are required"}), 400
+    
+    cursor.execute("INSERT INTO scheduled_tasks (user_id, task_type, task_data, schedule_time, status) VALUES (?, ?, ?, ?, ?)",
+                   (user_id, task_type, json.dumps(task_data), schedule_time, "pending"))
+    conn.commit()
+    logger.info(f"User {user_id} scheduled task: {task_type} at {schedule_time}")
+    return jsonify({"status": "Task scheduled successfully"})
+
+# Report generation endpoint
+@app.route('/generate_report', methods=['POST'])
+@token_required
+def generate_report(user_id):
+    data = request.json
+    report_type = data.get('report_type', 'activity')
+    
+    if report_type == 'activity':
+        cursor.execute("SELECT action, details, timestamp FROM user_activity_log WHERE user_id = ? ORDER BY timestamp DESC LIMIT 10", (user_id,))
+        logs = cursor.fetchall()
+        report_data = {}
+        for i, log in enumerate(logs, 1):
+            report_data[f"Activity {i}"] = f"{log[0]} at {log[2]}: {json.loads(log[1])}"
+        title = "Recent Activity Report"
+    
+    pdf_output = generate_pdf_report(user_id, report_data, title)
+    logger.info(f"User {user_id} generated report: {report_type}")
+    return send_file(
+        pdf_output,
+        attachment_filename=f"{report_type}_report_{user_id}.pdf",
+        as_attachment=True,
+        mimetype='application/pdf'
+    )
+
+# Settings endpoints
+@app.route('/settings-data', methods=['GET'])
+@token_required
+def get_settings(user_id):
+    settings = utils.get_user_settings(user_id, cursor, conn)
+    realnex_token = utils.get_token(user_id, "realnex", cursor) or ''
+    settings['realnex_token'] = realnex_token
+    settings['realnex_group_id'] = settings.get('realnex_group_id', '')
+    settings['apollo_group_id'] = settings.get('apollo_group_id', '')
+    settings['seamless_group_id'] = settings.get('seamless_group_id', '')
+    settings['zoominfo_group_id'] = settings.get('zoominfo_group_id', '')
+    return jsonify(settings)
+
+@app.route('/save-settings', methods=['POST'])
+@token_required
+def save_settings(user_id):
+    try:
+        data = request.json
+        realnex_token = data.get('realnex_token', '')
+        mailchimp_group_id = data.get('mailchimp_group_id', '')
+        constant_contact_group_id = data.get('constant_contact_group_id', '')
+        realnex_group_id = data.get('realnex_group_id', '')
+        apollo_group_id = data.get('apollo_group_id', '')
+        seamless_group_id = data.get('seamless_group_id', '')
+        zoominfo_group_id = data.get('zoominfo_group_id', '')
+        language = data.get('language', 'en')
+        subject_generator_enabled = 1 if data.get('subject_generator_enabled', False) else 0
+        deal_alerts_enabled = 1 if data.get('deal_alerts_enabled', False) else 0
+        email_notifications = 1 if data.get('email_notifications', False) else 0
+        sms_notifications = 1 if data.get('sms_notifications', False) else 0
+
+        # Save RealNex token to user_tokens
+        if realnex_token:
+            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
+                           (user_id, "realnex", realnex_token))
+        if data.get('mailchimp_token'):
+            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
+                           (user_id, "mailchimp", data.get('mailchimp_token')))
+        if data.get('constant_contact_token'):
+            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
+                           (user_id, "constant_contact", data.get('constant_contact_token')))
+        if data.get('apollo_token'):
+            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
+                           (user_id, "apollo", data.get('apollo_token')))
+        if data.get('seamless_token'):
+            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
+                           (user_id, "seamless", data.get('seamless_token')))
+        if data.get('zoominfo_token'):
+            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
+                           (user_id, "zoominfo", data.get('zoominfo_token')))
+
+        # Save settings to user_settings
+        cursor.execute("""
+            INSERT OR REPLACE INTO user_settings 
+            (user_id, language, subject_generator_enabled, deal_alerts_enabled, email_notifications, sms_notifications, 
+             mailchimp_group_id, constant_contact_group_id, realnex_group_id, apollo_group_id, seamless_group_id, zoominfo_group_id) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (user_id, language, subject_generator_enabled, deal_alerts_enabled, email_notifications, sms_notifications, 
+              mailchimp_group_id, constant_contact_group_id, realnex_group_id, apollo_group_id, seamless_group_id, zoominfo_group_id))
+        
+        conn.commit()
+        logger.info(f"User {user_id} saved settings")
+        return jsonify({"status": "Settings saved"})
+    except Exception as e:
+        logger.error(f"Failed to save settings for user {user_id}: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+# Field mapping endpoints
+@app.route('/field-map/saved/<name>', methods=['GET'])
+@token_required
+def load_field_mapping(user_id, name):
+    mappings = {"contacts": {"Full Name": "name", "Email": "email", "Phone": "phone"}}
+    return jsonify(mappings.get(name, {"contacts": {}}))
+
+@app.route('/field-map/save/<name>', methods=['POST'])
+@token_required
+def save_field_mapping(user_id, name):
+    data = request.json
+    contacts = data.get('contacts', {})
+    logger.info(f"User {user_id} saved mapping: {name} - {contacts}")
+    return jsonify({"status": "Mapping saved"})
+
+# Webhook endpoints for real-time syncing
+@app.route('/webhook/apollo', methods=['POST'])
+def apollo_webhook():
+    user_id = request.args.get('user_id')
+    if not user_id:
+        return jsonify({"error": "User ID missing"}), 400
+
+    data = request.json
+    event = data.get('event')
+    if event != "contact_added":
+        return jsonify({"status": "Ignored event"}), 200
+
+    contact = data.get('contact', {})
+    contact_id = f"apollo_{contact['id']}_{user_id}"
+    contact_data = {
+        "id": contact_id,
+        "name": contact.get('name', ''),
+        "email": contact.get('email', ''),
+        "phone": contact.get('phone', '')
+    }
+
+    # Check for duplicates and sync
+    contact_hash = utils.hash_entity(contact_data, "contact")
+    cursor.execute("SELECT contact_hash FROM duplicates_log WHERE user_id = ? AND contact_hash = ?", (user_id, contact_hash))
+    if not cursor.fetchone():
+        email_score = cmd_sync_data.check_email_health(contact_data["email"]) if contact_data["email"] else 0
+        phone_score = cmd_sync_data.check_phone_health(contact_data["phone"]) if contact_data["phone"] else 0
+        utils.log_health_history(user_id, contact_id, email_score, phone_score, cursor, conn)
+        cursor.execute("INSERT OR IGNORE INTO contacts (id, name, email, phone, user_id) VALUES (?, ?, ?, ?, ?)",
+                       (contact_id, contact_data['name'], contact_data['email'], contact_data['phone'], user_id))
+        conn.commit()
+
+        # Trigger sync for this contact
+        cmd_sync_data.handle_sync_data("sync contacts", user_id, cursor, conn)
+    else:
+        utils.log_duplicate(user_id, contact_data, "contact", cursor, conn)
+
+    return jsonify({"status": "Webhook processed"}), 200
+
+@app.route('/webhook/seamless', methods=['POST'])
+def seamless_webhook():
+    user_id = request.args.get('user_id')
+    if not user_id:
+        return jsonify({"error": "User ID missing"}), 400
+
+    data = request.json
+    event = data.get('event')
+    if event != "contact_added":
+        return jsonify({"status": "Ignored event"}), 200
+
+    contact = data.get('contact', {})
+    contact_id = f"seamless_{contact['id']}_{user_id}"
+    contact_data = {
+        "id": contact_id,
+        "name": contact.get('name', ''),
+        "email": contact.get('email', ''),
+        "phone": contact.get('phone', '')
+    }
+
+    # Check for duplicates and sync
+    contact_hash = utils.hash_entity(contact_data, "contact")
+    cursor.execute("SELECT contact_hash FROM duplicates_log WHERE user_id = ? AND contact_hash = ?", (user_id, contact_hash))
+    if not cursor.fetchone():
+        email_score = cmd_sync_data.check_email_health(contact_data["email"]) if contact_data["email"] else 0
+        phone_score = cmd_sync_data.check_phone_health(contact_data["phone"]) if contact_data["phone"] else 0
+        utils.log_health_history(user_id, contact_id, email_score, phone_score, cursor, conn)
+        cursor.execute("INSERT OR IGNORE INTO contacts (id, name, email, phone, user_id) VALUES (?, ?, ?, ?, ?)",
+                       (contact_id, contact_data['name'], contact_data['email'], contact_data['phone'], user_id))
+        conn.commit()
+
+        # Trigger sync for this contact
+        cmd_sync_data.handle_sync_data("sync contacts", user_id, cursor, conn)
+    else:
+        utils.log_duplicate(user_id, contact_data, "contact", cursor, conn)
+
+    return jsonify({"status": "Webhook processed"}), 200
+
+@app.route('/webhook/zoominfo', methods=['POST'])
+def zoominfo_webhook():
+    user_id = request.args.get('user_id')
+    if not user_id:
+        return jsonify({"error": "User ID missing"}), 400
+
+    data = request.json
+    event = data.get('event')
+    if event != "contact_added":
+        return jsonify({"status": "Ignored event"}), 200
+
+    contact = data.get('contact', {})
+    contact_id = f"zoominfo_{contact['id']}_{user_id}"
+    contact_data = {
+        "id": contact_id,
+        "name": contact.get('name', ''),
+        "email": contact.get('email', ''),
+        "phone": contact.get('phone', '')
+    }
+
+    # Check for duplicates and sync
+    contact_hash = utils.hash_entity(contact_data, "contact")
+    cursor.execute("SELECT contact_hash FROM duplicates_log WHERE user_id = ? AND contact_hash = ?", (user_id, contact_hash))
+    if not cursor.fetchone():
+        email_score = cmd_sync_data.check_email_health(contact_data["email"]) if contact_data["email"] else 0
+        phone_score = cmd_sync_data.check_phone_health(contact_data["phone"]) if contact_data["phone"] else 0
+        utils.log_health_history(user_id, contact_id, email_score, phone_score, cursor, conn)
+        cursor.execute("INSERT OR IGNORE INTO contacts (id, name, email, phone, user_id) VALUES (?, ?, ?, ?, ?)",
+                       (contact_id, contact_data['name'], contact_data['email'], contact_data['phone'], user_id))
+        conn.commit()
+
+        # Trigger sync for this contact
+        cmd_sync_data.handle_sync_data("sync contacts", user_id, cursor, conn)
+    else:
+        utils.log_duplicate(user_id, contact_data, "contact", cursor, conn)
+
+    return jsonify({"status": "Webhook processed"}), 200
+
+# SocketIO event handlers
+@socketio.on('connect')
+def handle_connect():
+    logger.info("Client connected to SocketIO")
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    logger.info("Client disconnected from SocketIO")
+
+@socketio.on('message')
+def handle_message(data):
+    user_id = data.get('user_id')
+    message = data.get('message')
+    if not user_id or not message:
+        socketio.emit('response', {'message': 'User ID and message are required'}, to=request.sid)
+        return
+
+    # Save the user's message
+    timestamp = datetime.now().isoformat()
+    cursor.execute("INSERT INTO chat_messages (user_id, sender, message, timestamp) VALUES (?, ?, ?, ?)",
+                   (user_id, 'user', message, timestamp))
+    conn.commit()
+
+    # Process the message (e.g., check for commands like 'sync crm')
+    if message.lower().startswith('sync '):
+        response = cmd_sync_data.handle_sync_data(message, user_id, cursor, conn)
+    else:
+        # Placeholder for other commands or responses
+        response = f"Echo: {message}"
+
+    # Save the bot's response
+    cursor.execute("INSERT INTO chat_messages (user_id, sender, message, timestamp) VALUES (?, ?, ?, ?)",
+                   (user_id, 'bot', response, timestamp))
+    conn.commit()
+
+    # Emit the response back to the client
+    socketio.emit('response', {'message': response, 'sender': 'bot', 'timestamp': timestamp}, to=request.sid)
+
+if __name__ == '__main__':
+    socketio.run(app, host='0.0.0.0', port=8000)
