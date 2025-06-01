@@ -18,6 +18,7 @@ import pandas as pd
 import pytesseract
 from PIL import Image
 import PyPDF2
+import cmd_sync_data
 
 # Configure logging for better debugging
 logging.basicConfig(
@@ -104,6 +105,7 @@ cursor.execute('''CREATE TABLE IF NOT EXISTS contacts
                  (id TEXT,
                   name TEXT,
                   email TEXT,
+                  phone TEXT,
                   user_id TEXT,
                   PRIMARY KEY (id, user_id))''')
 cursor.execute('''CREATE TABLE IF NOT EXISTS deals
@@ -116,6 +118,13 @@ cursor.execute('''CREATE TABLE IF NOT EXISTS webhooks
                  (user_id TEXT,
                   webhook_url TEXT,
                   PRIMARY KEY (user_id))''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS health_history
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  user_id TEXT,
+                  contact_id TEXT,
+                  email_health_score INTEGER,
+                  phone_health_score INTEGER,
+                  timestamp TIMESTAMP)''')
 conn.commit()
 
 # JWT Token Required Decorator
@@ -229,15 +238,18 @@ def upload_file(user_id):
             df = pd.read_excel(file_path)
             contacts = df.to_dict('records')
             for contact in contacts:
-                contact_hash = utils.hash_contact(contact)
+                contact_hash = utils.hash_entity(contact, "contact")
                 cursor.execute("SELECT contact_hash FROM duplicates_log WHERE user_id = ? AND contact_hash = ?",
                                (user_id, contact_hash))
                 if cursor.fetchone():
-                    utils.log_duplicate(user_id, contact, cursor, conn)
+                    utils.log_duplicate(user_id, contact, "contact", cursor, conn)
                 else:
                     contact_id = f"contact_{len(contacts)}_{user_id}"
-                    cursor.execute("INSERT INTO contacts (id, name, email, user_id) VALUES (?, ?, ?, ?)",
-                                   (contact_id, contact.get('Full Name', ''), contact.get('Email', ''), user_id))
+                    email_score = cmd_sync_data.check_email_health(contact.get('Email', '')) if contact.get('Email') else 0
+                    phone_score = cmd_sync_data.check_phone_health(contact.get('Phone', '')) if contact.get('Phone') else 0
+                    utils.log_health_history(user_id, contact_id, email_score, phone_score, cursor, conn)
+                    cursor.execute("INSERT INTO contacts (id, name, email, phone, user_id) VALUES (?, ?, ?, ?, ?)",
+                                   (contact_id, contact.get('Full Name', ''), contact.get('Email', ''), contact.get('Phone', ''), user_id))
                     conn.commit()
             return jsonify({"status": "XLSX processed", "contacts": contacts})
 
@@ -254,17 +266,20 @@ def upload_file(user_id):
                 if '@' in line:
                     email = line.strip()
                     name = text.split('\n')[0] if text.split('\n') else "Unknown"
-                    contacts.append({"Full Name": name, "Email": email})
+                    contacts.append({"Full Name": name, "Email": email, "Phone": ""})
             for contact in contacts:
-                contact_hash = utils.hash_contact(contact)
+                contact_hash = utils.hash_entity(contact, "contact")
                 cursor.execute("SELECT contact_hash FROM duplicates_log WHERE user_id = ? AND contact_hash = ?",
                                (user_id, contact_hash))
                 if cursor.fetchone():
-                    utils.log_duplicate(user_id, contact, cursor, conn)
+                    utils.log_duplicate(user_id, contact, "contact", cursor, conn)
                 else:
                     contact_id = f"contact_{len(contacts)}_{user_id}"
-                    cursor.execute("INSERT INTO contacts (id, name, email, user_id) VALUES (?, ?, ?, ?)",
-                                   (contact_id, contact.get('Full Name', ''), contact.get('Email', ''), user_id))
+                    email_score = cmd_sync_data.check_email_health(contact.get('Email', '')) if contact.get('Email') else 0
+                    phone_score = cmd_sync_data.check_phone_health(contact.get('Phone', '')) if contact.get('Phone') else 0
+                    utils.log_health_history(user_id, contact_id, email_score, phone_score, cursor, conn)
+                    cursor.execute("INSERT INTO contacts (id, name, email, phone, user_id) VALUES (?, ?, ?, ?, ?)",
+                                   (contact_id, contact.get('Full Name', ''), contact.get('Email', ''), contact.get('Phone', ''), user_id))
                     conn.commit()
             return jsonify({"status": "PDF processed", "contacts": contacts})
 
@@ -278,17 +293,20 @@ def upload_file(user_id):
                 if '@' in line:
                     email = line.strip()
                     name = text.split('\n')[0] if text.split('\n') else "Unknown"
-                    contacts.append({"Full Name": name, "Email": email})
+                    contacts.append({"Full Name": name, "Email": email, "Phone": ""})
             for contact in contacts:
-                contact_hash = utils.hash_contact(contact)
+                contact_hash = utils.hash_entity(contact, "contact")
                 cursor.execute("SELECT contact_hash FROM duplicates_log WHERE user_id = ? AND contact_hash = ?",
                                (user_id, contact_hash))
                 if cursor.fetchone():
-                    utils.log_duplicate(user_id, contact, cursor, conn)
+                    utils.log_duplicate(user_id, contact, "contact", cursor, conn)
                 else:
                     contact_id = f"contact_{len(contacts)}_{user_id}"
-                    cursor.execute("INSERT INTO contacts (id, name, email, user_id) VALUES (?, ?, ?, ?)",
-                                   (contact_id, contact.get('Full Name', ''), contact.get('Email', ''), user_id))
+                    email_score = cmd_sync_data.check_email_health(contact.get('Email', '')) if contact.get('Email') else 0
+                    phone_score = cmd_sync_data.check_phone_health(contact.get('Phone', '')) if contact.get('Phone') else 0
+                    utils.log_health_history(user_id, contact_id, email_score, phone_score, cursor, conn)
+                    cursor.execute("INSERT INTO contacts (id, name, email, phone, user_id) VALUES (?, ?, ?, ?, ?)",
+                                   (contact_id, contact.get('Full Name', ''), contact.get('Email', ''), contact.get('Phone', ''), user_id))
                     conn.commit()
             return jsonify({"status": "Image processed", "contacts": contacts})
 
@@ -444,6 +462,20 @@ def apollo_callback(user_id):
                            (user_id, "apollo", access_token))
             conn.commit()
 
+            # Register webhook for Apollo.io
+            webhook_url = f"http://your-app-url/webhook/apollo?user_id={user_id}"
+            response = client.post(
+                "https://api.apollo.io/v1/webhooks",
+                headers={'Authorization': f'Bearer {access_token}'},
+                json={"url": webhook_url, "event": "contact_added"}
+            )
+            response.raise_for_status()
+
+            # Save webhook URL
+            cursor.execute("INSERT OR REPLACE INTO webhooks (user_id, webhook_url) VALUES (?, ?)",
+                           (user_id, webhook_url))
+            conn.commit()
+
             # Redirect back to settings
             return redirect('/settings')
     except Exception as e:
@@ -492,6 +524,20 @@ def seamless_callback(user_id):
                            (user_id, "seamless", access_token))
             conn.commit()
 
+            # Register webhook for Seamless.AI
+            webhook_url = f"http://your-app-url/webhook/seamless?user_id={user_id}"
+            response = client.post(
+                "https://api.seamless.ai/v1/webhooks",
+                headers={'Authorization': f'Bearer {access_token}'},
+                json={"url": webhook_url, "event": "contact_added"}
+            )
+            response.raise_for_status()
+
+            # Save webhook URL
+            cursor.execute("INSERT OR REPLACE INTO webhooks (user_id, webhook_url) VALUES (?, ?)",
+                           (user_id, webhook_url))
+            conn.commit()
+
             # Redirect back to settings
             return redirect('/settings')
     except Exception as e:
@@ -538,6 +584,20 @@ def zoominfo_callback(user_id):
             # Save the token
             cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
                            (user_id, "zoominfo", access_token))
+            conn.commit()
+
+            # Register webhook for ZoomInfo
+            webhook_url = f"http://your-app-url/webhook/zoominfo?user_id={user_id}"
+            response = client.post(
+                "https://api.zoominfo.com/v1/webhooks",
+                headers={'Authorization': f'Bearer {access_token}'},
+                json={"url": webhook_url, "event": "contact_added"}
+            )
+            response.raise_for_status()
+
+            # Save webhook URL
+            cursor.execute("INSERT OR REPLACE INTO webhooks (user_id, webhook_url) VALUES (?, ?)",
+                           (user_id, webhook_url))
             conn.commit()
 
             # Redirect back to settings
@@ -757,6 +817,30 @@ def dashboard_data(user_id):
         logger.debug(f"Cache set for {cache_key}")
     return jsonify(data)
 
+@app.route('/sync-stats', methods=['GET'])
+@token_required
+def sync_stats(user_id):
+    # Count sync actions from user_activity_log
+    stats = {"local": 0, "apollo": 0, "seamless": 0, "zoominfo": 0}
+
+    # Local contacts synced to RealNex
+    cursor.execute("SELECT COUNT(*) FROM user_activity_log WHERE user_id = ? AND action = 'sync_realnex_contact' AND details NOT LIKE '%apollo_%' AND details NOT LIKE '%seamless_%' AND details NOT LIKE '%zoominfo_%'", (user_id,))
+    stats["local"] = cursor.fetchone()[0]
+
+    # Apollo.io contacts synced
+    cursor.execute("SELECT COUNT(*) FROM user_activity_log WHERE user_id = ? AND action = 'sync_realnex_contact' AND details LIKE '%apollo_%'", (user_id,))
+    stats["apollo"] = cursor.fetchone()[0]
+
+    # Seamless.AI contacts synced
+    cursor.execute("SELECT COUNT(*) FROM user_activity_log WHERE user_id = ? AND action = 'sync_realnex_contact' AND details LIKE '%seamless_%'", (user_id,))
+    stats["seamless"] = cursor.fetchone()[0]
+
+    # ZoomInfo contacts synced
+    cursor.execute("SELECT COUNT(*) FROM user_activity_log WHERE user_id = ? AND action = 'sync_realnex_contact' AND details LIKE '%zoominfo_%'", (user_id,))
+    stats["zoominfo"] = cursor.fetchone()[0]
+
+    return jsonify(stats)
+
 @app.route('/import-stats', methods=['GET'])
 @token_required
 def import_stats(user_id):
@@ -827,6 +911,15 @@ def get_activity_log(user_id):
     result = [{"action": log[0], "details": json.loads(log[1]), "timestamp": log[2]} for log in logs]
     return jsonify({"activity_log": result})
 
+# Health history endpoint
+@app.route('/health-history', methods=['GET'])
+@token_required
+def get_health_history(user_id):
+    cursor.execute("SELECT contact_id, email_health_score, phone_health_score, timestamp FROM health_history WHERE user_id = ? ORDER BY timestamp DESC LIMIT 100", (user_id,))
+    history = cursor.fetchall()
+    result = [{"contact_id": h[0], "email_health_score": h[1], "phone_health_score": h[2], "timestamp": h[3]} for h in history]
+    return jsonify({"health_history": result})
+
 # Duplicates endpoint
 @app.route('/duplicates', methods=['GET'])
 @token_required
@@ -858,143 +951,4 @@ def save_email_template(user_id):
                    (user_id, template_name, subject, body))
     conn.commit()
     logger.info(f"User {user_id} saved email template: {template_name}")
-    return jsonify({"status": "Email template saved successfully"})
-
-@app.route('/get_email_templates', methods=['GET'])
-@token_required
-def get_email_templates(user_id):
-    cursor.execute("SELECT template_name, subject, body FROM email_templates WHERE user_id = ?", (user_id,))
-    templates = cursor.fetchall()
-    result = [{"template_name": t[0], "subject": t[1], "body": t[2]} for t in templates]
-    return jsonify({"templates": result})
-
-# Task scheduling endpoint
-@app.route('/schedule_task', methods=['POST'])
-@token_required
-def schedule_task(user_id):
-    data = request.json
-    task_type = data.get('task_type')
-    task_data = data.get('task_data')
-    schedule_time = data.get('schedule_time')
-    
-    if not all([task_type, task_data, schedule_time]):
-        return jsonify({"error": "Task type, data, and schedule time are required"}), 400
-    
-    cursor.execute("INSERT INTO scheduled_tasks (user_id, task_type, task_data, schedule_time, status) VALUES (?, ?, ?, ?, ?)",
-                   (user_id, task_type, json.dumps(task_data), schedule_time, "pending"))
-    conn.commit()
-    logger.info(f"User {user_id} scheduled task: {task_type} at {schedule_time}")
-    return jsonify({"status": "Task scheduled successfully"})
-
-# Report generation endpoint
-@app.route('/generate_report', methods=['POST'])
-@token_required
-def generate_report(user_id):
-    data = request.json
-    report_type = data.get('report_type', 'activity')
-    
-    if report_type == 'activity':
-        cursor.execute("SELECT action, details, timestamp FROM user_activity_log WHERE user_id = ? ORDER BY timestamp DESC LIMIT 10", (user_id,))
-        logs = cursor.fetchall()
-        report_data = {}
-        for i, log in enumerate(logs, 1):
-            report_data[f"Activity {i}"] = f"{log[0]} at {log[2]}: {json.loads(log[1])}"
-        title = "Recent Activity Report"
-    
-    pdf_output = generate_pdf_report(user_id, report_data, title)
-    logger.info(f"User {user_id} generated report: {report_type}")
-    return send_file(
-        pdf_output,
-        attachment_filename=f"{report_type}_report_{user_id}.pdf",
-        as_attachment=True,
-        mimetype='application/pdf'
-    )
-
-# Settings endpoints
-@app.route('/settings-data', methods=['GET'])
-@token_required
-def get_settings(user_id):
-    settings = utils.get_user_settings(user_id, cursor, conn)
-    realnex_token = utils.get_token(user_id, "realnex", cursor) or ''
-    settings['realnex_token'] = realnex_token
-    settings['realnex_group_id'] = settings.get('realnex_group_id', '')
-    settings['apollo_group_id'] = settings.get('apollo_group_id', '')
-    settings['seamless_group_id'] = settings.get('seamless_group_id', '')
-    settings['zoominfo_group_id'] = settings.get('zoominfo_group_id', '')
-    return jsonify(settings)
-
-@app.route('/save-settings', methods=['POST'])
-@token_required
-def save_settings(user_id):
-    try:
-        data = request.json
-        realnex_token = data.get('realnex_token', '')
-        mailchimp_group_id = data.get('mailchimp_group_id', '')
-        constant_contact_group_id = data.get('constant_contact_group_id', '')
-        realnex_group_id = data.get('realnex_group_id', '')
-        apollo_group_id = data.get('apollo_group_id', '')
-        seamless_group_id = data.get('seamless_group_id', '')
-        zoominfo_group_id = data.get('zoominfo_group_id', '')
-        language = data.get('language', 'en')
-        subject_generator_enabled = 1 if data.get('subject_generator_enabled', False) else 0
-        deal_alerts_enabled = 1 if data.get('deal_alerts_enabled', False) else 0
-        email_notifications = 1 if data.get('email_notifications', False) else 0
-        sms_notifications = 1 if data.get('sms_notifications', False) else 0
-
-        # Save RealNex token to user_tokens
-        if realnex_token:
-            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
-                           (user_id, "realnex", realnex_token))
-        if data.get('mailchimp_token'):
-            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
-                           (user_id, "mailchimp", data.get('mailchimp_token')))
-        if data.get('constant_contact_token'):
-            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
-                           (user_id, "constant_contact", data.get('constant_contact_token')))
-        if data.get('apollo_token'):
-            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
-                           (user_id, "apollo", data.get('apollo_token')))
-        if data.get('seamless_token'):
-            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
-                           (user_id, "seamless", data.get('seamless_token')))
-        if data.get('zoominfo_token'):
-            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
-                           (user_id, "zoominfo", data.get('zoominfo_token')))
-
-        # Save settings to user_settings
-        cursor.execute("""
-            INSERT OR REPLACE INTO user_settings 
-            (user_id, language, subject_generator_enabled, deal_alerts_enabled, email_notifications, sms_notifications, 
-             mailchimp_group_id, constant_contact_group_id, realnex_group_id, apollo_group_id, seamless_group_id, zoominfo_group_id) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (user_id, language, subject_generator_enabled, deal_alerts_enabled, email_notifications, sms_notifications, 
-              mailchimp_group_id, constant_contact_group_id, realnex_group_id, apollo_group_id, seamless_group_id, zoominfo_group_id))
-        
-        conn.commit()
-        logger.info(f"User {user_id} saved settings")
-        return jsonify({"status": "Settings saved"})
-    except Exception as e:
-        logger.error(f"Failed to save settings for user {user_id}: {str(e)}")
-        return jsonify({"error": str(e)}), 500
-
-# Field mapping endpoints
-@app.route('/field-map/saved/<name>', methods=['GET'])
-@token_required
-def load_field_mapping(user_id, name):
-    mappings = {"contacts": {"Full Name": "name", "Email": "email"}}
-    return jsonify(mappings.get(name, {"contacts": {}}))
-
-@app.route('/field-map/save/<name>', methods=['POST'])
-@token_required
-def save_field_mapping(user_id, name):
-    data = request.json
-    contacts = data.get('contacts', {})
-    logger.info(f"User {user_id} saved mapping: {name} - {contacts}")
-    return jsonify({"status": "Mapping saved"})
-
-# Register the /ask route from commands.py
-commands.register_commands(app, socketio)
-
-# Run the app
-if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=8000)
+    return jsonify({"status": "
