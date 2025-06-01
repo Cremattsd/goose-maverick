@@ -3,6 +3,7 @@ import json
 import logging
 import redis
 import jwt
+import httpx
 from flask import Flask, request, jsonify, render_template, send_file, redirect, url_for
 from flask_socketio import SocketIO
 from flask_cors import CORS
@@ -71,7 +72,8 @@ cursor.execute('''CREATE TABLE IF NOT EXISTS user_points
 cursor.execute('''CREATE TABLE IF NOT EXISTS user_settings
                   (user_id TEXT PRIMARY KEY, language TEXT, subject_generator_enabled INTEGER, 
                    deal_alerts_enabled INTEGER, email_notifications INTEGER, sms_notifications INTEGER,
-                   mailchimp_group_id TEXT, constant_contact_group_id TEXT)''')
+                   mailchimp_group_id TEXT, constant_contact_group_id TEXT, realnex_group_id TEXT,
+                   apollo_group_id TEXT, seamless_group_id TEXT, zoominfo_group_id TEXT)''')
 cursor.execute('''CREATE TABLE IF NOT EXISTS user_tokens
                   (user_id TEXT, service TEXT, token TEXT, PRIMARY KEY (user_id, service))''')
 cursor.execute('''CREATE TABLE IF NOT EXISTS user_onboarding
@@ -304,6 +306,391 @@ def settings_page(user_id):
     logger.info("Settings page accessed.")
     return render_template('settings.html')
 
+@app.route('/authorize-mailchimp', methods=['GET'])
+@token_required
+def authorize_mailchimp(user_id):
+    # Redirect to Mailchimp OAuth URL (simplified for demo; in production, use proper OAuth flow)
+    mailchimp_client_id = os.getenv('MAILCHIMP_CLIENT_ID', 'your_client_id')
+    redirect_uri = 'http://localhost:8000/mailchimp-callback'
+    mailchimp_auth_url = f"https://login.mailchimp.com/oauth2/authorize?client_id={mailchimp_client_id}&redirect_uri={redirect_uri}&response_type=code"
+    return redirect(mailchimp_auth_url)
+
+@app.route('/mailchimp-callback', methods=['GET'])
+@token_required
+def mailchimp_callback(user_id):
+    code = request.args.get('code')
+    if not code:
+        return jsonify({"error": "Authorization code not found"}), 400
+
+    # Exchange code for access token
+    mailchimp_client_id = os.getenv('MAILCHIMP_CLIENT_ID', 'your_client_id')
+    mailchimp_client_secret = os.getenv('MAILCHIMP_CLIENT_SECRET', 'your_client_secret')
+    redirect_uri = 'http://localhost:8000/mailchimp-callback'
+
+    try:
+        with httpx.Client() as client:
+            response = client.post(
+                "https://login.mailchimp.com/oauth2/token",
+                data={
+                    "grant_type": "authorization_code",
+                    "client_id": mailchimp_client_id,
+                    "client_secret": mailchimp_client_secret,
+                    "redirect_uri": redirect_uri,
+                    "code": code
+                }
+            )
+            response.raise_for_status()
+            token_data = response.json()
+            access_token = token_data.get('access_token')
+
+            # Save the token
+            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
+                           (user_id, "mailchimp", access_token))
+            conn.commit()
+
+            # Redirect back to settings
+            return redirect('/settings')
+    except Exception as e:
+        logger.error(f"Mailchimp authorization failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/authorize-constant-contact', methods=['GET'])
+@token_required
+def authorize_constant_contact(user_id):
+    # Redirect to Constant Contact OAuth URL (simplified for demo; in production, use proper OAuth flow)
+    cc_client_id = os.getenv('CC_CLIENT_ID', 'your_client_id')
+    redirect_uri = 'http://localhost:8000/constant-contact-callback'
+    cc_auth_url = f"https://authz.constantcontact.com/oauth2/authorize?client_id={cc_client_id}&redirect_uri={redirect_uri}&response_type=code&scope=contact_data"
+    return redirect(cc_auth_url)
+
+@app.route('/constant-contact-callback', methods=['GET'])
+@token_required
+def constant_contact_callback(user_id):
+    code = request.args.get('code')
+    if not code:
+        return jsonify({"error": "Authorization code not found"}), 400
+
+    # Exchange code for access token
+    cc_client_id = os.getenv('CC_CLIENT_ID', 'your_client_id')
+    cc_client_secret = os.getenv('CC_CLIENT_SECRET', 'your_client_secret')
+    redirect_uri = 'http://localhost:8000/constant-contact-callback'
+
+    try:
+        with httpx.Client() as client:
+            response = client.post(
+                "https://authz.constantcontact.com/oauth2/token",
+                data={
+                    "grant_type": "authorization_code",
+                    "client_id": cc_client_id,
+                    "client_secret": cc_client_secret,
+                    "redirect_uri": redirect_uri,
+                    "code": code
+                }
+            )
+            response.raise_for_status()
+            token_data = response.json()
+            access_token = token_data.get('access_token')
+
+            # Save the token
+            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
+                           (user_id, "constant_contact", access_token))
+            conn.commit()
+
+            # Redirect back to settings
+            return redirect('/settings')
+    except Exception as e:
+        logger.error(f"Constant Contact authorization failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/authorize-apollo', methods=['GET'])
+@token_required
+def authorize_apollo(user_id):
+    # Redirect to Apollo.io OAuth URL (simplified for demo; in production, use proper OAuth flow)
+    apollo_client_id = os.getenv('APOLLO_CLIENT_ID', 'your_client_id')
+    redirect_uri = 'http://localhost:8000/apollo-callback'
+    apollo_auth_url = f"https://app.apollo.io/oauth/authorize?client_id={apollo_client_id}&redirect_uri={redirect_uri}&response_type=code"
+    return redirect(apollo_auth_url)
+
+@app.route('/apollo-callback', methods=['GET'])
+@token_required
+def apollo_callback(user_id):
+    code = request.args.get('code')
+    if not code:
+        return jsonify({"error": "Authorization code not found"}), 400
+
+    # Exchange code for access token
+    apollo_client_id = os.getenv('APOLLO_CLIENT_ID', 'your_client_id')
+    apollo_client_secret = os.getenv('APOLLO_CLIENT_SECRET', 'your_client_secret')
+    redirect_uri = 'http://localhost:8000/apollo-callback'
+
+    try:
+        with httpx.Client() as client:
+            response = client.post(
+                "https://app.apollo.io/oauth/token",
+                data={
+                    "grant_type": "authorization_code",
+                    "client_id": apollo_client_id,
+                    "client_secret": apollo_client_secret,
+                    "redirect_uri": redirect_uri,
+                    "code": code
+                }
+            )
+            response.raise_for_status()
+            token_data = response.json()
+            access_token = token_data.get('access_token')
+
+            # Save the token
+            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
+                           (user_id, "apollo", access_token))
+            conn.commit()
+
+            # Redirect back to settings
+            return redirect('/settings')
+    except Exception as e:
+        logger.error(f"Apollo.io authorization failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/authorize-seamless', methods=['GET'])
+@token_required
+def authorize_seamless(user_id):
+    # Redirect to Seamless.AI OAuth URL (simplified for demo; in production, use proper OAuth flow)
+    seamless_client_id = os.getenv('SEAMLESS_CLIENT_ID', 'your_client_id')
+    redirect_uri = 'http://localhost:8000/seamless-callback'
+    seamless_auth_url = f"https://login.seamless.ai/oauth/authorize?client_id={seamless_client_id}&redirect_uri={redirect_uri}&response_type=code"
+    return redirect(seamless_auth_url)
+
+@app.route('/seamless-callback', methods=['GET'])
+@token_required
+def seamless_callback(user_id):
+    code = request.args.get('code')
+    if not code:
+        return jsonify({"error": "Authorization code not found"}), 400
+
+    # Exchange code for access token
+    seamless_client_id = os.getenv('SEAMLESS_CLIENT_ID', 'your_client_id')
+    seamless_client_secret = os.getenv('SEAMLESS_CLIENT_SECRET', 'your_client_secret')
+    redirect_uri = 'http://localhost:8000/seamless-callback'
+
+    try:
+        with httpx.Client() as client:
+            response = client.post(
+                "https://login.seamless.ai/oauth/token",
+                data={
+                    "grant_type": "authorization_code",
+                    "client_id": seamless_client_id,
+                    "client_secret": seamless_client_secret,
+                    "redirect_uri": redirect_uri,
+                    "code": code
+                }
+            )
+            response.raise_for_status()
+            token_data = response.json()
+            access_token = token_data.get('access_token')
+
+            # Save the token
+            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
+                           (user_id, "seamless", access_token))
+            conn.commit()
+
+            # Redirect back to settings
+            return redirect('/settings')
+    except Exception as e:
+        logger.error(f"Seamless.AI authorization failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/authorize-zoominfo', methods=['GET'])
+@token_required
+def authorize_zoominfo(user_id):
+    # Redirect to ZoomInfo OAuth URL (simplified for demo; in production, use proper OAuth flow)
+    zoominfo_client_id = os.getenv('ZOOMINFO_CLIENT_ID', 'your_client_id')
+    redirect_uri = 'http://localhost:8000/zoominfo-callback'
+    zoominfo_auth_url = f"https://api.zoominfo.com/oauth/authorize?client_id={zoominfo_client_id}&redirect_uri={redirect_uri}&response_type=code"
+    return redirect(zoominfo_auth_url)
+
+@app.route('/zoominfo-callback', methods=['GET'])
+@token_required
+def zoominfo_callback(user_id):
+    code = request.args.get('code')
+    if not code:
+        return jsonify({"error": "Authorization code not found"}), 400
+
+    # Exchange code for access token
+    zoominfo_client_id = os.getenv('ZOOMINFO_CLIENT_ID', 'your_client_id')
+    zoominfo_client_secret = os.getenv('ZOOMINFO_CLIENT_SECRET', 'your_client_secret')
+    redirect_uri = 'http://localhost:8000/zoominfo-callback'
+
+    try:
+        with httpx.Client() as client:
+            response = client.post(
+                "https://api.zoominfo.com/oauth/token",
+                data={
+                    "grant_type": "authorization_code",
+                    "client_id": zoominfo_client_id,
+                    "client_secret": zoominfo_client_secret,
+                    "redirect_uri": redirect_uri,
+                    "code": code
+                }
+            )
+            response.raise_for_status()
+            token_data = response.json()
+            access_token = token_data.get('access_token')
+
+            # Save the token
+            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
+                           (user_id, "zoominfo", access_token))
+            conn.commit()
+
+            # Redirect back to settings
+            return redirect('/settings')
+    except Exception as e:
+        logger.error(f"ZoomInfo authorization failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/realnex-groups', methods=['GET'])
+@token_required
+def get_realnex_groups(user_id):
+    realnex_token = utils.get_token(user_id, "realnex", cursor)
+    if not realnex_token:
+        return jsonify({"error": "No RealNex token found"}), 401
+
+    try:
+        with httpx.Client() as client:
+            response = client.get(
+                "https://api.realnex.com/v1/groups",
+                headers={'Authorization': f'Bearer {realnex_token}'}
+            )
+            response.raise_for_status()
+            groups = response.json()
+            return jsonify({"groups": [{"id": group["id"], "name": group["name"]} for group in groups]})
+    except Exception as e:
+        logger.error(f"Failed to fetch RealNex groups: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/mailchimp-groups', methods=['GET'])
+@token_required
+def get_mailchimp_groups(user_id):
+    mailchimp_token = utils.get_token(user_id, "mailchimp", cursor)
+    if not mailchimp_token:
+        return jsonify({"error": "Not authorized with Mailchimp"}), 401
+
+    try:
+        with httpx.Client() as client:
+            # Fetch audiences
+            response = client.get(
+                "https://us1.api.mailchimp.com/3.0/lists",
+                auth=("anystring", mailchimp_token)
+            )
+            response.raise_for_status()
+            audiences = response.json().get('lists', [])
+
+            # Fetch interest categories (groups) for each audience
+            groups = []
+            for audience in audiences:
+                audience_id = audience['id']
+                response = client.get(
+                    f"https://us1.api.mailchimp.com/3.0/lists/{audience_id}/interest-categories",
+                    auth=("anystring", mailchimp_token)
+                )
+                response.raise_for_status()
+                categories = response.json().get('categories', [])
+
+                for category in categories:
+                    category_id = category['id']
+                    # Fetch interests (group names) within the category
+                    response = client.get(
+                        f"https://us1.api.mailchimp.com/3.0/lists/{audience_id}/interest-categories/{category_id}/interests",
+                        auth=("anystring", mailchimp_token)
+                    )
+                    response.raise_for_status()
+                    interests = response.json().get('interests', [])
+                    for interest in interests:
+                        groups.append({"id": interest['id'], "name": f"{category['title']} - {interest['name']}"})
+
+            return jsonify({"groups": groups})
+    except Exception as e:
+        logger.error(f"Failed to fetch Mailchimp groups: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/constant-contact-groups', methods=['GET'])
+@token_required
+def get_constant_contact_groups(user_id):
+    cc_token = utils.get_token(user_id, "constant_contact", cursor)
+    if not cc_token:
+        return jsonify({"error": "Not authorized with Constant Contact"}), 401
+
+    try:
+        with httpx.Client() as client:
+            response = client.get(
+                "https://api.cc.email/v3/contact_lists",
+                headers={'Authorization': f'Bearer {cc_token}'}
+            )
+            response.raise_for_status()
+            lists = response.json().get('lists', [])
+            return jsonify({"groups": [{"id": lst['list_id'], "name": lst['name']} for lst in lists]})
+    except Exception as e:
+        logger.error(f"Failed to fetch Constant Contact groups: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/apollo-groups', methods=['GET'])
+@token_required
+def get_apollo_groups(user_id):
+    apollo_token = utils.get_token(user_id, "apollo", cursor)
+    if not apollo_token:
+        return jsonify({"error": "Not authorized with Apollo.io"}), 401
+
+    try:
+        with httpx.Client() as client:
+            response = client.get(
+                "https://api.apollo.io/v1/lists",
+                headers={'Authorization': f'Bearer {apollo_token}'}
+            )
+            response.raise_for_status()
+            lists = response.json().get('lists', [])
+            return jsonify({"groups": [{"id": lst['id'], "name": lst['name']} for lst in lists]})
+    except Exception as e:
+        logger.error(f"Failed to fetch Apollo.io groups: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/seamless-groups', methods=['GET'])
+@token_required
+def get_seamless_groups(user_id):
+    seamless_token = utils.get_token(user_id, "seamless", cursor)
+    if not seamless_token:
+        return jsonify({"error": "Not authorized with Seamless.AI"}), 401
+
+    try:
+        with httpx.Client() as client:
+            response = client.get(
+                "https://api.seamless.ai/v1/lists",
+                headers={'Authorization': f'Bearer {seamless_token}'}
+            )
+            response.raise_for_status()
+            lists = response.json().get('lists', [])
+            return jsonify({"groups": [{"id": lst['id'], "name": lst['name']} for lst in lists]})
+    except Exception as e:
+        logger.error(f"Failed to fetch Seamless.AI groups: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/zoominfo-groups', methods=['GET'])
+@token_required
+def get_zoominfo_groups(user_id):
+    zoominfo_token = utils.get_token(user_id, "zoominfo", cursor)
+    if not zoominfo_token:
+        return jsonify({"error": "Not authorized with ZoomInfo"}), 401
+
+    try:
+        with httpx.Client() as client:
+            response = client.get(
+                "https://api.zoominfo.com/v1/lists",
+                headers={'Authorization': f'Bearer {zoominfo_token}'}
+            )
+            response.raise_for_status()
+            lists = response.json().get('lists', [])
+            return jsonify({"groups": [{"id": lst['id'], "name": lst['name']} for lst in lists]})
+    except Exception as e:
+        logger.error(f"Failed to fetch ZoomInfo groups: {e}")
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'GET':
@@ -334,11 +721,36 @@ def dashboard_data(user_id):
             logger.debug(f"Cache hit for {cache_key}")
             return jsonify(json.loads(cached_data))
 
-    lead_scores = [
-        {"contact_id": "contact1", "score": 85},
-        {"contact_id": "contact2", "score": 92}
-    ]
-    data = {"lead_scores": lead_scores}
+    # Fetch contacts count from database
+    cursor.execute("SELECT COUNT(*) FROM contacts WHERE user_id = ?", (user_id,))
+    total_contacts = cursor.fetchone()[0]
+
+    # Fetch duplicates count
+    cursor.execute("SELECT COUNT(*) FROM duplicates_log WHERE user_id = ?", (user_id,))
+    duplicates_detected = cursor.fetchone()[0]
+
+    # Fetch recent deals from RealNex
+    realnex_token = utils.get_token(user_id, "realnex", cursor)
+    recent_deals = 0
+    if realnex_token:
+        try:
+            with httpx.Client() as client:
+                response = client.get(
+                    "https://api.realnex.com/v1/deals",
+                    headers={'Authorization': f'Bearer {realnex_token}'},
+                    params={"limit": 5}
+                )
+                response.raise_for_status()
+                deals = response.json()
+                recent_deals = len(deals)
+        except Exception as e:
+            logger.error(f"Failed to fetch RealNex deals: {e}")
+
+    data = {
+        "total_contacts": total_contacts,
+        "recent_deals": recent_deals,
+        "duplicates_detected": duplicates_detected
+    }
 
     if redis_client:
         redis_client.setex(cache_key, 300, json.dumps(data))
@@ -503,6 +915,12 @@ def generate_report(user_id):
 @token_required
 def get_settings(user_id):
     settings = utils.get_user_settings(user_id, cursor, conn)
+    realnex_token = utils.get_token(user_id, "realnex", cursor) or ''
+    settings['realnex_token'] = realnex_token
+    settings['realnex_group_id'] = settings.get('realnex_group_id', '')
+    settings['apollo_group_id'] = settings.get('apollo_group_id', '')
+    settings['seamless_group_id'] = settings.get('seamless_group_id', '')
+    settings['zoominfo_group_id'] = settings.get('zoominfo_group_id', '')
     return jsonify(settings)
 
 @app.route('/save-settings', methods=['POST'])
@@ -513,6 +931,10 @@ def save_settings(user_id):
         realnex_token = data.get('realnex_token', '')
         mailchimp_group_id = data.get('mailchimp_group_id', '')
         constant_contact_group_id = data.get('constant_contact_group_id', '')
+        realnex_group_id = data.get('realnex_group_id', '')
+        apollo_group_id = data.get('apollo_group_id', '')
+        seamless_group_id = data.get('seamless_group_id', '')
+        zoominfo_group_id = data.get('zoominfo_group_id', '')
         language = data.get('language', 'en')
         subject_generator_enabled = 1 if data.get('subject_generator_enabled', False) else 0
         deal_alerts_enabled = 1 if data.get('deal_alerts_enabled', False) else 0
@@ -529,13 +951,24 @@ def save_settings(user_id):
         if data.get('constant_contact_token'):
             cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
                            (user_id, "constant_contact", data.get('constant_contact_token')))
+        if data.get('apollo_token'):
+            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
+                           (user_id, "apollo", data.get('apollo_token')))
+        if data.get('seamless_token'):
+            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
+                           (user_id, "seamless", data.get('seamless_token')))
+        if data.get('zoominfo_token'):
+            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
+                           (user_id, "zoominfo", data.get('zoominfo_token')))
 
         # Save settings to user_settings
         cursor.execute("""
             INSERT OR REPLACE INTO user_settings 
-            (user_id, language, subject_generator_enabled, deal_alerts_enabled, email_notifications, sms_notifications, mailchimp_group_id, constant_contact_group_id) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (user_id, language, subject_generator_enabled, deal_alerts_enabled, email_notifications, sms_notifications, mailchimp_group_id, constant_contact_group_id))
+            (user_id, language, subject_generator_enabled, deal_alerts_enabled, email_notifications, sms_notifications, 
+             mailchimp_group_id, constant_contact_group_id, realnex_group_id, apollo_group_id, seamless_group_id, zoominfo_group_id) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (user_id, language, subject_generator_enabled, deal_alerts_enabled, email_notifications, sms_notifications, 
+              mailchimp_group_id, constant_contact_group_id, realnex_group_id, apollo_group_id, seamless_group_id, zoominfo_group_id))
         
         conn.commit()
         logger.info(f"User {user_id} saved settings")
