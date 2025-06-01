@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CRE Chat Bot</title>
+    <title>Settings</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
     <style>
@@ -34,20 +34,17 @@
             align-items: center;
             z-index: 10;
         }
-        nav a, nav button {
+        nav a {
             color: #00ddeb;
             text-decoration: none;
             font-size: 14px;
             margin: 0 15px;
             transition: color 0.3s ease;
-            background: none;
-            border: none;
-            cursor: pointer;
         }
-        nav a:hover, nav button:hover {
+        nav a:hover {
             color: #ff6f61;
         }
-        #chat-container {
+        #settings-container {
             width: 100%;
             max-width: 700px;
             background: rgba(255, 255, 255, 0.1);
@@ -57,6 +54,7 @@
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
             border: 1px solid rgba(255, 255, 255, 0.2);
             margin-top: 60px;
+            color: white;
         }
         h1 {
             color: #00ddeb;
@@ -66,71 +64,47 @@
             text-transform: uppercase;
             letter-spacing: 2px;
         }
-        #messages {
-            max-height: 400px;
-            overflow-y: auto;
+        .setting-group {
             margin-bottom: 20px;
-            padding: 15px;
-            background: rgba(0, 0, 0, 0.3);
-            border-radius: 15px;
         }
-        .message {
-            margin-bottom: 15px;
-            padding: 10px 15px;
-            border-radius: 15px;
-            max-width: 80%;
-            word-wrap: break-word;
+        .setting-group label {
+            display: block;
+            font-size: 14px;
+            margin-bottom: 5px;
+            color: #00ddeb;
         }
-        .user-message {
-            background: linear-gradient(135deg, #00ddeb, #007bff);
-            color: white;
-            margin-left: auto;
-            margin-right: 5%;
-        }
-        .bot-message {
-            background: linear-gradient(135deg, #ff6f61, #ff3e5a);
-            color: white;
-            margin-right: auto;
-            margin-left: 5%;
-        }
-        #input-container {
-            display: flex;
-            gap: 10px;
-            align-items: center;
+        .setting-group input, .setting-group select {
+            width: 100%;
+            padding: 10px;
             background: rgba(255, 255, 255, 0.05);
-            padding: 10px;
-            border-radius: 15px;
             border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        #message-input {
-            flex-grow: 1;
-            padding: 10px;
-            background: transparent;
-            border: none;
+            border-radius: 10px;
             color: white;
-            outline: none;
             font-size: 14px;
         }
-        #message-input::placeholder {
-            color: rgba(255, 255, 255, 0.5);
+        .setting-group input[type="checkbox"] {
+            width: auto;
+            margin-right: 10px;
         }
         button {
-            background: none;
+            background: linear-gradient(135deg, #00ddeb, #007bff);
             border: none;
-            color: #00ddeb;
-            font-size: 18px;
+            padding: 10px 20px;
+            border-radius: 10px;
+            color: white;
+            font-size: 14px;
             cursor: pointer;
-            padding: 8px;
-            transition: color 0.3s ease;
+            margin: 5px;
+            transition: background 0.3s ease;
         }
         button:hover {
-            color: #ff6f61;
+            background: linear-gradient(135deg, #ff6f61, #ff3e5a);
         }
-        #voice-status {
-            color: rgba(255, 255, 255, 0.7);
+        #status-message {
             text-align: center;
             margin-top: 10px;
-            font-size: 12px;
+            font-size: 14px;
+            color: #ff6f61;
         }
         @media (max-width: 600px) {
             nav {
@@ -138,26 +112,13 @@
                 gap: 5px;
                 padding: 10px;
             }
-            nav a, nav button {
+            nav a {
                 margin: 5px 0;
             }
-            #chat-container {
+            #settings-container {
                 max-width: 100%;
                 padding: 15px;
                 margin-top: 120px;
-            }
-            #messages {
-                max-height: 300px;
-            }
-            #input-container {
-                flex-wrap: wrap;
-                gap: 5px;
-            }
-            #message-input {
-                font-size: 12px;
-            }
-            button {
-                font-size: 16px;
             }
         }
     </style>
@@ -169,169 +130,274 @@
             <a href="/dashboard"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
             <a href="/deal-trends"><i class="fas fa-chart-line"></i> Deal Trends</a>
             <a href="/ocr"><i class="fas fa-camera"></i> OCR Scanner</a>
-            <button onclick="openSettings()"><i class="fas fa-cog"></i> Settings</button>
+            <a href="/settings"><i class="fas fa-cog"></i> Settings</a>
         </div>
     </nav>
-    <div id="chat-container">
-        <h1>CRE Chat Bot</h1>
-        <div id="messages"></div>
-        <div id="input-container">
-            <input type="text" id="message-input" placeholder="Type your command...">
-            <button onclick="sendMessage()" title="Send Message"><i class="fas fa-paper-plane"></i></button>
-            <button onclick="toggleVoiceInput()" id="voice-btn" title="Voice Input"><i class="fas fa-microphone"></i></button>
-            <button onclick="speakLastResponse()" id="speak-btn" title="Hear Response"><i class="fas fa-volume-up"></i></button>
+    <div id="settings-container">
+        <h1>Settings</h1>
+        <div class="setting-group">
+            <label>RealNex API Token</label>
+            <input type="text" id="realnex-token" placeholder="Enter your RealNex API token">
         </div>
-        <div id="voice-status"></div>
+        <div class="setting-group">
+            <label>RealNex Group to Sync With</label>
+            <select id="realnex-group">
+                <option value="">Select a RealNex group</option>
+            </select>
+        </div>
+        <div class="setting-group">
+            <label>Mailchimp Integration</label>
+            <button onclick="authorizeMailchimp()">Login to Mailchimp</button>
+            <select id="mailchimp-group" style="margin-top: 10px;">
+                <option value="">Select a Mailchimp group</option>
+            </select>
+        </div>
+        <div class="setting-group">
+            <label>Constant Contact Integration</label>
+            <button onclick="authorizeConstantContact()">Login to Constant Contact</button>
+            <select id="constant-contact-group" style="margin-top: 10px;">
+                <option value="">Select a Constant Contact group</option>
+            </select>
+        </div>
+        <div class="setting-group">
+            <label>Apollo.io Integration</label>
+            <button onclick="authorizeApollo()">Login to Apollo.io</button>
+            <select id="apollo-group" style="margin-top: 10px;">
+                <option value="">Select an Apollo.io list</option>
+            </select>
+        </div>
+        <div class="setting-group">
+            <label>Seamless.AI Integration</label>
+            <button onclick="authorizeSeamless()">Login to Seamless.AI</button>
+            <select id="seamless-group" style="margin-top: 10px;">
+                <option value="">Select a Seamless.AI list</option>
+            </select>
+        </div>
+        <div class="setting-group">
+            <label>ZoomInfo Integration</label>
+            <button onclick="authorizeZoomInfo()">Login to ZoomInfo</button>
+            <select id="zoominfo-group" style="margin-top: 10px;">
+                <option value="">Select a ZoomInfo list</option>
+            </select>
+        </div>
+        <div class="setting-group">
+            <label for="language">Language</label>
+            <select id="language">
+                <option value="en">English</option>
+                <option value="es">Spanish</option>
+            </select>
+        </div>
+        <div class="setting-group">
+            <label><input type="checkbox" id="subject-generator-enabled"> Enable Subject Generator</label>
+        </div>
+        <div class="setting-group">
+            <label><input type="checkbox" id="deal-alerts-enabled"> Enable Deal Alerts</label>
+        </div>
+        <div class="setting-group">
+            <label><input type="checkbox" id="email-notifications"> Enable Email Notifications</label>
+        </div>
+        <div class="setting-group">
+            <label><input type="checkbox" id="sms-notifications"> Enable SMS Notifications</label>
+        </div>
+        <button onclick="saveSettings()">Save Settings</button>
+        <div id="status-message"></div>
     </div>
 
     <script>
-        let recognition;
-        let isListening = false;
-        let lastBotResponse = '';
-
-        // Load messages on page load
+        // Load current settings and groups
         window.onload = function() {
-            fetch('/get-messages', {
+            // Fetch current settings
+            fetch('/settings-data', {
                 headers: {
                     'Authorization': 'Bearer ' + localStorage.getItem('token')
                 }
             })
             .then(response => response.json())
             .then(data => {
-                const messagesDiv = document.getElementById('messages');
-                data.messages.forEach(msg => {
-                    addMessage(msg.sender, msg.message);
+                document.getElementById('realnex-token').value = data.realnex_token || '';
+                document.getElementById('language').value = data.language || 'en';
+                document.getElementById('subject-generator-enabled').checked = data.subject_generator_enabled;
+                document.getElementById('deal-alerts-enabled').checked = data.deal_alerts_enabled;
+                document.getElementById('email-notifications').checked = data.email_notifications;
+                document.getElementById('sms-notifications').checked = data.sms_notifications;
+                document.getElementById('mailchimp-group').value = data.mailchimp_group_id || '';
+                document.getElementById('constant-contact-group').value = data.constant_contact_group_id || '';
+                document.getElementById('realnex-group').value = data.realnex_group_id || '';
+                document.getElementById('apollo-group').value = data.apollo_group_id || '';
+                document.getElementById('seamless-group').value = data.seamless_group_id || '';
+                document.getElementById('zoominfo-group').value = data.zoominfo_group_id || '';
+            });
+
+            // Fetch RealNex groups
+            fetch('/realnex-groups', {
+                headers: {
+                    'Authorization': 'Bearer ' + localStorage.getItem('token')
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                const realnexGroupSelect = document.getElementById('realnex-group');
+                data.groups.forEach(group => {
+                    const option = document.createElement('option');
+                    option.value = group.id;
+                    option.textContent = group.name;
+                    realnexGroupSelect.appendChild(option);
                 });
+            });
+
+            // Fetch Mailchimp groups if already authorized
+            fetch('/mailchimp-groups', {
+                headers: {
+                    'Authorization': 'Bearer ' + localStorage.getItem('token')
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.groups) {
+                    const mailchimpGroupSelect = document.getElementById('mailchimp-group');
+                    data.groups.forEach(group => {
+                        const option = document.createElement('option');
+                        option.value = group.id;
+                        option.textContent = group.name;
+                        mailchimpGroupSelect.appendChild(option);
+                    });
+                }
+            });
+
+            // Fetch Constant Contact groups if already authorized
+            fetch('/constant-contact-groups', {
+                headers: {
+                    'Authorization': 'Bearer ' + localStorage.getItem('token')
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.groups) {
+                    const ccGroupSelect = document.getElementById('constant-contact-group');
+                    data.groups.forEach(group => {
+                        const option = document.createElement('option');
+                        option.value = group.id;
+                        option.textContent = group.name;
+                        ccGroupSelect.appendChild(option);
+                    });
+                }
+            });
+
+            // Fetch Apollo.io lists if already authorized
+            fetch('/apollo-groups', {
+                headers: {
+                    'Authorization': 'Bearer ' + localStorage.getItem('token')
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.groups) {
+                    const apolloGroupSelect = document.getElementById('apollo-group');
+                    data.groups.forEach(group => {
+                        const option = document.createElement('option');
+                        option.value = group.id;
+                        option.textContent = group.name;
+                        apolloGroupSelect.appendChild(option);
+                    });
+                }
+            });
+
+            // Fetch Seamless.AI lists if already authorized
+            fetch('/seamless-groups', {
+                headers: {
+                    'Authorization': 'Bearer ' + localStorage.getItem('token')
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.groups) {
+                    const seamlessGroupSelect = document.getElementById('seamless-group');
+                    data.groups.forEach(group => {
+                        const option = document.createElement('option');
+                        option.value = group.id;
+                        option.textContent = group.name;
+                        seamlessGroupSelect.appendChild(option);
+                    });
+                }
+            });
+
+            // Fetch ZoomInfo lists if already authorized
+            fetch('/zoominfo-groups', {
+                headers: {
+                    'Authorization': 'Bearer ' + localStorage.getItem('token')
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.groups) {
+                    const zoominfoGroupSelect = document.getElementById('zoominfo-group');
+                    data.groups.forEach(group => {
+                        const option = document.createElement('option');
+                        option.value = group.id;
+                        option.textContent = group.name;
+                        zoominfoGroupSelect.appendChild(option);
+                    });
+                }
             });
         };
 
-        function addMessage(sender, message) {
-            const messagesDiv = document.getElementById('messages');
-            const msgDiv = document.createElement('div');
-            msgDiv.className = 'message ' + (sender === 'user' ? 'user-message' : 'bot-message');
-            msgDiv.textContent = `${sender}: ${message}`;
-            messagesDiv.appendChild(msgDiv);
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
-
-            if (sender === 'bot') {
-                lastBotResponse = message;
-            }
+        function authorizeMailchimp() {
+            window.location.href = '/authorize-mailchimp';
         }
 
-        function sendMessage() {
-            const input = document.getElementById('message-input');
-            const message = input.value.trim();
-            if (message) {
-                addMessage('user', message);
-                fetch('/save-message', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': 'Bearer ' + localStorage.getItem('token')
-                    },
-                    body: JSON.stringify({ sender: 'user', message: message })
-                });
-
-                fetch('/ask', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': 'Bearer ' + localStorage.getItem('token')
-                    },
-                    body: JSON.stringify({ query: message })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    addMessage('bot', data.response);
-                    fetch('/save-message', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': 'Bearer ' + localStorage.getItem('token')
-                        },
-                        body: JSON.stringify({ sender: 'bot', message: data.response })
-                    });
-                });
-                input.value = '';
-            }
+        function authorizeConstantContact() {
+            window.location.href = '/authorize-constant-contact';
         }
 
-        // Voice Input with Web Speech API
-        function toggleVoiceInput() {
-            const voiceBtn = document.getElementById('voice-btn');
-            const voiceStatus = document.getElementById('voice-status');
-
-            if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-                alert('Sorry, your browser does not support speech recognition.');
-                return;
-            }
-
-            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            recognition = new SpeechRecognition();
-            recognition.continuous = false;
-            recognition.interimResults = false;
-            recognition.lang = 'en-US';
-
-            if (!isListening) {
-                recognition.start();
-                isListening = true;
-                voiceBtn.innerHTML = '<i class="fas fa-microphone-slash"></i>';
-                voiceStatus.textContent = 'Listening...';
-
-                recognition.onresult = function(event) {
-                    const transcript = event.results[0][0].transcript;
-                    document.getElementById('message-input').value = transcript;
-                    voiceStatus.textContent = 'Heard: ' + transcript;
-                    sendMessage();
-                };
-
-                recognition.onend = function() {
-                    isListening = false;
-                    voiceBtn.innerHTML = '<i class="fas fa-microphone"></i>';
-                    voiceStatus.textContent = '';
-                };
-
-                recognition.onerror = function(event) {
-                    voiceStatus.textContent = 'Error: ' + event.error;
-                    isListening = false;
-                    voiceBtn.innerHTML = '<i class="fas fa-microphone"></i>';
-                };
-            } else {
-                recognition.stop();
-                isListening = false;
-                voiceBtn.innerHTML = '<i class="fas fa-microphone"></i>';
-                voiceStatus.textContent = '';
-            }
+        function authorizeApollo() {
+            window.location.href = '/authorize-apollo';
         }
 
-        // Text-to-Speech for Bot Responses
-        function speakLastResponse() {
-            if (!lastBotResponse) {
-                alert('No bot response to speak.');
-                return;
-            }
-
-            if (!('speechSynthesis' in window)) {
-                alert('Sorry, your browser does not support text-to-speech.');
-                return;
-            }
-
-            const utterance = new SpeechSynthesisUtterance(lastBotResponse);
-            utterance.lang = 'en-US';
-            window.speechSynthesis.speak(utterance);
+        function authorizeSeamless() {
+            window.location.href = '/authorize-seamless';
         }
 
-        // Navigate to Settings Page
-        function openSettings() {
-            window.location.href = '/settings';
+        function authorizeZoomInfo() {
+            window.location.href = '/authorize-zoominfo';
         }
 
-        // Send message on Enter key
-        document.getElementById('message-input').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                sendMessage();
-            }
-        });
+        function saveSettings() {
+            const settings = {
+                realnex_token: document.getElementById('realnex-token').value,
+                mailchimp_group_id: document.getElementById('mailchimp-group').value,
+                constant_contact_group_id: document.getElementById('constant-contact-group').value,
+                realnex_group_id: document.getElementById('realnex-group').value,
+                apollo_group_id: document.getElementById('apollo-group').value,
+                seamless_group_id: document.getElementById('seamless-group').value,
+                zoominfo_group_id: document.getElementById('zoominfo-group').value,
+                language: document.getElementById('language').value,
+                subject_generator_enabled: document.getElementById('subject-generator-enabled').checked,
+                deal_alerts_enabled: document.getElementById('deal-alerts-enabled').checked,
+                email_notifications: document.getElementById('email-notifications').checked,
+                sms_notifications: document.getElementById('sms-notifications').checked
+            };
+
+            fetch('/save-settings', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + localStorage.getItem('token')
+                },
+                body: JSON.stringify(settings)
+            })
+            .then(response => response.json())
+            .then(data => {
+                const statusMessage = document.getElementById('status-message');
+                if (data.status) {
+                    statusMessage.textContent = 'Settings saved successfully!';
+                } else {
+                    statusMessage.textContent = 'Error: ' + data.error;
+                }
+            })
+            .catch(err => {
+                document.getElementById('status-message').textContent = 'Error: ' + err.message;
+            });
+        }
     </script>
 </body>
 </html>
