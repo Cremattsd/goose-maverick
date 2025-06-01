@@ -4,109 +4,177 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OCR Scanner</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
     <style>
-        body {
-            background: linear-gradient(135deg, #1e3a8a, #3b82f6);
-            font-family: 'Inter', sans-serif;
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Poppins', sans-serif;
         }
-        .glass {
+        body {
+            background: linear-gradient(135deg, #1a1a2e, #16213e);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(5px);
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
+        }
+        nav a {
+            color: #00ddeb;
+            text-decoration: none;
+            font-size: 14px;
+            margin: 0 15px;
+            transition: color 0.3s ease;
+        }
+        nav a:hover {
+            color: #ff6f61;
+        }
+        #scanner-container {
+            width: 100%;
+            max-width: 700px;
             background: rgba(255, 255, 255, 0.1);
             backdrop-filter: blur(10px);
-            border-radius: 1rem;
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
             border: 1px solid rgba(255, 255, 255, 0.2);
-            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+            margin-top: 60px;
+            color: white;
         }
-        .btn {
-            transition: transform 0.2s ease;
+        h1 {
+            color: #00ddeb;
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 24px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
         }
-        .btn:hover {
-            transform: translateY(-2px);
+        #drop-zone {
+            border: 2px dashed #00ddeb;
+            border-radius: 15px;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 20px;
+            background: rgba(0, 0, 0, 0.3);
+            transition: background 0.3s ease;
         }
-        .drop-zone {
-            border: 2px dashed rgba(255, 255, 255, 0.5);
-            transition: all 0.3s ease;
+        #drop-zone.dragover {
+            background: rgba(0, 0, 0, 0.5);
         }
-        .drop-zone.dragover {
-            background: rgba(255, 255, 255, 0.2);
-            border-color: #3b82f6;
+        #drop-zone p {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+        }
+        #preview {
+            width: 100%;
+            max-height: 300px;
+            margin-bottom: 20px;
+            display: none;
+            border-radius: 10px;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 15px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-size: 14px;
+        }
+        button, label {
+            background: linear-gradient(135deg, #00ddeb, #007bff);
+            border: none;
+            padding: 10px 20px;
+            border-radius: 10px;
+            color: white;
+            font-size: 14px;
+            cursor: pointer;
+            display: inline-block;
+            margin: 5px;
+            transition: background 0.3s ease;
+        }
+        button:hover, label:hover {
+            background: linear-gradient(135deg, #ff6f61, #ff3e5a);
+        }
+        input[type="file"] {
+            display: none;
+        }
+        @media (max-width: 600px) {
+            nav {
+                flex-direction: column;
+                gap: 5px;
+                padding: 10px;
+            }
+            nav a {
+                margin: 5px 0;
+            }
+            #scanner-container {
+                max-width: 100%;
+                padding: 15px;
+                margin-top: 120px;
+            }
+            #preview {
+                max-height: 200px;
+            }
+            #drop-zone {
+                padding: 15px;
+            }
+            #result {
+                max-height: 150px;
+                font-size: 12px;
+            }
         }
     </style>
 </head>
-<body class="min-h-screen flex items-center justify-center">
-    <div class="container mx-auto p-6 glass max-w-4xl">
-        <h1 class="text-3xl font-bold text-white text-center mb-6">OCR Scanner</h1>
-        <p class="text-center text-white mb-4">Upload a business card or document to extract text!</p>
-        <div class="flex justify-center mb-4">
-            <div id="dropZone" class="drop-zone p-6 rounded-lg text-center text-white">
-                <p>Drag & Drop Image Here or Click to Upload</p>
-                <input type="file" id="imageUpload" accept="image/*" class="hidden" onchange="processImage(event)">
-            </div>
+<body>
+    <nav>
+        <a href="/chat-hub"><i class="fas fa-comment-alt"></i> Chat Hub</a>
+        <div>
+            <a href="/dashboard"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
+            <a href="/deal-trends"><i class="fas fa-chart-line"></i> Deal Trends</a>
+            <a href="/ocr"><i class="fas fa-camera"></i> OCR Scanner</a>
+            <a href="/settings"><i class="fas fa-cog"></i> Settings</a>
         </div>
-        <div class="flex justify-center">
-            <button onclick="processImage()" class="btn bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Scan</button>
+    </nav>
+    <div id="scanner-container">
+        <h1>OCR Scanner</h1>
+        <div id="drop-zone">
+            <p>Drag & Drop Files Here (PDF, XLSX, Images) or</p>
+            <label for="file-input"><i class="fas fa-upload"></i> Browse Files</label>
+            <input type="file" id="file-input" accept=".xlsx,.pdf,.png,.jpg,.jpeg">
         </div>
-        <div id="ocrResult" class="mt-4 p-4 glass rounded-lg hidden">
-            <h2 class="text-xl font-semibold text-white mb-2">Extracted Text</h2>
-            <pre id="extractedText" class="text-white whitespace-pre-wrap"></pre>
-        </div>
-        <div class="mt-6 flex justify-center">
-            <a href="/chat-hub" class="btn bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Back to Chat Hub</a>
-        </div>
+        <button onclick="startCamera()"><i class="fas fa-camera"></i> Use Camera</button>
+        <button onclick="captureImage()" id="capture-btn" style="display: none;"><i class="fas fa-camera-retro"></i> Capture</button>
+        <button onclick="stopCamera()" id="stop-btn" style="display: none;"><i class="fas fa-stop"></i> Stop Camera</button>
+        <video id="preview" autoplay></video>
+        <div id="result"></div>
     </div>
+
     <script>
-        async function processImage(event) {
-            const fileInput = document.getElementById('imageUpload');
-            const file = event ? (event.target.files[0] || event.dataTransfer.files[0]) : fileInput.files[0];
-            if (!file) {
-                alert('Please select an image!');
-                return;
-            }
+        let stream;
+        const video = document.getElementById('preview');
+        const captureBtn = document.getElementById('capture-btn');
+        const stopBtn = document.getElementById('stop-btn');
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const resultDiv = document.getElementById('result');
 
-            const formData = new FormData();
-            formData.append('image', file);
-
-            const token = localStorage.getItem('token');
-            if (!token) {
-                window.location.href = '/login?redirect=/ocr';
-                return;
-            }
-
-            const response = await fetchWithErrorHandling('/process-ocr', {
-                method: 'POST',
-                headers: { 'Authorization': 'Bearer ' + token },
-                body: formData
-            });
-
-            if (response) {
-                const ocrResult = document.getElementById('ocrResult');
-                const extractedText = document.getElementById('extractedText');
-                extractedText.textContent = response.text;
-                ocrResult.classList.remove('hidden');
-            }
-        }
-
-        async function fetchWithErrorHandling(url, options) {
-            try {
-                const response = await fetch(url, options);
-                if (response.status === 401) {
-                    window.location.href = '/login?redirect=/ocr';
-                    return null;
-                }
-                if (!response.ok) {
-                    alert(`Error: ${response.statusText}`);
-                    return null;
-                }
-                return await response.json();
-            } catch (error) {
-                alert(`Error: ${error.message}`);
-                return null;
-            }
-        }
-
-        const dropZone = document.getElementById('dropZone');
-        const imageUploadInput = document.getElementById('imageUpload');
-
+        // Drag-and-Drop Handlers
         dropZone.addEventListener('dragover', (e) => {
             e.preventDefault();
             dropZone.classList.add('dragover');
@@ -121,14 +189,94 @@
             dropZone.classList.remove('dragover');
             const files = e.dataTransfer.files;
             if (files.length > 0) {
-                imageUploadInput.files = files;
-                processImage(e);
+                handleFiles(files);
             }
         });
 
-        dropZone.addEventListener('click', () => {
-            imageUploadInput.click();
+        // File Input Handler
+        fileInput.addEventListener('change', (e) => {
+            const files = e.target.files;
+            if (files.length > 0) {
+                handleFiles(files);
+            }
         });
+
+        function handleFiles(files) {
+            const file = files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+
+            fetch('/upload-file', {
+                method: 'POST',
+                headers: {
+                    'Authorization': 'Bearer ' + localStorage.getItem('token')
+                },
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    resultDiv.textContent = 'Error: ' + data.error;
+                } else {
+                    resultDiv.textContent = JSON.stringify(data.contacts, null, 2);
+                }
+            })
+            .catch(err => {
+                resultDiv.textContent = 'Error: ' + err.message;
+            });
+        }
+
+        // Camera Access
+        async function startCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+                video.style.display = 'block';
+                captureBtn.style.display = 'inline-block';
+                stopBtn.style.display = 'inline-block';
+            } catch (err) {
+                resultDiv.textContent = 'Error accessing camera: ' + err.message;
+            }
+        }
+
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                video.style.display = 'none';
+                captureBtn.style.display = 'none';
+                stopBtn.style.display = 'none';
+            }
+        }
+
+        function captureImage() {
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            canvas.toBlob(blob => {
+                const formData = new FormData();
+                formData.append('file', blob, 'capture.jpg');
+
+                fetch('/upload-file', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + localStorage.getItem('token')
+                    },
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        resultDiv.textContent = 'Error: ' + data.error;
+                    } else {
+                        resultDiv.textContent = JSON.stringify(data.contacts, null, 2);
+                    }
+                })
+                .catch(err => {
+                    resultDiv.textContent = 'Error: ' + err.message;
+                });
+            }, 'image/jpeg');
+        }
     </script>
 </body>
 </html>
