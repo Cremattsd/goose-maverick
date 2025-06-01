@@ -71,7 +71,7 @@ def log_user_activity(user_id, action, details, cursor, conn):
 
 def get_user_settings(user_id, cursor, conn):
     """Retrieve user settings from the database or return defaults."""
-    cursor.execute("SELECT language, subject_generator_enabled, deal_alerts_enabled, email_notifications, sms_notifications, mailchimp_group_id, constant_contact_group_id FROM user_settings WHERE user_id = ?", (user_id,))
+    cursor.execute("SELECT language, subject_generator_enabled, deal_alerts_enabled, email_notifications, sms_notifications, mailchimp_group_id, constant_contact_group_id, realnex_group_id, apollo_group_id, seamless_group_id, zoominfo_group_id FROM user_settings WHERE user_id = ?", (user_id,))
     result = cursor.fetchone()
     if result:
         return {
@@ -81,7 +81,11 @@ def get_user_settings(user_id, cursor, conn):
             "email_notifications": bool(result[3]),
             "sms_notifications": bool(result[4]),
             "mailchimp_group_id": result[5],
-            "constant_contact_group_id": result[6]
+            "constant_contact_group_id": result[6],
+            "realnex_group_id": result[7],
+            "apollo_group_id": result[8],
+            "seamless_group_id": result[9],
+            "zoominfo_group_id": result[10]
         }
     default_settings = {
         "language": "en",
@@ -90,10 +94,18 @@ def get_user_settings(user_id, cursor, conn):
         "email_notifications": True,
         "sms_notifications": True,
         "mailchimp_group_id": "",
-        "constant_contact_group_id": ""
+        "constant_contact_group_id": "",
+        "realnex_group_id": "",
+        "apollo_group_id": "",
+        "seamless_group_id": "",
+        "zoominfo_group_id": ""
     }
-    cursor.execute("INSERT INTO user_settings (user_id, language, subject_generator_enabled, deal_alerts_enabled, email_notifications, sms_notifications, mailchimp_group_id, constant_contact_group_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                   (user_id, default_settings["language"], 1, 1, 1, 1, "", ""))
+    cursor.execute("""
+        INSERT INTO user_settings 
+        (user_id, language, subject_generator_enabled, deal_alerts_enabled, email_notifications, sms_notifications, 
+         mailchimp_group_id, constant_contact_group_id, realnex_group_id, apollo_group_id, seamless_group_id, zoominfo_group_id) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (user_id, default_settings["language"], 1, 1, 1, 1, "", "", "", "", "", ""))
     conn.commit()
     return default_settings
 
@@ -201,19 +213,42 @@ def check_2fa(user_id, code, cursor, conn):
     log_user_activity(user_id, "check_2fa", {"status": "failed"}, cursor, conn)
     return False
 
+def hash_entity(entity, entity_type):
+    """Generate a unique hash for an entity based on its type and key fields."""
+    if entity_type == "contact":
+        key_fields = f"{entity.get('name', '')}{entity.get('email', '')}".lower()
+    elif entity_type == "company":
+        key_fields = f"{entity.get('name', '')}{entity.get('address', '')}".lower()
+    elif entity_type == "property":
+        key_fields = f"{entity.get('address', '')}{entity.get('city', '')}{entity.get('zip', '')}".lower()
+    elif entity_type == "space":
+        key_fields = f"{entity.get('property_id', '')}{entity.get('space_number', '')}".lower()
+    else:
+        raise ValueError(f"Unsupported entity type: {entity_type}")
+    
+    return hashlib.sha256(key_fields.encode('utf-8')).hexdigest()
+
 def hash_contact(contact):
     """Generate a hash of a contact's key fields to detect duplicates."""
     key_fields = f"{contact.get('Email', '')}{contact.get('Full Name', '')}{contact.get('Work Phone', '')}"
     return hashlib.sha256(key_fields.encode()).hexdigest()
 
-def log_duplicate(user_id, contact, cursor, conn):
-    """Log a duplicate contact in the database."""
-    contact_hash = hash_contact(contact)
+def log_duplicate(user_id, entity, entity_type, cursor, conn):
+    """Log a duplicate entity in the duplicates_log table."""
+    # Use hash_contact for contacts for backward compatibility, hash_entity for others
+    entity_hash = hash_contact(entity) if entity_type == "contact" else hash_entity(entity, entity_type)
     timestamp = datetime.now().isoformat()
     cursor.execute("INSERT INTO duplicates_log (user_id, contact_hash, contact_data, timestamp) VALUES (?, ?, ?, ?)",
-                   (user_id, contact_hash, json.dumps(contact), timestamp))
+                   (user_id, entity_hash, json.dumps({**entity, "entity_type": entity_type}), timestamp))
     conn.commit()
-    log_user_activity(user_id, "log_duplicate", {"contact_hash": contact_hash}, cursor, conn)
+    log_user_activity(user_id, "log_duplicate", {"contact_hash": entity_hash}, cursor, conn)
+
+def log_health_history(user_id, contact_id, email_score, phone_score, cursor, conn):
+    """Log email and phone health scores in the health_history table."""
+    timestamp = datetime.now().isoformat()
+    cursor.execute("INSERT INTO health_history (user_id, contact_id, email_health_score, phone_health_score, timestamp) VALUES (?, ?, ?, ?, ?)",
+                   (user_id, contact_id, email_score, phone_score, timestamp))
+    conn.commit()
 
 def generate_deal_trend_chart(user_id, historical_data, deal_type, cursor, conn):
     """Generate a trend chart for deal predictions."""
