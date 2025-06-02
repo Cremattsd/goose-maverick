@@ -19,6 +19,7 @@ import pytesseract
 from PIL import Image
 import PyPDF2
 import cmd_sync_data
+from functools import wraps
 
 # Configure logging for better debugging
 logging.basicConfig(
@@ -129,20 +130,20 @@ conn.commit()
 
 # JWT Token Required Decorator
 def token_required(f):
-    def decorated(*args, **kwargs):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
         token = request.headers.get('Authorization', '').replace('Bearer ', '')
         if not token:
             return jsonify({"error": "Token is missing"}), 401
         try:
             data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
-            kwargs['user_id'] = data.get('user_id', 'default')
+            user_id = data.get('user_id', 'default')
         except jwt.ExpiredSignatureError:
             return jsonify({"error": "Token has expired"}), 401
         except jwt.InvalidTokenError:
             return jsonify({"error": "Invalid token"}), 401
-        return f(*args, **kwargs)
-    decorated.__name__ = f.__name__
-    return decorated
+        return f(user_id, *args, **kwargs)
+    return decorated_function
 
 # Helper function for PDF reports
 def generate_pdf_report(user_id, data, report_title):
@@ -216,8 +217,7 @@ def field_map(user_id):
 def ocr_page(user_id):
     logger.info("OCR scanner page accessed.")
     return render_template('ocr.html')
-
-@app.route('/upload-file', methods=['POST'])
+    @app.route('/upload-file', methods=['POST'])
 @token_required
 def upload_file(user_id):
     if 'file' not in request.files:
@@ -231,1012 +231,1934 @@ def upload_file(user_id):
     file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     file.save(file_path)
 
+    # Fetch users for logging
+    import asyncio
+    users = asyncio.run(utils.get_users(user_id, cursor))
+    user_name = "Unknown"
+    if users:
+        for user in users:
+            if user.get("userId") == user_id:
+                user_name = user.get("userName", "Unknown")
+                break
+
     # Determine file type and process
     try:
         if filename.endswith('.xlsx'):
             # Process XLSX
             df = pd.read_excel(file_path)
-            contacts = df.to_dict('records')
+            contacts = []
+            companies = []
+            properties = []
+            spaces = []
+            projects = []
+            leasecomps = []
+            salecomps = []
+            events = []
+            history_entries = []
+
+            # Map XLSX columns to RealNex entities
+            for _, row in df.iterrows():
+                # Contact
+                if 'Full Name' in row or 'Email' in row:
+                    full_name = str(row.get('Full Name', ''))
+                    contact = {
+                        "Full Name": full_name,
+                        "Email": str(row.get('Email', '')),
+                        "Phone": str(row.get('Phone', '')),
+                        "Address": str(row.get('Address', '')),
+                        "City": str(row.get('City', '')),
+                        "State": str(row.get('State', '')),
+                        "Zip": str(row.get('Zip', '')),
+                        "Prospect": bool(row.get('Prospect', True)),
+                        "Investor": bool(row.get('Investor', False))
+                    }
+                    contacts.append(contact)
+
+                # Company
+                if 'Company Name' in row:
+                    company = {
+                        "Name": str(row.get('Company Name', '')),
+                        "Address": str(row.get('Address', '')),
+                        "City": str(row.get('City', '')),
+                        "State": str(row.get('State', '')),
+                        "Zip": str(row.get('Zip', '')),
+                        "Email": str(row.get('Email', '')),
+                        "Phone": str(row.get('Phone', '')),
+                        "Prospect": bool(row.get('Prospect', True))
+                    }
+                    companies.append(company)
+
+                # Property
+                if 'Property Name' in row:
+                    property = {
+                        "Name": str(row.get('Property Name', '')),
+                        "Address": str(row.get('Address', '')),
+                        "City": str(row.get('City', '')),
+                        "State": str(row.get('State', '')),
+                        "Zip": str(row.get('Zip', '')),
+                        "For Sale": bool(row.get('For Sale', False)),
+                        "For Lease": bool(row.get('For Lease', False)),
+                        "Owner Occupied": bool(row.get('Owner Occupied', False)),
+                        "Square Feet": float(row.get('Square Feet', 0)),
+                        "id": f"prop_{len(properties)}_{user_id}"
+                    }
+                    properties.append(property)
+
+                # Space
+                if 'Space Number' in row and properties:
+                    space = {
+                        "Property ID": properties[-1]["id"],
+                        "Suite": str(row.get('Space Number', '')),
+                        "Is Available": bool(row.get('Is Available', True)),
+                        "Is Office": bool(row.get('Is Office', False))
+                    }
+                    spaces.append(space)
+
+                # Project
+                if 'Project Name' in row:
+                    project = {
+                        "Project": str(row.get('Project Name', '')),
+                        "Status": str(row.get('Project Status', 'Open')),
+                        "Date Opened": str(row.get('Date Opened', '2025-06-01T00:00:00Z'))
+                    }
+                    projects.append(project)
+
+                # LeaseComp
+                if 'Lease Suite' in row and properties:
+                    leasecomp = {
+                        "Suite": str(row.get('Lease Suite', '')),
+                        "Property Name": properties[-1]["Name"] if properties else "Unknown Property",
+                        "Deal Date": str(row.get('Deal Date', '2025-06-01T00:00:00Z')),
+                        "Lease Commencement": str(row.get('Lease Commencement', '2025-06-01T00:00:00Z')),
+                        "Lease Expiry": str(row.get('Lease Expiry', '2025-06-01T00:00:00Z'))
+                    }
+                    leasecomps.append(leasecomp)
+
+                # SaleComp
+                if 'Sale Property' in row:
+                    salecomp = {
+                        "Property Name": str(row.get('Sale Property', '')),
+                        "Sale Date": str(row.get('Sale Date', '2025-06-01T00:00:00Z')),
+                        "Sale Price": float(row.get('Sale Price', 0))
+                    }
+                    salecomps.append(salecomp)
+
+                # Event
+                if 'Meeting Subject' in row:
+                    event = {
+                        "Subject": str(row.get('Meeting Subject', '')),
+                        "Start Date": str(row.get('Start Date', '2025-06-01T09:00:00Z')),
+                        "End Date": str(row.get('End Date', '2025-06-01T10:00:00Z'))
+                    }
+                    events.append(event)
+
+                # History
+                if 'History' in row:
+                    history_text = str(row.get('History', ''))
+                    # Parse history like "Matthew Smith 'History: Matt is good at jokes'"
+                    try:
+                        if 'History:' in history_text:
+                            parts = history_text.split('History:', 1)
+                            contact_name = parts[0].strip()
+                            history_note = parts[1].strip()
+                            nickname = history_note.split(' ')[0] if history_note else contact_name.split(' ')[0]
+                            history_entries.append({
+                                "contact_name": contact_name,
+                                "nickname": nickname,
+                                "history_note": history_note
+                            })
+                    except Exception as e:
+                        logger.error(f"Failed to parse history entry '{history_text}': {e}")
+
+            # Process entities
+            realnex_token = utils.get_token(user_id, "realnex", cursor)
+            realnex_group_id = utils.get_user_settings(user_id, cursor, conn).get("realnex_group_id")
+            if not realnex_token or not realnex_group_id:
+                return jsonify({"error": "RealNex token or group ID missing"}), 401
+
+            # Process contacts
+            synced_contacts = []
             for contact in contacts:
                 contact_hash = utils.hash_entity(contact, "contact")
                 cursor.execute("SELECT contact_hash FROM duplicates_log WHERE user_id = ? AND contact_hash = ?",
                                (user_id, contact_hash))
                 if cursor.fetchone():
                     utils.log_duplicate(user_id, contact, "contact", cursor, conn)
+                    continue
+
+                # Search RealNex to avoid duplicates
+                email = contact.get('Email', '')
+                full_name = contact.get('Full Name', '')
+                if email or full_name:
+                    query_params = {"$filter": f"email eq '{email}'" if email else f"fullName eq '{full_name}'"}
+                    search_results = asyncio.run(utils.search_realnex_entities(user_id, "contact", query_params, cursor))
+                    if search_results and len(search_results) > 0:
+                        utils.log_duplicate(user_id, contact, "contact", cursor, conn)
+                        continue
+
+                # Split Full Name into First and Last Name
+                full_name = contact.get('Full Name', '')
+                first_name = full_name.split(' ')[0] if full_name else ''
+                last_name = ' '.join(full_name.split(' ')[1:]) if len(full_name.split(' ')) > 1 else ''
+
+                contact_data = {
+                    "id": f"contact_{len(synced_contacts)}_{user_id}",
+                    "firstName": first_name,
+                    "lastName": last_name,
+                    "email": contact.get('Email', ''),
+                    "mobile": contact.get('Phone', ''),
+                    "address": {
+                        "address1": contact.get('Address', ''),
+                        "city": contact.get('City', ''),
+                        "state": contact.get('State', ''),
+                        "zipCode": contact.get('Zip', ''),
+                        "country": "USA"
+                    },
+                    "prospect": contact.get('Prospect', True),
+                    "investor": contact.get('Investor', False)
+                }
+                try:
+                    with httpx.Client() as client:
+                        response = client.post(
+                            "https://sync.realnex.com/api/v1/Crm/contact",
+                            headers={'Authorization': f'Bearer {realnex_token}'},
+                            json={
+                                "firstName": contact_data["firstName"],
+                                "lastName": contact_data["lastName"],
+                                "email": contact_data["email"],
+                                "mobile": contact_data["mobile"],
+                                "address": contact_data["address"],
+                                "prospect": contact_data["prospect"],
+                                "investor": contact_data["investor"],
+                                "doNotEmail": False,
+                                "doNotCall": False,
+                                "doNotFax": False,
+                                "doNotMail": False,
+                                "objectGroups": [{"key": realnex_group_id}],
+                                "source": "CRE Chat Bot"
+                            }
+                        )
+                        response.raise_for_status()
+                        contact_response = response.json()
+                        contact_key = contact_response.get("key", contact_data["id"])
+                        contact_data["id"] = contact_key
+                        email_score = cmd_sync_data.check_email_health(contact_data["email"]) if contact_data["email"] else 0
+                        phone_score = cmd_sync_data.check_phone_health(contact_data["mobile"]) if contact_data["mobile"] else 0
+                        utils.log_health_history(user_id, contact_data["id"], email_score, phone_score, cursor, conn)
+                        cursor.execute("INSERT INTO contacts (id, name, email, phone, user_id) VALUES (?, ?, ?, ?, ?)",
+                                       (contact_data["id"], full_name, contact_data["email"], contact_data["mobile"], user_id))
+                        conn.commit()
+                        utils.log_change(user_id, "contact", contact_data["id"], "created", {"firstName": contact_data["firstName"], "lastName": contact_data["lastName"], "changed_by": user_name}, cursor, conn)
+                        synced_contacts.append(contact_data)
+                        # Sync history to RealNex
+                        asyncio.run(utils.sync_changes_to_realnex(user_id, cursor, conn))
+                except Exception as e:
+                    logger.error(f"Failed to create contact {contact_data['id']} in RealNex: {e}")
+                    return jsonify({"error": f"Failed to create contact: {str(e)}"}), 500
+                                # Process companies
+            synced_companies = []
+            for company in companies:
+                company_data = {
+                    "id": f"company_{len(synced_companies)}_{user_id}",
+                    "organizationId": company.get("Name", ""),
+                    "address": {
+                        "address1": company.get("Address", ""),
+                        "city": company.get("City", ""),
+                        "state": company.get("State", ""),
+                        "zipCode": company.get("Zip", ""),
+                        "country": "USA"
+                    },
+                    "email": company.get("Email", ""),
+                    "phone": company.get("Phone", ""),
+                    "prospect": company.get("Prospect", True)
+                }
+                company_hash = utils.hash_entity(company_data, "company")
+                cursor.execute("SELECT contact_hash FROM duplicates_log WHERE user_id = ? AND contact_hash = ?", (user_id, company_hash))
+                if not cursor.fetchone():
+                    # Search RealNex to avoid duplicates
+                    query_params = {"$filter": f"organizationId eq '{company_data['organizationId']}'"}
+                    search_results = asyncio.run(utils.search_realnex_entities(user_id, "company", query_params, cursor))
+                    if search_results and len(search_results) > 0:
+                        utils.log_duplicate(user_id, company_data, "company", cursor, conn)
+                        continue
+
+                    try:
+                        with httpx.Client() as client:
+                            response = client.post(
+                                "https://sync.realnex.com/api/v1/Crm/company",
+                                headers={'Authorization': f'Bearer {realnex_token}'},
+                                json={
+                                    "organizationId": company_data["organizationId"],
+                                    "address": company_data["address"],
+                                    "email": company_data["email"],
+                                    "phone": company_data["phone"],
+                                    "prospect": company_data["prospect"],
+                                    "doNotEmail": False,
+                                    "doNotCall": False,
+                                    "doNotFax": False,
+                                    "doNotMail": False,
+                                    "objectGroups": [{"key": realnex_group_id}],
+                                    "source": "CRE Chat Bot"
+                                }
+                            )
+                            response.raise_for_status()
+                            company_response = response.json()
+                            company_key = company_response.get("key", company_data["id"])
+                            company_data["id"] = company_key
+                            synced_companies.append(company_data)
+                            utils.log_user_activity(user_id, "sync_realnex_company", {"company_id": company_data["id"], "group_id": realnex_group_id}, cursor, conn)
+                            utils.log_change(user_id, "company", company_data["id"], "created", {"organizationId": company_data["organizationId"], "changed_by": user_name}, cursor, conn)
+                            # Sync history to RealNex
+                            asyncio.run(utils.sync_changes_to_realnex(user_id, cursor, conn))
+                    except Exception as e:
+                        logger.error(f"Failed to sync company {company_data['id']} to RealNex: {e}")
+                        return jsonify({"error": f"Failed to sync company: {str(e)}"}), 500
                 else:
-                    contact_id = f"contact_{len(contacts)}_{user_id}"
-                    email_score = cmd_sync_data.check_email_health(contact.get('Email', '')) if contact.get('Email') else 0
-                    phone_score = cmd_sync_data.check_phone_health(contact.get('Phone', '')) if contact.get('Phone') else 0
-                    utils.log_health_history(user_id, contact_id, email_score, phone_score, cursor, conn)
-                    cursor.execute("INSERT INTO contacts (id, name, email, phone, user_id) VALUES (?, ?, ?, ?, ?)",
-                                   (contact_id, contact.get('Full Name', ''), contact.get('Email', ''), contact.get('Phone', ''), user_id))
-                    conn.commit()
-            return jsonify({"status": "XLSX processed", "contacts": contacts})
+                    utils.log_duplicate(user_id, company_data, "company", cursor, conn)
+
+            # Process properties
+            synced_properties = []
+            for prop in properties:
+                prop_data = {
+                    "id": prop["id"],
+                    "propertyName": prop.get("Name", ""),
+                    "address": {
+                        "address1": prop.get("Address", ""),
+                        "city": prop.get("City", ""),
+                        "state": prop.get("State", ""),
+                        "zipCode": prop.get("Zip", ""),
+                        "country": "USA"
+                    },
+                    "forSale": prop.get("For Sale", False),
+                    "forLease": prop.get("For Lease", False),
+                    "ownerOccupied": prop.get("Owner Occupied", False),
+                    "sqft": prop.get("Square Feet", 0)
+                }
+                prop_hash = utils.hash_entity(prop_data, "property")
+                cursor.execute("SELECT contact_hash FROM duplicates_log WHERE user_id = ? AND contact_hash = ?", (user_id, prop_hash))
+                if not cursor.fetchone():
+                    # Search RealNex to avoid duplicates
+                    query_params = {"$filter": f"propertyName eq '{prop_data['propertyName']}'"}
+                    search_results = asyncio.run(utils.search_realnex_entities(user_id, "property", query_params, cursor))
+                    if search_results and len(search_results) > 0:
+                        utils.log_duplicate(user_id, prop_data, "property", cursor, conn)
+                        continue
+
+                    try:
+                        with httpx.Client() as client:
+                            response = client.post(
+                                "https://sync.realnex.com/api/v1/Crm/property",
+                                headers={'Authorization': f'Bearer {realnex_token}'},
+                                json={
+                                    "propertyName": prop_data["propertyName"],
+                                    "address": prop_data["address"],
+                                    "forSale": prop_data["forSale"],
+                                    "forLease": prop_data["forLease"],
+                                    "ownerOccupied": prop_data["ownerOccupied"],
+                                    "sqft": prop_data["sqft"],
+                                    "objectGroups": [{"key": realnex_group_id}],
+                                    "source": "CRE Chat Bot"
+                                }
+                            )
+                            response.raise_for_status()
+                            prop_response = response.json()
+                            prop_key = prop_response.get("key", prop_data["id"])
+                            prop_data["id"] = prop_key
+                            synced_properties.append(prop_data)
+                            utils.log_user_activity(user_id, "sync_realnex_property", {"property_id": prop_data["id"], "group_id": realnex_group_id}, cursor, conn)
+                            utils.log_change(user_id, "property", prop_data["id"], "created", {"propertyName": prop_data["propertyName"], "changed_by": user_name}, cursor, conn)
+                            # Sync history to RealNex
+                            asyncio.run(utils.sync_changes_to_realnex(user_id, cursor, conn))
+                    except Exception as e:
+                        logger.error(f"Failed to sync property {prop_data['id']} to RealNex: {e}")
+                        return jsonify({"error": f"Failed to sync property: {str(e)}"}), 500
+                else:
+                    utils.log_duplicate(user_id, prop_data, "property", cursor, conn)
+
+            # Process spaces
+            synced_spaces = []
+            for space in spaces:
+                space_data = {
+                    "id": f"space_{len(synced_spaces)}_{user_id}",
+                    "crm_property_key": space["Property ID"],
+                    "suite": space["Suite"],
+                    "isAvailable": space["Is Available"],
+                    "isOffice": space["Is Office"]
+                }
+                space_hash = utils.hash_entity(space_data, "space")
+                cursor.execute("SELECT contact_hash FROM duplicates_log WHERE user_id = ? AND contact_hash = ?", (user_id, space_hash))
+                if not cursor.fetchone():
+                    # Search RealNex to avoid duplicates
+                    query_params = {"$filter": f"suite eq '{space_data['suite']}'"}
+                    search_results = asyncio.run(utils.search_realnex_entities(user_id, "space", query_params, cursor))
+                    if search_results and len(search_results) > 0:
+                        utils.log_duplicate(user_id, space_data, "space", cursor, conn)
+                        continue
+
+                    try:
+                        with httpx.Client() as client:
+                            response = client.post(
+                                f"https://sync.realnex.com/api/v1/Crm/property/{space_data['crm_property_key']}/space",
+                                headers={'Authorization': f'Bearer {realnex_token}'},
+                                json={
+                                    "suite": space_data["suite"],
+                                    "isAvailable": space_data["isAvailable"],
+                                    "isRetail": False,
+                                    "isVacant": False,
+                                    "isIndustrial": False,
+                                    "isOffice": space_data["isOffice"],
+                                    "isSublease": False,
+                                    "isOther": False,
+                                    "objectGroups": [{"key": realnex_group_id}],
+                                    "source": "CRE Chat Bot"
+                                }
+                            )
+                            response.raise_for_status()
+                            space_response = response.json()
+                            space_key = space_response.get("key", space_data["id"])
+                            space_data["id"] = space_key
+                            synced_spaces.append(space_data)
+                            utils.log_user_activity(user_id, "sync_realnex_space", {"space_id": space_data["id"], "group_id": realnex_group_id}, cursor, conn)
+                            utils.log_change(user_id, "space", space_data["id"], "created", {"suite": space_data["suite"], "changed_by": user_name}, cursor, conn)
+                            # Sync history to RealNex
+                            asyncio.run(utils.sync_changes_to_realnex(user_id, cursor, conn))
+                    except Exception as e:
+                        logger.error(f"Failed to sync space {space_data['id']} to RealNex: {e}")
+                        return jsonify({"error": f"Failed to sync space: {str(e)}"}), 500
+                else:
+                    utils.log_duplicate(user_id, space_data, "space", cursor, conn)
+
+            # Process projects
+            synced_projects = []
+            for project in projects:
+                project_data = {
+                    "id": f"project_{len(synced_projects)}_{user_id}",
+                    "project": project["Project"],
+                    "projectStatus": project["Status"],
+                    "dateOpened": project["Date Opened"]
+                }
+                project_hash = utils.hash_entity(project_data, "project")
+                cursor.execute("SELECT contact_hash FROM duplicates_log WHERE user_id = ? AND contact_hash = ?", (user_id, project_hash))
+                if not cursor.fetchone():
+                    # Search RealNex to avoid duplicates
+                    query_params = {"$filter": f"project eq '{project_data['project']}'"}
+                    search_results = asyncio.run(utils.search_realnex_entities(user_id, "project", query_params, cursor))
+                    if search_results and len(search_results) > 0:
+                        utils.log_duplicate(user_id, project_data, "project", cursor, conn)
+                        continue
+
+                    try:
+                        with httpx.Client() as client:
+                            response = client.post(
+                                "https://sync.realnex.com/api/v1/Crm/project",
+                                headers={'Authorization': f'Bearer {realnex_token}'},
+                                json={
+                                    "project": project_data["project"],
+                                    "projectStatus": project_data["projectStatus"],
+                                    "dateOpened": project_data["dateOpened"],
+                                    "investment": False,
+                                    "inhouselisting": False,
+                                    "inhouserepresentation": False,
+                                    "objectGroups": [{"key": realnex_group_id}],
+                                    "source": "CRE Chat Bot"
+                                }
+                            )
+                            response.raise_for_status()
+                            project_response = response.json()
+                            project_key = project_response.get("key", project_data["id"])
+                            project_data["id"] = project_key
+                            synced_projects.append(project_data)
+                            utils.log_user_activity(user_id, "sync_realnex_project", {"project_id": project_data["id"], "group_id": realnex_group_id}, cursor, conn)
+                            utils.log_change(user_id, "project", project_data["id"], "created", {"project": project_data["project"], "changed_by": user_name}, cursor, conn)
+                            # Sync history to RealNex
+                            asyncio.run(utils.sync_changes_to_realnex(user_id, cursor, conn))
+                    except Exception as e:
+                        logger.error(f"Failed to sync project {project_data['id']} to RealNex: {e}")
+                        return jsonify({"error": f"Failed to sync project: {str(e)}"}), 500
+                else:
+                    utils.log_duplicate(user_id, project_data, "project", cursor, conn)
+
+            # Process leasecomps
+            synced_leasecomps = []
+            for leasecomp in leasecomps:
+                leasecomp_data = {
+                    "id": f"leasecomp_{len(synced_leasecomps)}_{user_id}",
+                    "suite": leasecomp["Suite"],
+                    "propertyName": leasecomp["Property Name"],
+                    "dealDate": leasecomp["Deal Date"],
+                    "leaseCommencement": leasecomp["Lease Commencement"],
+                    "leaseExpiry": leasecomp["Lease Expiry"]
+                }
+                leasecomp_hash = utils.hash_entity(leasecomp_data, "leasecomp")
+                cursor.execute("SELECT contact_hash FROM duplicates_log WHERE user_id = ? AND contact_hash = ?", (user_id, leasecomp_hash))
+                if not cursor.fetchone():
+                    # Search RealNex to avoid duplicates
+                    query_params = {"$filter": f"suite eq '{leasecomp_data['suite']}' and propertyName eq '{leasecomp_data['propertyName']}'"}
+                    search_results = asyncio.run(utils.search_realnex_entities(user_id, "leasecomp", query_params, cursor))
+                    if search_results and len(search_results) > 0:
+                        utils.log_duplicate(user_id, leasecomp_data, "leasecomp", cursor, conn)
+                        continue
+
+                    try:
+                        with httpx.Client() as client:
+                            response = client.post(
+                                "https://sync.realnex.com/api/v1/Crm/leasecomp",
+                                headers={'Authorization': f'Bearer {realnex_token}'},
+                                json={
+                                    "suite": leasecomp_data["suite"],
+                                    "propertyName": leasecomp_data["propertyName"],
+                                    "details": {
+                                        "dealDate": leasecomp_data["dealDate"],
+                                        "leaseCommencement": leasecomp_data["leaseCommencement"],
+                                        "leaseExpiry": leasecomp_data["leaseExpiry"],
+                                        "office": False,
+                                        "retail": False,
+                                        "industrial": False,
+                                        "other": False
+                                    },
+                                    "objectGroups": [{"key": realnex_group_id}],
+                                    "source": "CRE Chat Bot"
+                                }
+                            )
+                            response.raise_for_status()
+                            leasecomp_response = response.json()
+                            leasecomp_key = leasecomp_response.get("key", leasecomp_data["id"])
+                            leasecomp_data["id"] = leasecomp_key
+                            synced_leasecomps.append(leasecomp_data)
+                            utils.log_user_activity(user_id, "sync_realnex_leasecomp", {"leasecomp_id": leasecomp_data["id"], "group_id": realnex_group_id}, cursor, conn)
+                            utils.log_change(user_id, "leasecomp", leasecomp_data["id"], "created", {"suite": leasecomp_data["suite"], "changed_by": user_name}, cursor, conn)
+                            # Sync history to RealNex
+                            asyncio.run(utils.sync_changes_to_realnex(user_id, cursor, conn))
+                    except Exception as e:
+                        logger.error(f"Failed to sync leasecomp {leasecomp_data['id']} to RealNex: {e}")
+                        return jsonify({"error": f"Failed to sync leasecomp: {str(e)}"}), 500
+                else:
+                    utils.log_duplicate(user_id, leasecomp_data, "leasecomp", cursor, conn)
+
+            # Process salecomps
+            synced_salecomps = []
+            for salecomp in salecomps:
+                salecomp_data = {
+                    "id": f"salecomp_{len(synced_salecomps)}_{user_id}",
+                    "propertyName": salecomp["Property Name"],
+                    "saleDate": salecomp["Sale Date"],
+                    "salePrice": salecomp["Sale Price"]
+                }
+                salecomp_hash = utils.hash_entity(salecomp_data, "salecomp")
+                cursor.execute("SELECT contact_hash FROM duplicates_log WHERE user_id = ? AND contact_hash = ?", (user_id, salecomp_hash))
+                if not cursor.fetchone():
+                    # Search RealNex to avoid duplicates
+                    query_params = {"$filter": f"propertyName eq '{salecomp_data['propertyName']}'"}
+                    search_results = asyncio.run(utils.search_realnex_entities(user_id, "salecomp", query_params, cursor))
+                    if search_results and len(search_results) > 0:
+                        utils.log_duplicate(user_id, salecomp_data, "salecomp", cursor, conn)
+                        continue
+
+                    try:
+                        with httpx.Client() as client:
+                            response = client.post(
+                                "https://sync.realnex.com/api/v1/Crm/SaleComp",
+                                headers={'Authorization': f'Bearer {realnex_token}'},
+                                json={
+                                    "propertyName": salecomp_data["propertyName"],
+                                    "details": {
+                                        "saleDate": salecomp_data["saleDate"],
+                                        "salePrice": salecomp_data["salePrice"]
+                                    },
+                                    "objectGroups": [{"key": realnex_group_id}],
+                                    "source": "CRE Chat Bot"
+                                }
+                            )
+                            response.raise_for_status()
+                            salecomp_response = response.json()
+                            salecomp_key = salecomp_response.get("key", salecomp_data["id"])
+                            salecomp_data["id"] = salecomp_key
+                            synced_salecomps.append(salecomp_data)
+                            utils.log_user_activity(user_id, "sync_realnex_salecomp", {"salecomp_id": salecomp_data["id"], "group_id": realnex_group_id}, cursor, conn)
+                            utils.log_change(user_id, "salecomp", salecomp_data["id"], "created", {"propertyName": salecomp_data["propertyName"], "changed_by": user_name}, cursor, conn)
+                            # Sync history to RealNex
+                            asyncio.run(utils.sync_changes_to_realnex(user_id, cursor, conn))
+                    except Exception as e:
+                        logger.error(f"Failed to sync salecomp {salecomp_data['id']} to RealNex: {e}")
+                        return jsonify({"error": f"Failed to sync salecomp: {str(e)}"}), 500
+                else:
+                    utils.log_duplicate(user_id, salecomp_data, "salecomp", cursor, conn)
+
+            # Process events
+            synced_events = []
+            for event in events:
+                event_data = {
+                    "id": f"event_{len(synced_events)}_{user_id}",
+                    "subject": event["Subject"],
+                    "startDate": event["Start Date"],
+                    "endDate": event["End Date"]
+                }
+                event_hash = utils.hash_entity(event_data, "event")
+                cursor.execute("SELECT contact_hash FROM duplicates_log WHERE user_id = ? AND contact_hash = ?", (user_id, event_hash))
+                if not cursor.fetchone():
+                    # Search RealNex to avoid duplicates
+                    query_params = {"$filter": f"subject eq '{event_data['subject']}' and startDate eq '{event_data['startDate']}'"}
+                    search_results = asyncio.run(utils.search_realnex_entities(user_id, "event", query_params, cursor))
+                    if search_results and len(search_results) > 0:
+                        utils.log_duplicate(user_id, event_data, "event", cursor, conn)
+                        continue
+
+                    try:
+                        with httpx.Client() as client:
+                            response = client.post(
+                                "https://sync.realnex.com/api/v1/Crm/event",
+                                headers={'Authorization': f'Bearer {realnex_token}'},
+                                json={
+                                    "userKey": user_id,
+                                    "subject": event_data["subject"],
+                                    "startDate": event_data["startDate"],
+                                    "endDate": event_data["endDate"],
+                                    "timeZone": "UTC",
+                                    "timeless": False,
+                                    "allDay": False,
+                                    "finished": False,
+                                    "alarmMinutes": 0,
+                                    "eventType": {"key": 1},
+                                    "priority": {"key": 1},
+                                    "objectGroups": [{"key": realnex_group_id}],
+                                    "source": "CRE Chat Bot"
+                                }
+                            )
+                            response.raise_for_status()
+                            event_response = response.json()
+                            event_key = event_response.get("key", event_data["id"])
+                            event_data["id"] = event_key
+                            synced_events.append(event_data)
+                            utils.log_user_activity(user_id, "sync_realnex_event", {"event_id": event_data["id"], "group_id": realnex_group_id}, cursor, conn)
+                            utils.log_change(user_id, "event", event_data["id"], "created", {"subject": event_data["subject"], "changed_by": user_name}, cursor, conn)
+                            # Sync history to RealNex
+                            asyncio.run(utils.sync_changes_to_realnex(user_id, cursor, conn))
+                    except Exception as e:
+                        logger.error(f"Failed to sync event {event_data['id']} to RealNex: {e}")
+                        return jsonify({"error": f"Failed to sync event: {str(e)}"}), 500
+                else:
+                    utils.log_duplicate(user_id, event_data, "event", cursor, conn)
+
+            # Process history entries and create events
+            synced_history_events = []
+            for history in history_entries:
+                contact_name = history["contact_name"]
+                nickname = history["nickname"]
+                history_note = history["history_note"]
+
+                # Search for the contact in RealNex
+                query_params = {"$filter": f"fullName eq '{contact_name}'"}
+                search_results = asyncio.run(utils.search_realnex_entities(user_id, "contact", query_params, cursor))
+                contact_id = None
+                if search_results and len(search_results) > 0:
+                    contact_id = search_results[0]["key"]
+                else:
+                    # Create the contact if not found
+                    try:
+                        first_name = contact_name.split(' ')[0] if contact_name else ''
+                        last_name = ' '.join(contact_name.split(' ')[1:]) if len(contact_name.split(' ')) > 1 else ''
+                        with httpx.Client() as client:
+                            response = client.post(
+                                "https://sync.realnex.com/api/v1/Crm/contact",
+                                headers={'Authorization': f'Bearer {realnex_token}'},
+                                json={
+                                    "firstName": first_name,
+                                    "lastName": last_name,
+                                    "email": "",
+                                    "mobile": "",
+                                    "address": {"country": "USA"},
+                                    "prospect": True,
+                                    "investor": False,
+                                    "doNotEmail": False,
+                                    "doNotCall": False,
+                                    "doNotFax": False,
+                                    "doNotMail": False,
+                                    "objectGroups": [{"key": realnex_group_id}],
+                                    "source": "CRE Chat Bot"
+                                }
+                            )
+                            response.raise_for_status()
+                            contact_response = response.json()
+                            contact_id = contact_response.get("key")
+                            synced_contacts.append({
+                                "id": contact_id,
+                                "firstName": first_name,
+                                "lastName": last_name,
+                                "email": "",
+                                "mobile": ""
+                            })
+                            cursor.execute("INSERT INTO contacts (id, name, email, phone, user_id) VALUES (?, ?, ?, ?, ?)",
+                                           (contact_id, contact_name, "", "", user_id))
+                            conn.commit()
+                            utils.log_change(user_id, "contact", contact_id, "created", {"firstName": first_name, "lastName": last_name, "changed_by": user_name}, cursor, conn)
+                            # Sync history to RealNex
+                            asyncio.run(utils.sync_changes_to_realnex(user_id, cursor, conn))
+                    except Exception as e:
+                        logger.error(f"Failed to create contact for history entry {contact_name}: {e}")
+                        continue
+
+                # If the history note mentions "jokes," create an event
+                if "jokes" in history_note.lower():
+                    event_subject = f"Call {nickname}, ask him a joke"
+                    # Determine priority and alarm based on context
+                    priority_key = 2 if "urgent" in history_note.lower() else 1  # Higher priority if urgent
+                    alarm_minutes = 15 if "urgent" in history_note.lower() else 0  # Reminder 15 minutes before if urgent
+                    event_data = {
+                        "id": f"event_{len(synced_events) + len(synced_history_events)}_{user_id}",
+                        "subject": event_subject,
+                        "startDate": "2025-06-02T09:00:00Z",
+                        "endDate": "2025-06-02T09:30:00Z",
+                        "contact_id": contact_id,
+                        "description": f"Note: {history_note}"
+                    }
+                    event_hash = utils.hash_entity(event_data, "event")
+                    cursor.execute("SELECT contact_hash FROM duplicates_log WHERE user_id = ? AND contact_hash = ?", (user_id, event_hash))
+                    if not cursor.fetchone():
+                        # Search RealNex to avoid duplicates
+                        query_params = {"$filter": f"subject eq '{event_data['subject']}' and startDate eq '{event_data['startDate']}'"}
+                        search_results = asyncio.run(utils.search_realnex_entities(user_id, "event", query_params, cursor))
+                        if search_results and len(search_results) > 0:
+                            utils.log_duplicate(user_id, event_data, "event", cursor, conn)
+                            continue
+
+                        try:
+                            with httpx.Client() as client:
+                                response = client.post(
+                                    "https://sync.realnex.com/api/v1/Crm/event",
+                                    headers={'Authorization': f'Bearer {realnex_token}'},
+                                    json={
+                                        "userKey": user_id,
+                                        "subject": event_data["subject"],
+                                        "description": event_data["description"],
+                                        "startDate": event_data["startDate"],
+                                        "endDate": event_data["endDate"],
+                                        "timeZone": "UTC",
+                                        "timeless": False,
+                                        "allDay": False,
+                                        "finished": False,
+                                        "alarmMinutes": alarm_minutes,
+                                        "eventType": {"key": 1},
+                                        "priority": {"key": priority_key},
+                                        "eventObjects": [{"type": "contact", "key": contact_id}],
+                                        "objectGroups": [{"key": realnex_group_id}],
+                                        "source": "CRE Chat Bot"
+                                    }
+                                )
+                                response.raise_for_status()
+                                event_response = response.json()
+                                event_key = event_response.get("key", event_data["id"])
+                                event_data["id"] = event_key
+                                synced_history_events.append(event_data)
+                                utils.log_user_activity(user_id, "sync_realnex_event", {"event_id": event_data["id"], "group_id": realnex_group_id}, cursor, conn)
+                                utils.log_change(user_id, "event", event_data["id"], "created", {"subject": event_data["subject"], "changed_by": user_name}, cursor, conn)
+                                # Sync history to RealNex
+                                asyncio.run(utils.sync_changes_to_realnex(user_id, cursor, conn))
+                        except Exception as e:
+                            logger.error(f"Failed to create event for history entry {history_note}: {e}")
+                            continue
+                    else:
+                        utils.log_duplicate(user_id, event_data, "event", cursor, conn)
+                else:
+                    # Log the history note to RealNex history
+                    try:
+                        with httpx.Client() as client:
+                            history_entry = {
+                                "entityType": "contact",
+                                "entityId": contact_id,
+                                "action": "note_added",
+                                "description": f"History note added for {contact_name}",
+                                "details": {"note": history_note},
+                                "changeDate": datetime.now().isoformat(),
+                                "user": {"userName": user_name}
+                            }
+                            response = client.post(
+                                "https://sync.realnex.com/api/v1/Crm/history",
+                                headers={'Authorization': f'Bearer {realnex_token}'},
+                                json=history_entry
+                            )
+                            response.raise_for_status()
+                            utils.log_user_activity(user_id, "sync_realnex_history", {"contact_id": contact_id, "note": history_note}, cursor, conn)
+                            utils.log_change(user_id, "contact", contact_id, "history_added", {"note": history_note, "changed_by": user_name}, cursor, conn)
+                            # Sync history to RealNex
+                            asyncio.run(utils.sync_changes_to_realnex(user_id, cursor, conn))
+                    except Exception as e:
+                        logger.error(f"Failed to log history note for {contact_name}: {e}")
+
+            return jsonify({
+                "status": "XLSX processed and synced to RealNex",
+                "contacts": synced_contacts,
+                "companies": synced_companies,
+                "properties": synced_properties,
+                "spaces": synced_spaces,
+                "projects": synced_projects,
+                "leasecomps": synced_leasecomps,
+                "salecomps": synced_salecomps,
+                "events": synced_events + synced_history_events
+            })
 
         elif filename.endswith('.pdf'):
-            # Process PDF
+            # Fetch field mappings for all entities
+            import asyncio
+            property_mappings = asyncio.run(utils.get_field_mappings(user_id, "property", cursor))
+            space_mappings = asyncio.run(utils.get_field_mappings(user_id, "space", cursor))
+            company_mappings = asyncio.run(utils.get_field_mappings(user_id, "company", cursor))
+            project_mappings = asyncio.run(utils.get_field_mappings(user_id, "project", cursor))
+            leasecomp_mappings = asyncio.run(utils.get_field_mappings(user_id, "leasecomp", cursor))
+            salecomp_mappings = asyncio.run(utils.get_field_mappings(user_id, "salecomp", cursor))
+
+            if not all([property_mappings, space_mappings, company_mappings, project_mappings, leasecomp_mappings, salecomp_mappings]):
+                return jsonify({"error": "Failed to fetch field mappings from RealNex."}), 500
+
+            # Process PDF for all entities
             with open(file_path, 'rb') as f:
                 reader = PyPDF2.PdfReader(f)
                 text = ""
                 for page in reader.pages:
                     text += page.extract_text() + "\n"
-            # Basic parsing for contacts (simplified)
-            contacts = []
+
+            # Parse entities using field mappings
+            properties = []
+            spaces = []
+            companies = []
+            projects = []
+            leasecomps = []
+            salecomps = []
+            events = []
+            history_entries = []
+            current_property = None
+            current_space = None
+            current_company = None
+            current_project = None
+            current_leasecomp = None
+            current_salecomp = None
+            current_event = None
+
             for line in text.split('\n'):
-                if '@' in line:
-                    email = line.strip()
-                    name = text.split('\n')[0] if text.split('\n') else "Unknown"
-                    contacts.append({"Full Name": name, "Email": email, "Phone": ""})
-            for contact in contacts:
-                contact_hash = utils.hash_entity(contact, "contact")
-                cursor.execute("SELECT contact_hash FROM duplicates_log WHERE user_id = ? AND contact_hash = ?",
-                               (user_id, contact_hash))
-                if cursor.fetchone():
-                    utils.log_duplicate(user_id, contact, "contact", cursor, conn)
+                line = line.strip()
+                if not line:
+                    continue
+
+                # Match property fields
+                if "name" in property_mappings and property_mappings["name"] in line:
+                    name = line.replace(property_mappings["name"], "").strip()
+                    current_property = {"name": name, "address": "", "city": "", "zip": "", "forSale": False, "forLease": False, "ownerOccupied": False, "sqft": 0, "id": f"prop_{len(properties)}_{user_id}"}
+                elif "address" in property_mappings and property_mappings["address"] in line and current_property:
+                    current_property["address"] = line.replace(property_mappings["address"], "").strip()
+                elif "city" in property_mappings and property_mappings["city"] in line and current_property:
+                    current_property["city"] = line.replace(property_mappings["city"], "").strip()
+                elif "zip" in property_mappings and property_mappings["zip"] in line and current_property:
+                    current_property["zip"] = line.replace(property_mappings["zip"], "").strip()
+                elif "For Sale:" in line and current_property:
+                    current_property["forSale"] = "True" in line
+                elif "For Lease:" in line and current_property:
+                    current_property["forLease"] = "True" in line
+                elif "Owner Occupied:" in line and current_property:
+                    current_property["ownerOccupied"] = "True" in line
+                elif "Square Feet:" in line and current_property:
+                    try:
+                        current_property["sqft"] = float(line.replace("Square Feet:", "").strip())
+                    except ValueError:
+                        current_property["sqft"] = 0
+                    if all([current_property["address"], current_property["city"], current_property["zip"]]):
+                        properties.append(current_property)
+                        current_property = None
+
+                # Match space fields
+                if "space_number" in space_mappings and space_mappings["space_number"] in line:
+                    space_number = line.replace(space_mappings["space_number"], "").strip()
+                    if properties:
+                        space = {
+                            "id": f"space_{len(spaces)}_{user_id}",
+                            "property_id": properties[-1]["id"],
+                            "suite": space_number,
+                            "isAvailable": True,
+                            "isOffice": False
+                        }
+                        spaces.append(space)
+
+                # Match company fields
+                if "name" in company_mappings and company_mappings["name"] in line:
+                    company_name = line.replace(company_mappings["name"], "").strip()
+                    current_company = {"name": company_name, "address": "", "email": "", "phone": "", "prospect": True, "id": f"company_{len(companies)}_{user_id}"}
+                elif "address" in company_mappings and company_mappings["address"] in line and current_company:
+                    current_company["address"] = line.replace(company_mappings["address"], "").strip()
+                elif "Email:" in line and current_company:
+                    current_company["email"] = line.replace("Email:", "").strip()
+                elif "Phone:" in line and current_company:
+                    current_company["phone"] = line.replace("Phone:", "").strip()
+                    companies.append(current_company)
+                    current_company = None
+
+                # Match project fields
+                if "project" in project_mappings and project_mappings["project"] in line:
+                    project_name = line.replace(project_mappings["project"], "").strip()
+                    current_project = {"project": project_name, "status": "Open", "dateOpened": "2025-06-01T00:00:00Z", "id": f"project_{len(projects)}_{user_id}"}
+                    projects.append(current_project)
+                    current_project = None
+
+                # Match leasecomp fields
+                if "LeaseComp:" in line:
+                    suite = line.replace("LeaseComp:", "").strip()
+                    current_leasecomp = {
+                        "id": f"leasecomp_{len(leasecomps)}_{user_id}",
+                        "suite": suite,
+                        "propertyName": properties[-1]["name"] if properties else "Unknown Property",
+                        "dealDate": "2025-06-01T00:00:00Z",
+                        "leaseCommencement": "2025-06-01T00:00:00Z",
+                        "leaseExpiry": "2025-06-01T00:00:00Z"
+                    }
+                    leasecomps.append(current_leasecomp)
+                    current_leasecomp = None
+
+                # Match salecomp fields
+                if "SaleComp:" in line:
+                    property_name = line.replace("SaleComp:", "").strip()
+                    current_salecomp = {
+                        "id": f"salecomp_{len(salecomps)}_{user_id}",
+                        "propertyName": property_name,
+                        "saleDate": "2025-06-01T00:00:00Z",
+                        "salePrice": 0
+                    }
+                    salecomps.append(current_salecomp)
+                    current_salecomp = None
+
+                # Match event fields
+                if "Meeting:" in line:
+                    subject = line.replace("Meeting:", "").strip()
+                    current_event = {
+                        "id": f"event_{len(events)}_{user_id}",
+                        "subject": subject,
+                        "startDate": "2025-06-01T09:00:00Z",
+                        "endDate": "2025-06-01T10:00:00Z"
+                    }
+                    events.append(current_event)
+                    current_event = None
+
+                # Match history fields
+                if "History:" in line:
+                    history_text = line
+                    try:
+                        parts = history_text.split('History:', 1)
+                        contact_name = parts[0].strip()
+                        history_note = parts[1].strip()
+                        nickname = history_note.split(' ')[0] if history_note else contact_name.split(' ')[0]
+                        history_entries.append({
+                            "contact_name": contact_name,
+                            "nickname": nickname,
+                            "history_note": history_note
+                        })
+                    except Exception as e:
+                        logger.error(f"Failed to parse history entry '{history_text}': {e}")
+                                            # Search RealNex to avoid duplicates
+                    query_params = {"$filter": f"subject eq '{event_data['subject']}' and startDate eq '{event_data['startDate']}'"}
+                    search_results = asyncio.run(utils.search_realnex_entities(user_id, "event", query_params, cursor))
+                    if search_results and len(search_results) > 0:
+                        utils.log_duplicate(user_id, event_data, "event", cursor, conn)
+                        continue
+
+                    try:
+                        with httpx.Client() as client:
+                            response = client.post(
+                                "https://sync.realnex.com/api/v1/Crm/event",
+                                headers={'Authorization': f'Bearer {realnex_token}'},
+                                json={
+                                    "userKey": user_id,
+                                    "subject": event_data["subject"],
+                                    "startDate": event_data["startDate"],
+                                    "endDate": event_data["endDate"],
+                                    "timeZone": "UTC",
+                                    "timeless": False,
+                                    "allDay": False,
+                                    "finished": False,
+                                    "alarmMinutes": 0,
+                                    "eventType": {"key": 1},
+                                    "priority": {"key": 1},
+                                    "objectGroups": [{"key": realnex_group_id}],
+                                    "source": "CRE Chat Bot"
+                                }
+                            )
+                            response.raise_for_status()
+                            event_response = response.json()
+                            event_key = event_response.get("key", event_data["id"])
+                            event_data["id"] = event_key
+                            synced_events.append(event_data)
+                            utils.log_user_activity(user_id, "sync_realnex_event", {"event_id": event_data["id"], "group_id": realnex_group_id}, cursor, conn)
+                            utils.log_change(user_id, "event", event_data["id"], "created", {"subject": event_data["subject"], "changed_by": user_name}, cursor, conn)
+                            # Sync history to RealNex
+                            asyncio.run(utils.sync_changes_to_realnex(user_id, cursor, conn))
+                    except Exception as e:
+                        logger.error(f"Failed to sync event {event_data['id']} to RealNex: {e}")
+                        return jsonify({"error": f"Failed to sync event: {str(e)}"}), 500
                 else:
-                    contact_id = f"contact_{len(contacts)}_{user_id}"
-                    email_score = cmd_sync_data.check_email_health(contact.get('Email', '')) if contact.get('Email') else 0
-                    phone_score = cmd_sync_data.check_phone_health(contact.get('Phone', '')) if contact.get('Phone') else 0
-                    utils.log_health_history(user_id, contact_id, email_score, phone_score, cursor, conn)
-                    cursor.execute("INSERT INTO contacts (id, name, email, phone, user_id) VALUES (?, ?, ?, ?, ?)",
-                                   (contact_id, contact.get('Full Name', ''), contact.get('Email', ''), contact.get('Phone', ''), user_id))
-                    conn.commit()
-            return jsonify({"status": "PDF processed", "contacts": contacts})
+                    utils.log_duplicate(user_id, event_data, "event", cursor, conn)
+
+            # Process history entries and create events
+            synced_history_events = []
+            for history in history_entries:
+                contact_name = history["contact_name"]
+                nickname = history["nickname"]
+                history_note = history["history_note"]
+
+                # Search for the contact in RealNex
+                query_params = {"$filter": f"fullName eq '{contact_name}'"}
+                search_results = asyncio.run(utils.search_realnex_entities(user_id, "contact", query_params, cursor))
+                contact_id = None
+                if search_results and len(search_results) > 0:
+                    contact_id = search_results[0]["key"]
+                else:
+                    # Create the contact if not found
+                    try:
+                        first_name = contact_name.split(' ')[0] if contact_name else ''
+                        last_name = ' '.join(contact_name.split(' ')[1:]) if len(contact_name.split(' ')) > 1 else ''
+                        with httpx.Client() as client:
+                            response = client.post(
+                                "https://sync.realnex.com/api/v1/Crm/contact",
+                                headers={'Authorization': f'Bearer {realnex_token}'},
+                                json={
+                                    "firstName": first_name,
+                                    "lastName": last_name,
+                                    "email": "",
+                                    "mobile": "",
+                                    "address": {"country": "USA"},
+                                    "prospect": True,
+                                    "investor": False,
+                                    "doNotEmail": False,
+                                    "doNotCall": False,
+                                    "doNotFax": False,
+                                    "doNotMail": False,
+                                    "objectGroups": [{"key": realnex_group_id}],
+                                    "source": "CRE Chat Bot"
+                                }
+                            )
+                            response.raise_for_status()
+                            contact_response = response.json()
+                            contact_id = contact_response.get("key")
+                            synced_contacts.append({
+                                "id": contact_id,
+                                "firstName": first_name,
+                                "lastName": last_name,
+                                "email": "",
+                                "mobile": ""
+                            })
+                            cursor.execute("INSERT INTO contacts (id, name, email, phone, user_id) VALUES (?, ?, ?, ?, ?)",
+                                           (contact_id, contact_name, "", "", user_id))
+                            conn.commit()
+                            utils.log_change(user_id, "contact", contact_id, "created", {"firstName": first_name, "lastName": last_name, "changed_by": user_name}, cursor, conn)
+                            # Sync history to RealNex
+                            asyncio.run(utils.sync_changes_to_realnex(user_id, cursor, conn))
+                    except Exception as e:
+                        logger.error(f"Failed to create contact for history entry {contact_name}: {e}")
+                        continue
+
+                # If the history note mentions "jokes," create an event
+                if "jokes" in history_note.lower():
+                    event_subject = f"Call {nickname}, ask him a joke"
+                    # Determine priority and alarm based on context
+                    priority_key = 2 if "urgent" in history_note.lower() else 1  # Higher priority if urgent
+                    alarm_minutes = 15 if "urgent" in history_note.lower() else 0  # Reminder 15 minutes before if urgent
+                    event_data = {
+                        "id": f"event_{len(synced_events) + len(synced_history_events)}_{user_id}",
+                        "subject": event_subject,
+                        "startDate": "2025-06-02T09:00:00Z",
+                        "endDate": "2025-06-02T09:30:00Z",
+                        "contact_id": contact_id,
+                        "description": f"Note: {history_note}"
+                    }
+                    event_hash = utils.hash_entity(event_data, "event")
+                    cursor.execute("SELECT contact_hash FROM duplicates_log WHERE user_id = ? AND contact_hash = ?", (user_id, event_hash))
+                    if not cursor.fetchone():
+                        # Search RealNex to avoid duplicates
+                        query_params = {"$filter": f"subject eq '{event_data['subject']}' and startDate eq '{event_data['startDate']}'"}
+                        search_results = asyncio.run(utils.search_realnex_entities(user_id, "event", query_params, cursor))
+                        if search_results and len(search_results) > 0:
+                            utils.log_duplicate(user_id, event_data, "event", cursor, conn)
+                            continue
+
+                        try:
+                            with httpx.Client() as client:
+                                response = client.post(
+                                    "https://sync.realnex.com/api/v1/Crm/event",
+                                    headers={'Authorization': f'Bearer {realnex_token}'},
+                                    json={
+                                        "userKey": user_id,
+                                        "subject": event_data["subject"],
+                                        "description": event_data["description"],
+                                        "startDate": event_data["startDate"],
+                                        "endDate": event_data["endDate"],
+                                        "timeZone": "UTC",
+                                        "timeless": False,
+                                        "allDay": False,
+                                        "finished": False,
+                                        "alarmMinutes": alarm_minutes,
+                                        "eventType": {"key": 1},
+                                        "priority": {"key": priority_key},
+                                        "eventObjects": [{"type": "contact", "key": contact_id}],
+                                        "objectGroups": [{"key": realnex_group_id}],
+                                        "source": "CRE Chat Bot"
+                                    }
+                                )
+                                response.raise_for_status()
+                                event_response = response.json()
+                                event_key = event_response.get("key", event_data["id"])
+                                event_data["id"] = event_key
+                                synced_history_events.append(event_data)
+                                utils.log_user_activity(user_id, "sync_realnex_event", {"event_id": event_data["id"], "group_id": realnex_group_id}, cursor, conn)
+                                utils.log_change(user_id, "event", event_data["id"], "created", {"subject": event_data["subject"], "changed_by": user_name}, cursor, conn)
+                                # Sync history to RealNex
+                                asyncio.run(utils.sync_changes_to_realnex(user_id, cursor, conn))
+                        except Exception as e:
+                            logger.error(f"Failed to create event for history entry {history_note}: {e}")
+                            continue
+                    else:
+                        utils.log_duplicate(user_id, event_data, "event", cursor, conn)
+                else:
+                    # Log the history note to RealNex history
+                    try:
+                        with httpx.Client() as client:
+                            history_entry = {
+                                "entityType": "contact",
+                                "entityId": contact_id,
+                                "action": "note_added",
+                                "description": f"History note added for {contact_name}",
+                                "details": {"note": history_note},
+                                "changeDate": datetime.now().isoformat(),
+                                "user": {"userName": user_name}
+                            }
+                            response = client.post(
+                                "https://sync.realnex.com/api/v1/Crm/history",
+                                headers={'Authorization': f'Bearer {realnex_token}'},
+                                json=history_entry
+                            )
+                            response.raise_for_status()
+                            utils.log_user_activity(user_id, "sync_realnex_history", {"contact_id": contact_id, "note": history_note}, cursor, conn)
+                            utils.log_change(user_id, "contact", contact_id, "history_added", {"note": history_note, "changed_by": user_name}, cursor, conn)
+                            # Sync history to RealNex
+                            asyncio.run(utils.sync_changes_to_realnex(user_id, cursor, conn))
+                    except Exception as e:
+                        logger.error(f"Failed to log history note for {contact_name}: {e}")
+
+            return jsonify({
+                "status": "PDF processed and synced to RealNex",
+                "companies": synced_companies,
+                "properties": synced_properties,
+                "spaces": synced_spaces,
+                "projects": synced_projects,
+                "leasecomps": synced_leasecomps,
+                "salecomps": synced_salecomps,
+                "events": synced_events + synced_history_events
+            })
 
         elif filename.endswith(('.png', '.jpg', '.jpeg')):
-            # Process Image (Business Card or Camera Image)
+            # Process Image
             image = Image.open(file_path)
             text = pytesseract.image_to_string(image)
-            # Basic parsing for contacts (simplified)
             contacts = []
             for line in text.split('\n'):
                 if '@' in line:
                     email = line.strip()
                     name = text.split('\n')[0] if text.split('\n') else "Unknown"
-                    contacts.append({"Full Name": name, "Email": email, "Phone": ""})
+                    contacts.append({
+                        "Full Name": name,
+                        "Email": email,
+                        "Phone": "",
+                        "Prospect": True,
+                        "Investor": False
+                    })
+                                # Process contacts
+            realnex_token = utils.get_token(user_id, "realnex", cursor)
+            realnex_group_id = utils.get_user_settings(user_id, cursor, conn).get("realnex_group_id")
+            if not realnex_token or not realnex_group_id:
+                return jsonify({"error": "RealNex token or group ID missing"}), 401
+
+            synced_contacts = []
             for contact in contacts:
                 contact_hash = utils.hash_entity(contact, "contact")
                 cursor.execute("SELECT contact_hash FROM duplicates_log WHERE user_id = ? AND contact_hash = ?",
                                (user_id, contact_hash))
                 if cursor.fetchone():
                     utils.log_duplicate(user_id, contact, "contact", cursor, conn)
-                else:
-                    contact_id = f"contact_{len(contacts)}_{user_id}"
-                    email_score = cmd_sync_data.check_email_health(contact.get('Email', '')) if contact.get('Email') else 0
-                    phone_score = cmd_sync_data.check_phone_health(contact.get('Phone', '')) if contact.get('Phone') else 0
-                    utils.log_health_history(user_id, contact_id, email_score, phone_score, cursor, conn)
-                    cursor.execute("INSERT INTO contacts (id, name, email, phone, user_id) VALUES (?, ?, ?, ?, ?)",
-                                   (contact_id, contact.get('Full Name', ''), contact.get('Email', ''), contact.get('Phone', ''), user_id))
-                    conn.commit()
-            return jsonify({"status": "Image processed", "contacts": contacts})
+                    continue
+
+                # Search RealNex to avoid duplicates
+                email = contact.get('Email', '')
+                full_name = contact.get('Full Name', '')
+                if email or full_name:
+                    query_params = {"$filter": f"email eq '{email}'" if email else f"fullName eq '{full_name}'"}
+                    search_results = asyncio.run(utils.search_realnex_entities(user_id, "contact", query_params, cursor))
+                    if search_results and len(search_results) > 0:
+                        utils.log_duplicate(user_id, contact, "contact", cursor, conn)
+                        continue
+
+                # Split Full Name into First and Last Name
+                full_name = contact.get('Full Name', '')
+                first_name = full_name.split(' ')[0] if full_name else ''
+                last_name = ' '.join(full_name.split(' ')[1:]) if len(full_name.split(' ')) > 1 else ''
+
+                contact_data = {
+                    "id": f"contact_{len(synced_contacts)}_{user_id}",
+                    "firstName": first_name,
+                    "lastName": last_name,
+                    "email": contact.get('Email', ''),
+                    "mobile": contact.get('Phone', ''),
+                    "address": {"country": "USA"},
+                    "prospect": contact.get('Prospect', True),
+                    "investor": contact.get('Investor', False)
+                }
+                try:
+                    with httpx.Client() as client:
+                        response = client.post(
+                            "https://sync.realnex.com/api/v1/Crm/contact",
+                            headers={'Authorization': f'Bearer {realnex_token}'},
+                            json={
+                                "firstName": contact_data["firstName"],
+                                "lastName": contact_data["lastName"],
+                                "email": contact_data["email"],
+                                "mobile": contact_data["mobile"],
+                                "address": contact_data["address"],
+                                "prospect": contact_data["prospect"],
+                                "investor": contact_data["investor"],
+                                "doNotEmail": False,
+                                "doNotCall": False,
+                                "doNotFax": False,
+                                "doNotMail": False,
+                                "objectGroups": [{"key": realnex_group_id}],
+                                "source": "CRE Chat Bot"
+                            }
+                        )
+                        response.raise_for_status()
+                        contact_response = response.json()
+                        contact_key = contact_response.get("key", contact_data["id"])
+                        contact_data["id"] = contact_key
+                        email_score = cmd_sync_data.check_email_health(contact_data["email"]) if contact_data["email"] else 0
+                        phone_score = cmd_sync_data.check_phone_health(contact_data["mobile"]) if contact_data["mobile"] else 0
+                        utils.log_health_history(user_id, contact_data["id"], email_score, phone_score, cursor, conn)
+                        cursor.execute("INSERT INTO contacts (id, name, email, phone, user_id) VALUES (?, ?, ?, ?, ?)",
+                                       (contact_data["id"], full_name, contact_data["email"], contact_data["mobile"], user_id))
+                        conn.commit()
+                        utils.log_change(user_id, "contact", contact_data["id"], "created", {"firstName": contact_data["firstName"], "lastName": contact_data["lastName"], "changed_by": user_name}, cursor, conn)
+                        synced_contacts.append(contact_data)
+                        # Sync history to RealNex
+                        asyncio.run(utils.sync_changes_to_realnex(user_id, cursor, conn))
+                except Exception as e:
+                    logger.error(f"Failed to create contact {contact_data['id']} in RealNex: {e}")
+                    return jsonify({"error": f"Failed to create contact: {str(e)}"}), 500
+
+            return jsonify({
+                "status": "Image processed and synced to RealNex",
+                "contacts": synced_contacts
+            })
 
         else:
             return jsonify({"error": "Unsupported file type"}), 400
 
+    except Exception as e:
+        logger.error(f"Error processing file {filename}: {e}")
+        return jsonify({"error": f"Failed to process file: {str(e)}"}), 500
     finally:
-        # Clean up the file
-        if os.path.exists(file_path):
+        # Clean up: delete the file after processing
+        try:
             os.remove(file_path)
+            logger.info(f"Deleted temporary file: {file_path}")
+        except Exception as e:
+            logger.error(f"Failed to delete temporary file {file_path}: {e}")
 
 @app.route('/settings', methods=['GET'])
 @token_required
 def settings_page(user_id):
     logger.info("Settings page accessed.")
-    return render_template('settings.html')
+    settings = utils.get_user_settings(user_id, cursor, conn)
+    return render_template('settings.html', settings=settings)
 
-@app.route('/authorize-mailchimp', methods=['GET'])
+@app.route('/update-settings', methods=['POST'])
 @token_required
-def authorize_mailchimp(user_id):
-    # Redirect to Mailchimp OAuth URL (simplified for demo; in production, use proper OAuth flow)
-    mailchimp_client_id = os.getenv('MAILCHIMP_CLIENT_ID', 'your_client_id')
-    redirect_uri = 'http://localhost:8000/mailchimp-callback'
-    mailchimp_auth_url = f"https://login.mailchimp.com/oauth2/authorize?client_id={mailchimp_client_id}&redirect_uri={redirect_uri}&response_type=code"
-    return redirect(mailchimp_auth_url)
-
-@app.route('/mailchimp-callback', methods=['GET'])
-@token_required
-def mailchimp_callback(user_id):
-    code = request.args.get('code')
-    if not code:
-        return jsonify({"error": "Authorization code not found"}), 400
-
-    # Exchange code for access token
-    mailchimp_client_id = os.getenv('MAILCHIMP_CLIENT_ID', 'your_client_id')
-    mailchimp_client_secret = os.getenv('MAILCHIMP_CLIENT_SECRET', 'your_client_secret')
-    redirect_uri = 'http://localhost:8000/mailchimp-callback'
-
-    try:
-        with httpx.Client() as client:
-            response = client.post(
-                "https://login.mailchimp.com/oauth2/token",
-                data={
-                    "grant_type": "authorization_code",
-                    "client_id": mailchimp_client_id,
-                    "client_secret": mailchimp_client_secret,
-                    "redirect_uri": redirect_uri,
-                    "code": code
-                }
-            )
-            response.raise_for_status()
-            token_data = response.json()
-            access_token = token_data.get('access_token')
-
-            # Save the token
-            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
-                           (user_id, "mailchimp", access_token))
-            conn.commit()
-
-            # Redirect back to settings
-            return redirect('/settings')
-    except Exception as e:
-        logger.error(f"Mailchimp authorization failed: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/authorize-constant-contact', methods=['GET'])
-@token_required
-def authorize_constant_contact(user_id):
-    # Redirect to Constant Contact OAuth URL (simplified for demo; in production, use proper OAuth flow)
-    cc_client_id = os.getenv('CC_CLIENT_ID', 'your_client_id')
-    redirect_uri = 'http://localhost:8000/constant-contact-callback'
-    cc_auth_url = f"https://authz.constantcontact.com/oauth2/authorize?client_id={cc_client_id}&redirect_uri={redirect_uri}&response_type=code&scope=contact_data"
-    return redirect(cc_auth_url)
-
-@app.route('/constant-contact-callback', methods=['GET'])
-@token_required
-def constant_contact_callback(user_id):
-    code = request.args.get('code')
-    if not code:
-        return jsonify({"error": "Authorization code not found"}), 400
-
-    # Exchange code for access token
-    cc_client_id = os.getenv('CC_CLIENT_ID', 'your_client_id')
-    cc_client_secret = os.getenv('CC_CLIENT_SECRET', 'your_client_secret')
-    redirect_uri = 'http://localhost:8000/constant-contact-callback'
-
-    try:
-        with httpx.Client() as client:
-            response = client.post(
-                "https://authz.constantcontact.com/oauth2/token",
-                data={
-                    "grant_type": "authorization_code",
-                    "client_id": cc_client_id,
-                    "client_secret": cc_client_secret,
-                    "redirect_uri": redirect_uri,
-                    "code": code
-                }
-            )
-            response.raise_for_status()
-            token_data = response.json()
-            access_token = token_data.get('access_token')
-
-            # Save the token
-            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
-                           (user_id, "constant_contact", access_token))
-            conn.commit()
-
-            # Redirect back to settings
-            return redirect('/settings')
-    except Exception as e:
-        logger.error(f"Constant Contact authorization failed: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/authorize-apollo', methods=['GET'])
-@token_required
-def authorize_apollo(user_id):
-    # Redirect to Apollo.io OAuth URL (simplified for demo; in production, use proper OAuth flow)
-    apollo_client_id = os.getenv('APOLLO_CLIENT_ID', 'your_client_id')
-    redirect_uri = 'http://localhost:8000/apollo-callback'
-    apollo_auth_url = f"https://app.apollo.io/oauth/authorize?client_id={apollo_client_id}&redirect_uri={redirect_uri}&response_type=code"
-    return redirect(apollo_auth_url)
-
-@app.route('/apollo-callback', methods=['GET'])
-@token_required
-def apollo_callback(user_id):
-    code = request.args.get('code')
-    if not code:
-        return jsonify({"error": "Authorization code not found"}), 400
-
-    # Exchange code for access token
-    apollo_client_id = os.getenv('APOLLO_CLIENT_ID', 'your_client_id')
-    apollo_client_secret = os.getenv('APOLLO_CLIENT_SECRET', 'your_client_secret')
-    redirect_uri = 'http://localhost:8000/apollo-callback'
-
-    try:
-        with httpx.Client() as client:
-            response = client.post(
-                "https://app.apollo.io/oauth/token",
-                data={
-                    "grant_type": "authorization_code",
-                    "client_id": apollo_client_id,
-                    "client_secret": apollo_client_secret,
-                    "redirect_uri": redirect_uri,
-                    "code": code
-                }
-            )
-            response.raise_for_status()
-            token_data = response.json()
-            access_token = token_data.get('access_token')
-
-            # Save the token
-            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
-                           (user_id, "apollo", access_token))
-            conn.commit()
-
-            # Register webhook for Apollo.io
-            webhook_url = f"http://your-app-url/webhook/apollo?user_id={user_id}"
-            response = client.post(
-                "https://api.apollo.io/v1/webhooks",
-                headers={'Authorization': f'Bearer {access_token}'},
-                json={"url": webhook_url, "event": "contact_added"}
-            )
-            response.raise_for_status()
-
-            # Save webhook URL
-            cursor.execute("INSERT OR REPLACE INTO webhooks (user_id, webhook_url) VALUES (?, ?)",
-                           (user_id, webhook_url))
-            conn.commit()
-
-            # Redirect back to settings
-            return redirect('/settings')
-    except Exception as e:
-        logger.error(f"Apollo.io authorization failed: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/authorize-seamless', methods=['GET'])
-@token_required
-def authorize_seamless(user_id):
-    # Redirect to Seamless.AI OAuth URL (simplified for demo; in production, use proper OAuth flow)
-    seamless_client_id = os.getenv('SEAMLESS_CLIENT_ID', 'your_client_id')
-    redirect_uri = 'http://localhost:8000/seamless-callback'
-    seamless_auth_url = f"https://login.seamless.ai/oauth/authorize?client_id={seamless_client_id}&redirect_uri={redirect_uri}&response_type=code"
-    return redirect(seamless_auth_url)
-
-@app.route('/seamless-callback', methods=['GET'])
-@token_required
-def seamless_callback(user_id):
-    code = request.args.get('code')
-    if not code:
-        return jsonify({"error": "Authorization code not found"}), 400
-
-    # Exchange code for access token
-    seamless_client_id = os.getenv('SEAMLESS_CLIENT_ID', 'your_client_id')
-    seamless_client_secret = os.getenv('SEAMLESS_CLIENT_SECRET', 'your_client_secret')
-    redirect_uri = 'http://localhost:8000/seamless-callback'
-
-    try:
-        with httpx.Client() as client:
-            response = client.post(
-                "https://login.seamless.ai/oauth/token",
-                data={
-                    "grant_type": "authorization_code",
-                    "client_id": seamless_client_id,
-                    "client_secret": seamless_client_secret,
-                    "redirect_uri": redirect_uri,
-                    "code": code
-                }
-            )
-            response.raise_for_status()
-            token_data = response.json()
-            access_token = token_data.get('access_token')
-
-            # Save the token
-            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
-                           (user_id, "seamless", access_token))
-            conn.commit()
-
-            # Register webhook for Seamless.AI
-            webhook_url = f"http://your-app-url/webhook/seamless?user_id={user_id}"
-            response = client.post(
-                "https://api.seamless.ai/v1/webhooks",
-                headers={'Authorization': f'Bearer {access_token}'},
-                json={"url": webhook_url, "event": "contact_added"}
-            )
-            response.raise_for_status()
-
-            # Save webhook URL
-            cursor.execute("INSERT OR REPLACE INTO webhooks (user_id, webhook_url) VALUES (?, ?)",
-                           (user_id, webhook_url))
-            conn.commit()
-
-            # Redirect back to settings
-            return redirect('/settings')
-    except Exception as e:
-        logger.error(f"Seamless.AI authorization failed: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/authorize-zoominfo', methods=['GET'])
-@token_required
-def authorize_zoominfo(user_id):
-    # Redirect to ZoomInfo OAuth URL (simplified for demo; in production, use proper OAuth flow)
-    zoominfo_client_id = os.getenv('ZOOMINFO_CLIENT_ID', 'your_client_id')
-    redirect_uri = 'http://localhost:8000/zoominfo-callback'
-    zoominfo_auth_url = f"https://api.zoominfo.com/oauth/authorize?client_id={zoominfo_client_id}&redirect_uri={redirect_uri}&response_type=code"
-    return redirect(zoominfo_auth_url)
-
-@app.route('/zoominfo-callback', methods=['GET'])
-@token_required
-def zoominfo_callback(user_id):
-    code = request.args.get('code')
-    if not code:
-        return jsonify({"error": "Authorization code not found"}), 400
-
-    # Exchange code for access token
-    zoominfo_client_id = os.getenv('ZOOMINFO_CLIENT_ID', 'your_client_id')
-    zoominfo_client_secret = os.getenv('ZOOMINFO_CLIENT_SECRET', 'your_client_secret')
-    redirect_uri = 'http://localhost:8000/zoominfo-callback'
-
-    try:
-        with httpx.Client() as client:
-            response = client.post(
-                "https://api.zoominfo.com/oauth/token",
-                data={
-                    "grant_type": "authorization_code",
-                    "client_id": zoominfo_client_id,
-                    "client_secret": zoominfo_client_secret,
-                    "redirect_uri": redirect_uri,
-                    "code": code
-                }
-            )
-            response.raise_for_status()
-            token_data = response.json()
-            access_token = token_data.get('access_token')
-
-            # Save the token
-            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
-                           (user_id, "zoominfo", access_token))
-            conn.commit()
-
-            # Register webhook for ZoomInfo
-            webhook_url = f"http://your-app-url/webhook/zoominfo?user_id={user_id}"
-            response = client.post(
-                "https://api.zoominfo.com/v1/webhooks",
-                headers={'Authorization': f'Bearer {access_token}'},
-                json={"url": webhook_url, "event": "contact_added"}
-            )
-            response.raise_for_status()
-
-            # Save webhook URL
-            cursor.execute("INSERT OR REPLACE INTO webhooks (user_id, webhook_url) VALUES (?, ?)",
-                           (user_id, webhook_url))
-            conn.commit()
-
-            # Redirect back to settings
-            return redirect('/settings')
-    except Exception as e:
-        logger.error(f"ZoomInfo authorization failed: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/realnex-groups', methods=['GET'])
-@token_required
-def get_realnex_groups(user_id):
-    realnex_token = utils.get_token(user_id, "realnex", cursor)
-    if not realnex_token:
-        return jsonify({"error": "No RealNex token found"}), 401
-
-    try:
-        with httpx.Client() as client:
-            response = client.get(
-                "https://api.realnex.com/v1/groups",
-                headers={'Authorization': f'Bearer {realnex_token}'}
-            )
-            response.raise_for_status()
-            groups = response.json()
-            return jsonify({"groups": [{"id": group["id"], "name": group["name"]} for group in groups]})
-    except Exception as e:
-        logger.error(f"Failed to fetch RealNex groups: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/mailchimp-groups', methods=['GET'])
-@token_required
-def get_mailchimp_groups(user_id):
-    mailchimp_token = utils.get_token(user_id, "mailchimp", cursor)
-    if not mailchimp_token:
-        return jsonify({"error": "Not authorized with Mailchimp"}), 401
-
-    try:
-        with httpx.Client() as client:
-            # Fetch audiences
-            response = client.get(
-                "https://us1.api.mailchimp.com/3.0/lists",
-                auth=("anystring", mailchimp_token)
-            )
-            response.raise_for_status()
-            audiences = response.json().get('lists', [])
-
-            # Fetch interest categories (groups) for each audience
-            groups = []
-            for audience in audiences:
-                audience_id = audience['id']
-                response = client.get(
-                    f"https://us1.api.mailchimp.com/3.0/lists/{audience_id}/interest-categories",
-                    auth=("anystring", mailchimp_token)
-                )
-                response.raise_for_status()
-                categories = response.json().get('categories', [])
-
-                for category in categories:
-                    category_id = category['id']
-                    # Fetch interests (group names) within the category
-                    response = client.get(
-                        f"https://us1.api.mailchimp.com/3.0/lists/{audience_id}/interest-categories/{category_id}/interests",
-                        auth=("anystring", mailchimp_token)
-                    )
-                    response.raise_for_status()
-                    interests = response.json().get('interests', [])
-                    for interest in interests:
-                        groups.append({"id": interest['id'], "name": f"{category['title']} - {interest['name']}"})
-
-            return jsonify({"groups": groups})
-    except Exception as e:
-        logger.error(f"Failed to fetch Mailchimp groups: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/constant-contact-groups', methods=['GET'])
-@token_required
-def get_constant_contact_groups(user_id):
-    cc_token = utils.get_token(user_id, "constant_contact", cursor)
-    if not cc_token:
-        return jsonify({"error": "Not authorized with Constant Contact"}), 401
-
-    try:
-        with httpx.Client() as client:
-            response = client.get(
-                "https://api.cc.email/v3/contact_lists",
-                headers={'Authorization': f'Bearer {cc_token}'}
-            )
-            response.raise_for_status()
-            lists = response.json().get('lists', [])
-            return jsonify({"groups": [{"id": lst['list_id'], "name": lst['name']} for lst in lists]})
-    except Exception as e:
-        logger.error(f"Failed to fetch Constant Contact groups: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/apollo-groups', methods=['GET'])
-@token_required
-def get_apollo_groups(user_id):
-    apollo_token = utils.get_token(user_id, "apollo", cursor)
-    if not apollo_token:
-        return jsonify({"error": "Not authorized with Apollo.io"}), 401
-
-    try:
-        with httpx.Client() as client:
-            response = client.get(
-                "https://api.apollo.io/v1/lists",
-                headers={'Authorization': f'Bearer {apollo_token}'}
-            )
-            response.raise_for_status()
-            lists = response.json().get('lists', [])
-            return jsonify({"groups": [{"id": lst['id'], "name": lst['name']} for lst in lists]})
-    except Exception as e:
-        logger.error(f"Failed to fetch Apollo.io groups: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/seamless-groups', methods=['GET'])
-@token_required
-def get_seamless_groups(user_id):
-    seamless_token = utils.get_token(user_id, "seamless", cursor)
-    if not seamless_token:
-        return jsonify({"error": "Not authorized with Seamless.AI"}), 401
-
-    try:
-        with httpx.Client() as client:
-            response = client.get(
-                "https://api.seamless.ai/v1/lists",
-                headers={'Authorization': f'Bearer {seamless_token}'}
-            )
-            response.raise_for_status()
-            lists = response.json().get('lists', [])
-            return jsonify({"groups": [{"id": lst['id'], "name": lst['name']} for lst in lists]})
-    except Exception as e:
-        logger.error(f"Failed to fetch Seamless.AI groups: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/zoominfo-groups', methods=['GET'])
-@token_required
-def get_zoominfo_groups(user_id):
-    zoominfo_token = utils.get_token(user_id, "zoominfo", cursor)
-    if not zoominfo_token:
-        return jsonify({"error": "Not authorized with ZoomInfo"}), 401
-
-    try:
-        with httpx.Client() as client:
-            response = client.get(
-                "https://api.zoominfo.com/v1/lists",
-                headers={'Authorization': f'Bearer {zoominfo_token}'}
-            )
-            response.raise_for_status()
-            lists = response.json().get('lists', [])
-            return jsonify({"groups": [{"id": lst['id'], "name": lst['name']} for lst in lists]})
-    except Exception as e:
-        logger.error(f"Failed to fetch ZoomInfo groups: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'GET':
-        return render_template('login.html')
-
-    data = request.json
-    username = data.get('username')
-    password = data.get('password')
-
-    if username == 'admin' and password == 'password123':
-        user_id = 'default'
-        token = jwt.encode({
-            'user_id': user_id,
-            'user': username,
-            'exp': datetime.utcnow() + timedelta(hours=24)
-        }, app.config['SECRET_KEY'], algorithm='HS256')
-        return jsonify({"token": token})
-    return jsonify({"error": "Invalid credentials"}), 401
-
-# API endpoints for dashboard data
-@app.route('/dashboard-data', methods=['GET'])
-@token_required
-def dashboard_data(user_id):
-    cache_key = f"dashboard_data:{user_id}"
-    if redis_client:
-        cached_data = redis_client.get(cache_key)
-        if cached_data:
-            logger.debug(f"Cache hit for {cache_key}")
-            return jsonify(json.loads(cached_data))
-
-    # Fetch contacts count from database
-    cursor.execute("SELECT COUNT(*) FROM contacts WHERE user_id = ?", (user_id,))
-    total_contacts = cursor.fetchone()[0]
-
-    # Fetch duplicates count
-    cursor.execute("SELECT COUNT(*) FROM duplicates_log WHERE user_id = ?", (user_id,))
-    duplicates_detected = cursor.fetchone()[0]
-
-    # Fetch recent deals from RealNex
-    realnex_token = utils.get_token(user_id, "realnex", cursor)
-    recent_deals = 0
-    if realnex_token:
-        try:
-            with httpx.Client() as client:
-                response = client.get(
-                    "https://api.realnex.com/v1/deals",
-                    headers={'Authorization': f'Bearer {realnex_token}'},
-                    params={"limit": 5}
-                )
-                response.raise_for_status()
-                deals = response.json()
-                recent_deals = len(deals)
-        except Exception as e:
-            logger.error(f"Failed to fetch RealNex deals: {e}")
-
-    data = {
-        "total_contacts": total_contacts,
-        "recent_deals": recent_deals,
-        "duplicates_detected": duplicates_detected
-    }
-
-    if redis_client:
-        redis_client.setex(cache_key, 300, json.dumps(data))
-        logger.debug(f"Cache set for {cache_key}")
-    return jsonify(data)
-
-@app.route('/sync-stats', methods=['GET'])
-@token_required
-def sync_stats(user_id):
-    # Count sync actions from user_activity_log
-    stats = {"local": 0, "apollo": 0, "seamless": 0, "zoominfo": 0}
-
-    # Local contacts synced to RealNex
-    cursor.execute("SELECT COUNT(*) FROM user_activity_log WHERE user_id = ? AND action = 'sync_realnex_contact' AND details NOT LIKE '%apollo_%' AND details NOT LIKE '%seamless_%' AND details NOT LIKE '%zoominfo_%'", (user_id,))
-    stats["local"] = cursor.fetchone()[0]
-
-    # Apollo.io contacts synced
-    cursor.execute("SELECT COUNT(*) FROM user_activity_log WHERE user_id = ? AND action = 'sync_realnex_contact' AND details LIKE '%apollo_%'", (user_id,))
-    stats["apollo"] = cursor.fetchone()[0]
-
-    # Seamless.AI contacts synced
-    cursor.execute("SELECT COUNT(*) FROM user_activity_log WHERE user_id = ? AND action = 'sync_realnex_contact' AND details LIKE '%seamless_%'", (user_id,))
-    stats["seamless"] = cursor.fetchone()[0]
-
-    # ZoomInfo contacts synced
-    cursor.execute("SELECT COUNT(*) FROM user_activity_log WHERE user_id = ? AND action = 'sync_realnex_contact' AND details LIKE '%zoominfo_%'", (user_id,))
-    stats["zoominfo"] = cursor.fetchone()[0]
-
-    return jsonify(stats)
-
-@app.route('/import-stats', methods=['GET'])
-@token_required
-def import_stats(user_id):
-    cache_key = f"import_stats:{user_id}"
-    if redis_client:
-        cached_data = redis_client.get(cache_key)
-        if cached_data:
-            logger.debug(f"Cache hit for {cache_key}")
-            return jsonify(json.loads(cached_data))
-
-    stats = {
-        "total_imports": 150,
-        "successful_imports": 140,
-        "duplicates_detected": 10
-    }
-
-    if redis_client:
-        redis_client.setex(cache_key, 300, json.dumps(stats))
-        logger.debug(f"Cache set for {cache_key}")
-    return jsonify(stats)
-
-@app.route('/mission-summary', methods=['GET'])
-@token_required
-def mission_summary(user_id):
-    cache_key = f"mission_summary:{user_id}"
-    if redis_client:
-        cached_data = redis_client.get(cache_key)
-        if cached_data:
-            logger.debug(f"Cache hit for {cache_key}")
-            return jsonify(json.loads(cached_data))
-
-    summary = {"summary": "Mission Summary: Synced 150 contacts, detected 10 duplicates, predicted 2 deals."}
-
-    if redis_client:
-        redis_client.setex(cache_key, 300, json.dumps(summary))
-        logger.debug(f"Cache set for {cache_key}")
-    return jsonify(summary)
-
-# Chat hub endpoints
-@app.route('/save-message', methods=['POST'])
-@token_required
-def save_message(user_id):
-    data = request.json
-    sender = data.get('sender')
-    message = data.get('message')
-    timestamp = datetime.now().isoformat()
-    
-    cursor.execute("INSERT INTO chat_messages (user_id, sender, message, timestamp) VALUES (?, ?, ?, ?)",
-                   (user_id, sender, message, timestamp))
+def update_settings(user_id):
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    cursor.execute('''INSERT OR REPLACE INTO user_settings (user_id, language, subject_generator_enabled, 
+                      deal_alerts_enabled, email_notifications, sms_notifications, mailchimp_group_id, 
+                      constant_contact_group_id, realnex_group_id, apollo_group_id, seamless_group_id, zoominfo_group_id)
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                   (user_id, data.get('language', 'en'), int(data.get('subject_generator_enabled', 0)),
+                    int(data.get('deal_alerts_enabled', 0)), int(data.get('email_notifications', 0)),
+                    int(data.get('sms_notifications', 0)), data.get('mailchimp_group_id', ''),
+                    data.get('constant_contact_group_id', ''), data.get('realnex_group_id', ''),
+                    data.get('apollo_group_id', ''), data.get('seamless_group_id', ''), data.get('zoominfo_group_id', '')))
     conn.commit()
-    return jsonify({"status": "Message saved"})
+    logger.info(f"Settings updated for user {user_id}.")
+    return jsonify({"status": "Settings updated"})
 
-@app.route('/get-messages', methods=['GET'])
+@app.route('/set-token', methods=['POST'])
 @token_required
-def get_messages(user_id):
-    cursor.execute("SELECT sender, message, timestamp FROM chat_messages WHERE user_id = ? ORDER BY timestamp",
-                   (user_id,))
-    messages = cursor.fetchall()
-    result = [{"sender": msg[0], "message": msg[1], "timestamp": msg[2]} for msg in messages]
-    return jsonify({"messages": result})
+def set_token(user_id):
+    data = request.get_json()
+    service = data.get('service')
+    token = data.get('token')
+    if not service or not token:
+        return jsonify({"error": "Service and token are required"}), 400
 
-# Activity log endpoint
-@app.route('/activity_log', methods=['GET'])
+    cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
+                   (user_id, service, token))
+    conn.commit()
+    logger.info(f"Token set for service {service} for user {user_id}.")
+    return jsonify({"status": f"Token for {service} set successfully"})
+
+@app.route('/points', methods=['GET'])
+@token_required
+def get_points(user_id):
+    cursor.execute("SELECT points, email_credits, has_msa FROM user_points WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+    if result:
+        points_data = {"points": result[0], "email_credits": result[1], "has_msa": bool(result[2])}
+    else:
+        points_data = {"points": 0, "email_credits": 0, "has_msa": False}
+        cursor.execute("INSERT INTO user_points (user_id, points, email_credits, has_msa) VALUES (?, ?, ?, ?)",
+                       (user_id, 0, 0, 0))
+        conn.commit()
+    return jsonify(points_data)
+
+@app.route('/update-points', methods=['POST'])
+@token_required
+def update_points(user_id):
+    data = request.get_json()
+    points = data.get('points', 0)
+    email_credits = data.get('email_credits', 0)
+    has_msa = data.get('has_msa', False)
+
+    cursor.execute("INSERT OR REPLACE INTO user_points (user_id, points, email_credits, has_msa) VALUES (?, ?, ?, ?)",
+                   (user_id, points, email_credits, int(has_msa)))
+    conn.commit()
+    logger.info(f"Points updated for user {user_id}: points={points}, email_credits={email_credits}, has_msa={has_msa}")
+    return jsonify({"status": "Points updated"})
+
+@app.route('/onboarding-status', methods=['GET'])
+@token_required
+def get_onboarding_status(user_id):
+    cursor.execute("SELECT step, completed FROM user_onboarding WHERE user_id = ?", (user_id,))
+    steps = cursor.fetchall()
+    onboarding_status = {step: bool(completed) for step, completed in steps}
+    return jsonify(onboarding_status)
+
+@app.route('/update-onboarding', methods=['POST'])
+@token_required
+def update_onboarding(user_id):
+    data = request.get_json()
+    step = data.get('step')
+    completed = data.get('completed', False)
+    if not step:
+        return jsonify({"error": "Step is required"}), 400
+
+    cursor.execute("INSERT OR REPLACE INTO user_onboarding (user_id, step, completed) VALUES (?, ?, ?)",
+                   (user_id, step, int(completed)))
+    conn.commit()
+    logger.info(f"Onboarding step {step} updated for user {user_id}: completed={completed}")
+    return jsonify({"status": f"Onboarding step {step} updated"})
+
+@app.route('/deal-alerts', methods=['GET'])
+@token_required
+def get_deal_alerts(user_id):
+    cursor.execute("SELECT threshold, deal_type FROM deal_alerts WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+    if result:
+        return jsonify({"threshold": result[0], "deal_type": result[1]})
+    return jsonify({"threshold": 0, "deal_type": "none"})
+
+@app.route('/set-deal-alert', methods=['POST'])
+@token_required
+def set_deal_alert(user_id):
+    data = request.get_json()
+    threshold = data.get('threshold')
+    deal_type = data.get('deal_type')
+    if threshold is None or not deal_type:
+        return jsonify({"error": "Threshold and deal type are required"}), 400
+
+    cursor.execute("INSERT OR REPLACE INTO deal_alerts (user_id, threshold, deal_type) VALUES (?, ?, ?)",
+                   (user_id, float(threshold), deal_type))
+    conn.commit()
+    logger.info(f"Deal alert set for user {user_id}: threshold={threshold}, deal_type={deal_type}")
+    return jsonify({"status": "Deal alert set"})
+
+@app.route('/generate-2fa', methods=['POST'])
+@token_required
+def generate_2fa(user_id):
+    import random
+    code = ''.join([str(random.randint(0, 9)) for _ in range(6)])
+    expiry = datetime.now() + timedelta(minutes=10)
+    cursor.execute("INSERT OR REPLACE INTO two_fa_codes (user_id, code, expiry) VALUES (?, ?, ?)",
+                   (user_id, code, expiry.isoformat()))
+    conn.commit()
+    logger.info(f"2FA code generated for user {user_id}: code={code}, expiry={expiry}")
+    return jsonify({"code": code, "expiry": expiry.isoformat()})
+
+@app.route('/verify-2fa', methods=['POST'])
+@token_required
+def verify_2fa(user_id):
+    data = request.get_json()
+    code = data.get('code')
+    if not code:
+        return jsonify({"error": "Code is required"}), 400
+
+    cursor.execute("SELECT code, expiry FROM two_fa_codes WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+    if not result:
+        return jsonify({"error": "No 2FA code found"}), 400
+
+    stored_code, expiry = result
+    expiry_dt = datetime.fromisoformat(expiry)
+    if datetime.now() > expiry_dt:
+        return jsonify({"error": "Code has expired"}), 400
+    if code != stored_code:
+        return jsonify({"error": "Invalid code"}), 400
+
+    cursor.execute("DELETE FROM two_fa_codes WHERE user_id = ?", (user_id,))
+    conn.commit()
+    logger.info(f"2FA code verified for user {user_id}.")
+    return jsonify({"status": "2FA verified"})
+
+@app.route('/duplicates-log', methods=['GET'])
+@token_required
+def get_duplicates_log(user_id):
+    cursor.execute("SELECT id, contact_hash, contact_data, timestamp FROM duplicates_log WHERE user_id = ? ORDER BY timestamp DESC",
+                   (user_id,))
+    duplicates = [{"id": row[0], "contact_hash": row[1], "contact_data": json.loads(row[2]), "timestamp": row[3]}
+                 for row in cursor.fetchall()]
+    return jsonify({"duplicates": duplicates})
+                # Process contacts
+            realnex_token = utils.get_token(user_id, "realnex", cursor)
+            realnex_group_id = utils.get_user_settings(user_id, cursor, conn).get("realnex_group_id")
+            if not realnex_token or not realnex_group_id:
+                return jsonify({"error": "RealNex token or group ID missing"}), 401
+
+            synced_contacts = []
+            for contact in contacts:
+                contact_hash = utils.hash_entity(contact, "contact")
+                cursor.execute("SELECT contact_hash FROM duplicates_log WHERE user_id = ? AND contact_hash = ?",
+                               (user_id, contact_hash))
+                if cursor.fetchone():
+                    utils.log_duplicate(user_id, contact, "contact", cursor, conn)
+                    continue
+
+                # Search RealNex to avoid duplicates
+                email = contact.get('Email', '')
+                full_name = contact.get('Full Name', '')
+                if email or full_name:
+                    query_params = {"$filter": f"email eq '{email}'" if email else f"fullName eq '{full_name}'"}
+                    search_results = asyncio.run(utils.search_realnex_entities(user_id, "contact", query_params, cursor))
+                    if search_results and len(search_results) > 0:
+                        utils.log_duplicate(user_id, contact, "contact", cursor, conn)
+                        continue
+
+                # Split Full Name into First and Last Name
+                full_name = contact.get('Full Name', '')
+                first_name = full_name.split(' ')[0] if full_name else ''
+                last_name = ' '.join(full_name.split(' ')[1:]) if len(full_name.split(' ')) > 1 else ''
+
+                contact_data = {
+                    "id": f"contact_{len(synced_contacts)}_{user_id}",
+                    "firstName": first_name,
+                    "lastName": last_name,
+                    "email": contact.get('Email', ''),
+                    "mobile": contact.get('Phone', ''),
+                    "address": {"country": "USA"},
+                    "prospect": contact.get('Prospect', True),
+                    "investor": contact.get('Investor', False)
+                }
+                try:
+                    with httpx.Client() as client:
+                        response = client.post(
+                            "https://sync.realnex.com/api/v1/Crm/contact",
+                            headers={'Authorization': f'Bearer {realnex_token}'},
+                            json={
+                                "firstName": contact_data["firstName"],
+                                "lastName": contact_data["lastName"],
+                                "email": contact_data["email"],
+                                "mobile": contact_data["mobile"],
+                                "address": contact_data["address"],
+                                "prospect": contact_data["prospect"],
+                                "investor": contact_data["investor"],
+                                "doNotEmail": False,
+                                "doNotCall": False,
+                                "doNotFax": False,
+                                "doNotMail": False,
+                                "objectGroups": [{"key": realnex_group_id}],
+                                "source": "CRE Chat Bot"
+                            }
+                        )
+                        response.raise_for_status()
+                        contact_response = response.json()
+                        contact_key = contact_response.get("key", contact_data["id"])
+                        contact_data["id"] = contact_key
+                        email_score = cmd_sync_data.check_email_health(contact_data["email"]) if contact_data["email"] else 0
+                        phone_score = cmd_sync_data.check_phone_health(contact_data["mobile"]) if contact_data["mobile"] else 0
+                        utils.log_health_history(user_id, contact_data["id"], email_score, phone_score, cursor, conn)
+                        cursor.execute("INSERT INTO contacts (id, name, email, phone, user_id) VALUES (?, ?, ?, ?, ?)",
+                                       (contact_data["id"], full_name, contact_data["email"], contact_data["mobile"], user_id))
+                        conn.commit()
+                        utils.log_change(user_id, "contact", contact_data["id"], "created", {"firstName": contact_data["firstName"], "lastName": contact_data["lastName"], "changed_by": user_name}, cursor, conn)
+                        synced_contacts.append(contact_data)
+                        # Sync history to RealNex
+                        asyncio.run(utils.sync_changes_to_realnex(user_id, cursor, conn))
+                except Exception as e:
+                    logger.error(f"Failed to create contact {contact_data['id']} in RealNex: {e}")
+                    return jsonify({"error": f"Failed to create contact: {str(e)}"}), 500
+
+            return jsonify({
+                "status": "Image processed and synced to RealNex",
+                "contacts": synced_contacts
+            })
+
+        else:
+            return jsonify({"error": "Unsupported file type"}), 400
+
+    except Exception as e:
+        logger.error(f"Error processing file {filename}: {e}")
+        return jsonify({"error": f"Failed to process file: {str(e)}"}), 500
+    finally:
+        # Clean up: delete the file after processing
+        try:
+            os.remove(file_path)
+            logger.info(f"Deleted temporary file: {file_path}")
+        except Exception as e:
+            logger.error(f"Failed to delete temporary file {file_path}: {e}")
+
+@app.route('/settings', methods=['GET'])
+@token_required
+def settings_page(user_id):
+    logger.info("Settings page accessed.")
+    settings = utils.get_user_settings(user_id, cursor, conn)
+    return render_template('settings.html', settings=settings)
+@app.route('/update-settings', methods=['POST'])
+@token_required
+def update_settings(user_id):
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    cursor.execute('''INSERT OR REPLACE INTO user_settings (user_id, language, subject_generator_enabled, 
+                      deal_alerts_enabled, email_notifications, sms_notifications, mailchimp_group_id, 
+                      constant_contact_group_id, realnex_group_id, apollo_group_id, seamless_group_id, zoominfo_group_id)
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                   (user_id, data.get('language', 'en'), int(data.get('subject_generator_enabled', 0)),
+                    int(data.get('deal_alerts_enabled', 0)), int(data.get('email_notifications', 0)),
+                    int(data.get('sms_notifications', 0)), data.get('mailchimp_group_id', ''),
+                    data.get('constant_contact_group_id', ''), data.get('realnex_group_id', ''),
+                    data.get('apollo_group_id', ''), data.get('seamless_group_id', ''), data.get('zoominfo_group_id', '')))
+    conn.commit()
+    logger.info(f"Settings updated for user {user_id}.")
+    return jsonify({"status": "Settings updated"})
+
+@app.route('/set-token', methods=['POST'])
+@token_required
+def set_token(user_id):
+    data = request.get_json()
+    service = data.get('service')
+    token = data.get('token')
+    if not service or not token:
+        return jsonify({"error": "Service and token are required"}), 400
+
+    cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
+                   (user_id, service, token))
+    conn.commit()
+    logger.info(f"Token set for service {service} for user {user_id}.")
+    return jsonify({"status": f"Token for {service} set successfully"})
+
+@app.route('/points', methods=['GET'])
+@token_required
+def get_points(user_id):
+    cursor.execute("SELECT points, email_credits, has_msa FROM user_points WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+    if result:
+        points_data = {"points": result[0], "email_credits": result[1], "has_msa": bool(result[2])}
+    else:
+        points_data = {"points": 0, "email_credits": 0, "has_msa": False}
+        cursor.execute("INSERT INTO user_points (user_id, points, email_credits, has_msa) VALUES (?, ?, ?, ?)",
+                       (user_id, 0, 0, 0))
+        conn.commit()
+    return jsonify(points_data)
+
+@app.route('/update-points', methods=['POST'])
+@token_required
+def update_points(user_id):
+    data = request.get_json()
+    points = data.get('points', 0)
+    email_credits = data.get('email_credits', 0)
+    has_msa = data.get('has_msa', False)
+
+    cursor.execute("INSERT OR REPLACE INTO user_points (user_id, points, email_credits, has_msa) VALUES (?, ?, ?, ?)",
+                   (user_id, points, email_credits, int(has_msa)))
+    conn.commit()
+    logger.info(f"Points updated for user {user_id}: points={points}, email_credits={email_credits}, has_msa={has_msa}")
+    return jsonify({"status": "Points updated"})
+
+@app.route('/onboarding-status', methods=['GET'])
+@token_required
+def get_onboarding_status(user_id):
+    cursor.execute("SELECT step, completed FROM user_onboarding WHERE user_id = ?", (user_id,))
+    steps = cursor.fetchall()
+    onboarding_status = {step: bool(completed) for step, completed in steps}
+    return jsonify(onboarding_status)
+
+@app.route('/update-onboarding', methods=['POST'])
+@token_required
+def update_onboarding(user_id):
+    data = request.get_json()
+    step = data.get('step')
+    completed = data.get('completed', False)
+    if not step:
+        return jsonify({"error": "Step is required"}), 400
+
+    cursor.execute("INSERT OR REPLACE INTO user_onboarding (user_id, step, completed) VALUES (?, ?, ?)",
+                   (user_id, step, int(completed)))
+    conn.commit()
+    logger.info(f"Onboarding step {step} updated for user {user_id}: completed={completed}")
+    return jsonify({"status": f"Onboarding step {step} updated"})
+
+@app.route('/deal-alerts', methods=['GET'])
+@token_required
+def get_deal_alerts(user_id):
+    cursor.execute("SELECT threshold, deal_type FROM deal_alerts WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+    if result:
+        return jsonify({"threshold": result[0], "deal_type": result[1]})
+    return jsonify({"threshold": 0, "deal_type": "none"})
+
+@app.route('/set-deal-alert', methods=['POST'])
+@token_required
+def set_deal_alert(user_id):
+    data = request.get_json()
+    threshold = data.get('threshold')
+    deal_type = data.get('deal_type')
+    if threshold is None or not deal_type:
+        return jsonify({"error": "Threshold and deal type are required"}), 400
+
+    cursor.execute("INSERT OR REPLACE INTO deal_alerts (user_id, threshold, deal_type) VALUES (?, ?, ?)",
+                   (user_id, float(threshold), deal_type))
+    conn.commit()
+    logger.info(f"Deal alert set for user {user_id}: threshold={threshold}, deal_type={deal_type}")
+    return jsonify({"status": "Deal alert set"})
+
+@app.route('/generate-2fa', methods=['POST'])
+@token_required
+def generate_2fa(user_id):
+    import random
+    code = ''.join([str(random.randint(0, 9)) for _ in range(6)])
+    expiry = datetime.now() + timedelta(minutes=10)
+    cursor.execute("INSERT OR REPLACE INTO two_fa_codes (user_id, code, expiry) VALUES (?, ?, ?)",
+                   (user_id, code, expiry.isoformat()))
+    conn.commit()
+    logger.info(f"2FA code generated for user {user_id}: code={code}, expiry={expiry}")
+    return jsonify({"code": code, "expiry": expiry.isoformat()})
+
+@app.route('/verify-2fa', methods=['POST'])
+@token_required
+def verify_2fa(user_id):
+    data = request.get_json()
+    code = data.get('code')
+    if not code:
+        return jsonify({"error": "Code is required"}), 400
+
+    cursor.execute("SELECT code, expiry FROM two_fa_codes WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+    if not result:
+        return jsonify({"error": "No 2FA code found"}), 400
+
+    stored_code, expiry = result
+    expiry_dt = datetime.fromisoformat(expiry)
+    if datetime.now() > expiry_dt:
+        return jsonify({"error": "Code has expired"}), 400
+    if code != stored_code:
+        return jsonify({"error": "Invalid code"}), 400
+
+    cursor.execute("DELETE FROM two_fa_codes WHERE user_id = ?", (user_id,))
+    conn.commit()
+    logger.info(f"2FA code verified for user {user_id}.")
+    return jsonify({"status": "2FA verified"})
+
+@app.route('/duplicates-log', methods=['GET'])
+@token_required
+def get_duplicates_log(user_id):
+    cursor.execute("SELECT id, contact_hash, contact_data, timestamp FROM duplicates_log WHERE user_id = ? ORDER BY timestamp DESC",
+                   (user_id,))
+    duplicates = [{"id": row[0], "contact_hash": row[1], "contact_data": json.loads(row[2]), "timestamp": row[3]}
+                 for row in cursor.fetchall()]
+    return jsonify({"duplicates": duplicates})
+
+@app.route('/activity-log', methods=['GET'])
 @token_required
 def get_activity_log(user_id):
-    cursor.execute("SELECT action, details, timestamp FROM user_activity_log WHERE user_id = ? ORDER BY timestamp DESC LIMIT 100", (user_id,))
-    logs = cursor.fetchall()
-    result = [{"action": log[0], "details": json.loads(log[1]), "timestamp": log[2]} for log in logs]
-    return jsonify({"activity_log": result})
+    cursor.execute("SELECT id, action, details, timestamp FROM user_activity_log WHERE user_id = ? ORDER BY timestamp DESC",
+                   (user_id,))
+    activities = [{"id": row[0], "action": row[1], "details": json.loads(row[2]), "timestamp": row[3]}
+                  for row in cursor.fetchall()]
+    return jsonify({"activities": activities})
 
-# Health history endpoint
-@app.route('/health-history', methods=['GET'])
-@token_required
-def get_health_history(user_id):
-    cursor.execute("SELECT contact_id, email_health_score, phone_health_score, timestamp FROM health_history WHERE user_id = ? ORDER BY timestamp DESC LIMIT 100", (user_id,))
-    history = cursor.fetchall()
-    result = [{"contact_id": h[0], "email_health_score": h[1], "phone_health_score": h[2], "timestamp": h[3]} for h in history]
-    return jsonify({"health_history": result})
-
-# Duplicates endpoint
-@app.route('/duplicates', methods=['GET'])
-@token_required
-def get_duplicates(user_id):
-    cursor.execute("SELECT contact_hash, contact_data, timestamp FROM duplicates_log WHERE user_id = ? ORDER BY timestamp DESC", (user_id,))
-    duplicates = cursor.fetchall()
-    result = []
-    for dup in duplicates:
-        result.append({
-            "contact_hash": dup[0],
-            "contact_data": json.loads(dup[1]),
-            "timestamp": dup[2]
-        })
-    return jsonify({"duplicates": result})
-
-# Email template endpoints
-@app.route('/save_email_template', methods=['POST'])
+@app.route('/email-template', methods=['POST'])
 @token_required
 def save_email_template(user_id):
-    data = request.json
+    data = request.get_json()
     template_name = data.get('template_name')
     subject = data.get('subject')
     body = data.get('body')
-    
     if not all([template_name, subject, body]):
         return jsonify({"error": "Template name, subject, and body are required"}), 400
-    
+
     cursor.execute("INSERT INTO email_templates (user_id, template_name, subject, body) VALUES (?, ?, ?, ?)",
                    (user_id, template_name, subject, body))
     conn.commit()
-    logger.info(f"User {user_id} saved email template: {template_name}")
-    return jsonify({"status": "Email template saved successfully"})
+    logger.info(f"Email template saved for user {user_id}: {template_name}")
+    return jsonify({"status": "Email template saved"})
 
-@app.route('/get_email_templates', methods=['GET'])
+@app.route('/email-templates', methods=['GET'])
 @token_required
 def get_email_templates(user_id):
-    cursor.execute("SELECT template_name, subject, body FROM email_templates WHERE user_id = ?", (user_id,))
-    templates = cursor.fetchall()
-    result = [{"template_name": t[0], "subject": t[1], "body": t[2]} for t in templates]
-    return jsonify({"templates": result})
+    cursor.execute("SELECT id, template_name, subject, body FROM email_templates WHERE user_id = ?",
+                   (user_id,))
+    templates = [{"id": row[0], "template_name": row[1], "subject": row[2], "body": row[3]}
+                 for row in cursor.fetchall()]
+    return jsonify({"templates": templates})
 
-# Task scheduling endpoint
-@app.route('/schedule_task', methods=['POST'])
+@app.route('/schedule-task', methods=['POST'])
 @token_required
 def schedule_task(user_id):
-    data = request.json
+    data = request.get_json()
     task_type = data.get('task_type')
     task_data = data.get('task_data')
     schedule_time = data.get('schedule_time')
-    
     if not all([task_type, task_data, schedule_time]):
-        return jsonify({"error": "Task type, data, and schedule time are required"}), 400
-    
+        return jsonify({"error": "Task type, task data, and schedule time are required"}), 400
+
     cursor.execute("INSERT INTO scheduled_tasks (user_id, task_type, task_data, schedule_time, status) VALUES (?, ?, ?, ?, ?)",
                    (user_id, task_type, json.dumps(task_data), schedule_time, "pending"))
     conn.commit()
-    logger.info(f"User {user_id} scheduled task: {task_type} at {schedule_time}")
-    return jsonify({"status": "Task scheduled successfully"})
+    logger.info(f"Task scheduled for user {user_id}: type={task_type}, time={schedule_time}")
+    return jsonify({"status": "Task scheduled"})
 
-# Report generation endpoint
-@app.route('/generate_report', methods=['POST'])
+@app.route('/scheduled-tasks', methods=['GET'])
+@token_required
+def get_scheduled_tasks(user_id):
+    cursor.execute("SELECT id, task_type, task_data, schedule_time, status FROM scheduled_tasks WHERE user_id = ?",
+                   (user_id,))
+    tasks = [{"id": row[0], "task_type": row[1], "task_data": json.loads(row[2]), "schedule_time": row[3], "status": row[4]}
+             for row in cursor.fetchall()]
+    return jsonify({"tasks": tasks})
+
+@app.route('/chat-history', methods=['GET'])
+@token_required
+def get_chat_history(user_id):
+    cursor.execute("SELECT sender, message, timestamp FROM chat_messages WHERE user_id = ? ORDER BY timestamp ASC",
+                   (user_id,))
+    messages = [{"sender": row[0], "message": row[1], "timestamp": row[2]} for row in cursor.fetchall()]
+    return jsonify({"messages": messages})
+
+@app.route('/deals', methods=['GET'])
+@token_required
+def get_deals(user_id):
+    cursor.execute("SELECT id, amount, close_date FROM deals WHERE user_id = ?", (user_id,))
+    deals = [{"id": row[0], "amount": row[1], "close_date": row[2]} for row in cursor.fetchall()]
+    return jsonify({"deals": deals})
+
+@app.route('/add-deal', methods=['POST'])
+@token_required
+def add_deal(user_id):
+    data = request.get_json()
+    deal_id = data.get('id')
+    amount = data.get('amount')
+    close_date = data.get('close_date')
+    if not all([deal_id, amount, close_date]):
+        return jsonify({"error": "Deal ID, amount, and close date are required"}), 400
+
+    cursor.execute("INSERT OR REPLACE INTO deals (id, amount, close_date, user_id) VALUES (?, ?, ?, ?)",
+                   (deal_id, amount, close_date, user_id))
+    conn.commit()
+
+    # Check deal alerts
+    cursor.execute("SELECT threshold, deal_type FROM deal_alerts WHERE user_id = ?", (user_id,))
+    alert = cursor.fetchone()
+    if alert and float(amount) >= float(alert[0]) and deal_type in alert[1]:
+        socketio.emit('deal_alert', {
+            'user_id': user_id,
+            'message': f"Deal alert: New deal of {amount} (threshold: {alert[0]})",
+            'deal_type': alert[1]
+        }, namespace='/chat')
+
+    logger.info(f"Deal added for user {user_id}: id={deal_id}, amount={amount}")
+    return jsonify({"status": "Deal added"})
+
+@app.route('/contacts', methods=['GET'])
+@token_required
+def get_contacts(user_id):
+    cursor.execute("SELECT id, name, email, phone FROM contacts WHERE user_id = ?", (user_id,))
+    contacts = [{"id": row[0], "name": row[1], "email": row[2], "phone": row[3]} for row in cursor.fetchall()]
+    return jsonify({"contacts": contacts})
+
+@app.route('/add-contact', methods=['POST'])
+@token_required
+def add_contact(user_id):
+    data = request.get_json()
+    contact_id = data.get('id')
+    name = data.get('name')
+    email = data.get('email')
+    phone = data.get('phone')
+    if not all([contact_id, name, email, phone]):
+        return jsonify({"error": "Contact ID, name, email, and phone are required"}), 400
+
+    contact_data = {"id": contact_id, "name": name, "email": email, "phone": phone}
+    contact_hash = utils.hash_entity(contact_data, "contact")
+    cursor.execute("SELECT contact_hash FROM duplicates_log WHERE user_id = ? AND contact_hash = ?",
+                   (user_id, contact_hash))
+    if cursor.fetchone():
+        utils.log_duplicate(user_id, contact_data, "contact", cursor, conn)
+        return jsonify({"status": "Duplicate contact detected and logged"})
+
+    cursor.execute("INSERT OR REPLACE INTO contacts (id, name, email, phone, user_id) VALUES (?, ?, ?, ?, ?)",
+                   (contact_id, name, email, phone, user_id))
+    conn.commit()
+
+    # Sync to RealNex
+    realnex_token = utils.get_token(user_id, "realnex", cursor)
+    realnex_group_id = utils.get_user_settings(user_id, cursor, conn).get("realnex_group_id")
+    if realnex_token and realnex_group_id:
+        first_name = name.split(' ')[0] if name else ''
+        last_name = ' '.join(name.split(' ')[1:]) if len(name.split(' ')) > 1 else ''
+        try:
+            with httpx.Client() as client:
+                response = client.post(
+                    "https://sync.realnex.com/api/v1/Crm/contact",
+                    headers={'Authorization': f'Bearer {realnex_token}'},
+                    json={
+                        "firstName": first_name,
+                        "lastName": last_name,
+                        "email": email,
+                        "mobile": phone,
+                        "address": {"country": "USA"},
+                        "prospect": True,
+                        "investor": False,
+                        "doNotEmail": False,
+                        "doNotCall": False,
+                        "doNotFax": False,
+                        "doNotMail": False,
+                        "objectGroups": [{"key": realnex_group_id}],
+                        "source": "CRE Chat Bot"
+                    }
+                )
+                response.raise_for_status()
+                contact_response = response.json()
+                contact_key = contact_response.get("key", contact_id)
+                email_score = cmd_sync_data.check_email_health(email) if email else 0
+                phone_score = cmd_sync_data.check_phone_health(phone) if phone else 0
+                utils.log_health_history(user_id, contact_key, email_score, phone_score, cursor, conn)
+                utils.log_user_activity(user_id, "sync_realnex_contact", {"contact_id": contact_key, "group_id": realnex_group_id}, cursor, conn)
+                # Sync history to RealNex
+                import asyncio
+                asyncio.run(utils.sync_changes_to_realnex(user_id, cursor, conn))
+        except Exception as e:
+            logger.error(f"Failed to sync contact to RealNex: {e}")
+
+    logger.info(f"Contact added for user {user_id}: id={contact_id}")
+    return jsonify({"status": "Contact added"})
+
+@app.route('/set-webhook', methods=['POST'])
+@token_required
+def set_webhook(user_id):
+    data = request.get_json()
+    webhook_url = data.get('webhook_url')
+    if not webhook_url:
+        return jsonify({"error": "Webhook URL is required"}), 400
+
+    cursor.execute("INSERT OR REPLACE INTO webhooks (user_id, webhook_url) VALUES (?, ?)",
+                   (user_id, webhook_url))
+    conn.commit()
+    logger.info(f"Webhook set for user {user_id}: {webhook_url}")
+    return jsonify({"status": "Webhook set"})
+
+@app.route('/health-history', methods=['GET'])
+@token_required
+def get_health_history(user_id):
+    cursor.execute("SELECT contact_id, email_health_score, phone_health_score, timestamp FROM health_history WHERE user_id = ? ORDER BY timestamp DESC",
+                   (user_id,))
+    history = [{"contact_id": row[0], "email_health_score": row[1], "phone_health_score": row[2], "timestamp": row[3]}
+               for row in cursor.fetchall()]
+    return jsonify({"health_history": history})
+
+@app.route('/generate-report', methods=['POST'])
 @token_required
 def generate_report(user_id):
-    data = request.json
-    report_type = data.get('report_type', 'activity')
-    
-    if report_type == 'activity':
-        cursor.execute("SELECT action, details, timestamp FROM user_activity_log WHERE user_id = ? ORDER BY timestamp DESC LIMIT 10", (user_id,))
-        logs = cursor.fetchall()
-        report_data = {}
-        for i, log in enumerate(logs, 1):
-            report_data[f"Activity {i}"] = f"{log[0]} at {log[2]}: {json.loads(log[1])}"
-        title = "Recent Activity Report"
-    
-    pdf_output = generate_pdf_report(user_id, report_data, title)
-    logger.info(f"User {user_id} generated report: {report_type}")
-    return send_file(
-        pdf_output,
-        attachment_filename=f"{report_type}_report_{user_id}.pdf",
-        as_attachment=True,
-        mimetype='application/pdf'
-    )
+    data = request.get_json()
+    report_type = data.get('report_type')
+    if not report_type:
+        return jsonify({"error": "Report type is required"}), 400
 
-# Settings endpoints
-@app.route('/settings-data', methods=['GET'])
-@token_required
-def get_settings(user_id):
-    settings = utils.get_user_settings(user_id, cursor, conn)
-    realnex_token = utils.get_token(user_id, "realnex", cursor) or ''
-    settings['realnex_token'] = realnex_token
-    settings['realnex_group_id'] = settings.get('realnex_group_id', '')
-    settings['apollo_group_id'] = settings.get('apollo_group_id', '')
-    settings['seamless_group_id'] = settings.get('seamless_group_id', '')
-    settings['zoominfo_group_id'] = settings.get('zoominfo_group_id', '')
-    return jsonify(settings)
+    if report_type == "duplicates":
+        cursor.execute("SELECT contact_hash, contact_data, timestamp FROM duplicates_log WHERE user_id = ?",
+                       (user_id,))
+        duplicates = [{"contact_hash": row[0], "contact_data": json.loads(row[1]), "timestamp": row[2]}
+                      for row in cursor.fetchall()]
+        pdf = generate_pdf_report(user_id, {"Duplicates Found": len(duplicates)}, "Duplicates Report")
+        return send_file(pdf, as_attachment=True, download_name="duplicates_report.pdf", mimetype='application/pdf')
 
-@app.route('/save-settings', methods=['POST'])
-@token_required
-def save_settings(user_id):
-    try:
-        data = request.json
-        realnex_token = data.get('realnex_token', '')
-        mailchimp_group_id = data.get('mailchimp_group_id', '')
-        constant_contact_group_id = data.get('constant_contact_group_id', '')
-        realnex_group_id = data.get('realnex_group_id', '')
-        apollo_group_id = data.get('apollo_group_id', '')
-        seamless_group_id = data.get('seamless_group_id', '')
-        zoominfo_group_id = data.get('zoominfo_group_id', '')
-        language = data.get('language', 'en')
-        subject_generator_enabled = 1 if data.get('subject_generator_enabled', False) else 0
-        deal_alerts_enabled = 1 if data.get('deal_alerts_enabled', False) else 0
-        email_notifications = 1 if data.get('email_notifications', False) else 0
-        sms_notifications = 1 if data.get('sms_notifications', False) else 0
+    elif report_type == "activity":
+        cursor.execute("SELECT action, details, timestamp FROM user_activity_log WHERE user_id = ?",
+                       (user_id,))
+        activities = [{"action": row[0], "details": json.loads(row[1]), "timestamp": row[2]}
+                      for row in cursor.fetchall()]
+        pdf = generate_pdf_report(user_id, {"Total Activities": len(activities)}, "Activity Report")
+        return send_file(pdf, as_attachment=True, download_name="activity_report.pdf", mimetype='application/pdf')
 
-        # Save RealNex token to user_tokens
-        if realnex_token:
-            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
-                           (user_id, "realnex", realnex_token))
-        if data.get('mailchimp_token'):
-            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
-                           (user_id, "mailchimp", data.get('mailchimp_token')))
-        if data.get('constant_contact_token'):
-            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
-                           (user_id, "constant_contact", data.get('constant_contact_token')))
-        if data.get('apollo_token'):
-            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
-                           (user_id, "apollo", data.get('apollo_token')))
-        if data.get('seamless_token'):
-            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
-                           (user_id, "seamless", data.get('seamless_token')))
-        if data.get('zoominfo_token'):
-            cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
-                           (user_id, "zoominfo", data.get('zoominfo_token')))
-
-        # Save settings to user_settings
-        cursor.execute("""
-            INSERT OR REPLACE INTO user_settings 
-            (user_id, language, subject_generator_enabled, deal_alerts_enabled, email_notifications, sms_notifications, 
-             mailchimp_group_id, constant_contact_group_id, realnex_group_id, apollo_group_id, seamless_group_id, zoominfo_group_id) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (user_id, language, subject_generator_enabled, deal_alerts_enabled, email_notifications, sms_notifications, 
-              mailchimp_group_id, constant_contact_group_id, realnex_group_id, apollo_group_id, seamless_group_id, zoominfo_group_id))
-        
-        conn.commit()
-        logger.info(f"User {user_id} saved settings")
-        return jsonify({"status": "Settings saved"})
-    except Exception as e:
-        logger.error(f"Failed to save settings for user {user_id}: {str(e)}")
-        return jsonify({"error": str(e)}), 500
-
-# Field mapping endpoints
-@app.route('/field-map/saved/<name>', methods=['GET'])
-@token_required
-def load_field_mapping(user_id, name):
-    mappings = {"contacts": {"Full Name": "name", "Email": "email", "Phone": "phone"}}
-    return jsonify(mappings.get(name, {"contacts": {}}))
-
-@app.route('/field-map/save/<name>', methods=['POST'])
-@token_required
-def save_field_mapping(user_id, name):
-    data = request.json
-    contacts = data.get('contacts', {})
-    logger.info(f"User {user_id} saved mapping: {name} - {contacts}")
-    return jsonify({"status": "Mapping saved"})
-
-# Webhook endpoints for real-time syncing
-@app.route('/webhook/apollo', methods=['POST'])
-def apollo_webhook():
-    user_id = request.args.get('user_id')
-    if not user_id:
-        return jsonify({"error": "User ID missing"}), 400
-
-    data = request.json
-    event = data.get('event')
-    if event != "contact_added":
-        return jsonify({"status": "Ignored event"}), 200
-
-    contact = data.get('contact', {})
-    contact_id = f"apollo_{contact['id']}_{user_id}"
-    contact_data = {
-        "id": contact_id,
-        "name": contact.get('name', ''),
-        "email": contact.get('email', ''),
-        "phone": contact.get('phone', '')
-    }
-
-    # Check for duplicates and sync
-    contact_hash = utils.hash_entity(contact_data, "contact")
-    cursor.execute("SELECT contact_hash FROM duplicates_log WHERE user_id = ? AND contact_hash = ?", (user_id, contact_hash))
-    if not cursor.fetchone():
-        email_score = cmd_sync_data.check_email_health(contact_data["email"]) if contact_data["email"] else 0
-        phone_score = cmd_sync_data.check_phone_health(contact_data["phone"]) if contact_data["phone"] else 0
-        utils.log_health_history(user_id, contact_id, email_score, phone_score, cursor, conn)
-        cursor.execute("INSERT OR IGNORE INTO contacts (id, name, email, phone, user_id) VALUES (?, ?, ?, ?, ?)",
-                       (contact_id, contact_data['name'], contact_data['email'], contact_data['phone'], user_id))
-        conn.commit()
-
-        # Trigger sync for this contact
-        cmd_sync_data.handle_sync_data("sync contacts", user_id, cursor, conn)
     else:
-        utils.log_duplicate(user_id, contact_data, "contact", cursor, conn)
+        return jsonify({"error": "Unsupported report type"}), 400)
 
-    return jsonify({"status": "Webhook processed"}), 200
-
-@app.route('/webhook/seamless', methods=['POST'])
-def seamless_webhook():
-    user_id = request.args.get('user_id')
-    if not user_id:
-        return jsonify({"error": "User ID missing"}), 400
-
-    data = request.json
-    event = data.get('event')
-    if event != "contact_added":
-        return jsonify({"status": "Ignored event"}), 200
-
-    contact = data.get('contact', {})
-    contact_id = f"seamless_{contact['id']}_{user_id}"
-    contact_data = {
-        "id": contact_id,
-        "name": contact.get('name', ''),
-        "email": contact.get('email', ''),
-        "phone": contact.get('phone', '')
-    }
-
-    # Check for duplicates and sync
-    contact_hash = utils.hash_entity(contact_data, "contact")
-    cursor.execute("SELECT contact_hash FROM duplicates_log WHERE user_id = ? AND contact_hash = ?", (user_id, contact_hash))
-    if not cursor.fetchone():
-        email_score = cmd_sync_data.check_email_health(contact_data["email"]) if contact_data["email"] else 0
-        phone_score = cmd_sync_data.check_phone_health(contact_data["phone"]) if contact_data["phone"] else 0
-        utils.log_health_history(user_id, contact_id, email_score, phone_score, cursor, conn)
-        cursor.execute("INSERT OR IGNORE INTO contacts (id, name, email, phone, user_id) VALUES (?, ?, ?, ?, ?)",
-                       (contact_id, contact_data['name'], contact_data['email'], contact_data['phone'], user_id))
-        conn.commit()
-
-        # Trigger sync for this contact
-        cmd_sync_data.handle_sync_data("sync contacts", user_id, cursor, conn)
-    else:
-        utils.log_duplicate(user_id, contact_data, "contact", cursor, conn)
-
-    return jsonify({"status": "Webhook processed"}), 200
-
-@app.route('/webhook/zoominfo', methods=['POST'])
-def zoominfo_webhook():
-    user_id = request.args.get('user_id')
-    if not user_id:
-        return jsonify({"error": "User ID missing"}), 400
-
-    data = request.json
-    event = data.get('event')
-    if event != "contact_added":
-        return jsonify({"status": "Ignored event"}), 200
-
-    contact = data.get('contact', {})
-    contact_id = f"zoominfo_{contact['id']}_{user_id}"
-    contact_data = {
-        "id": contact_id,
-        "name": contact.get('name', ''),
-        "email": contact.get('email', ''),
-        "phone": contact.get('phone', '')
-    }
-
-    # Check for duplicates and sync
-    contact_hash = utils.hash_entity(contact_data, "contact")
-    cursor.execute("SELECT contact_hash FROM duplicates_log WHERE user_id = ? AND contact_hash = ?", (user_id, contact_hash))
-    if not cursor.fetchone():
-        email_score = cmd_sync_data.check_email_health(contact_data["email"]) if contact_data["email"] else 0
-        phone_score = cmd_sync_data.check_phone_health(contact_data["phone"]) if contact_data["phone"] else 0
-        utils.log_health_history(user_id, contact_id, email_score, phone_score, cursor, conn)
-        cursor.execute("INSERT OR IGNORE INTO contacts (id, name, email, phone, user_id) VALUES (?, ?, ?, ?, ?)",
-                       (contact_id, contact_data['name'], contact_data['email'], contact_data['phone'], user_id))
-        conn.commit()
-
-        # Trigger sync for this contact
-        cmd_sync_data.handle_sync_data("sync contacts", user_id, cursor, conn)
-    else:
-        utils.log_duplicate(user_id, contact_data, "contact", cursor, conn)
-
-    return jsonify({"status": "Webhook processed"}), 200
-
-# SocketIO event handlers
-@socketio.on('connect')
+# WebSocket Events
+@socketio.on('connect', namespace='/chat')
 def handle_connect():
-    logger.info("Client connected to SocketIO")
+    logger.info("Client connected to /chat namespace.")
 
-@socketio.on('disconnect')
+@socketio.on('disconnect', namespace='/chat')
 def handle_disconnect():
-    logger.info("Client disconnected from SocketIO")
+    logger.info("Client disconnected from /chat namespace.")
 
-@socketio.on('message')
+@socketio.on('message', namespace='/chat')
 def handle_message(data):
     user_id = data.get('user_id')
     message = data.get('message')
     if not user_id or not message:
-        socketio.emit('response', {'message': 'User ID and message are required'}, to=request.sid)
+        socketio.emit('error', {'message': 'User ID and message are required'}, namespace='/chat')
         return
 
-    # Save the user's message
     timestamp = datetime.now().isoformat()
     cursor.execute("INSERT INTO chat_messages (user_id, sender, message, timestamp) VALUES (?, ?, ?, ?)",
                    (user_id, 'user', message, timestamp))
     conn.commit()
 
-    # Process the message (e.g., check for commands like 'sync crm')
-    if message.lower().startswith('sync '):
-        response = cmd_sync_data.handle_sync_data(message, user_id, cursor, conn)
-    else:
-        # Placeholder for other commands or responses
-        response = f"Echo: {message}"
+    # Process the message with AI (simplified for this example)
+    response = commands.process_message(message, user_id, cursor, conn, socketio)
 
-    # Save the bot's response
     cursor.execute("INSERT INTO chat_messages (user_id, sender, message, timestamp) VALUES (?, ?, ?, ?)",
-                   (user_id, 'bot', response, timestamp))
+                   (user_id, 'bot', response, datetime.now().isoformat()))
     conn.commit()
 
-    # Emit the response back to the client
-    socketio.emit('response', {'message': response, 'sender': 'bot', 'timestamp': timestamp}, to=request.sid)
+    socketio.emit('message', {
+        'sender': 'bot',
+        'message': response,
+        'timestamp': timestamp
+    }, namespace='/chat')
 
+    # Check for webhook and notify
+    cursor.execute("SELECT webhook_url FROM webhooks WHERE user_id = ?", (user_id,))
+    webhook = cursor.fetchone()
+    if webhook:
+        webhook_url = webhook[0]
+        try:
+            with httpx.Client() as client:
+                client.post(webhook_url, json={
+                    "user_id": user_id,
+                    "message": message,
+                    "response": response,
+                    "timestamp": timestamp
+                })
+        except Exception as e:
+            logger.error(f"Failed to send webhook notification: {e}")
+
+# Run the app
 if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=8000)
+    socketio.run(app, host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
