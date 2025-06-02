@@ -1664,32 +1664,6 @@ def get_duplicates_log(user_id):
         except Exception as e:
             logger.error(f"Failed to delete temporary file {file_path}: {e}")
 
-@app.route('/settings', methods=['GET'])
-@token_required
-def settings_page(user_id):
-    logger.info("Settings page accessed.")
-    settings = utils.get_user_settings(user_id, cursor, conn)
-    return render_template('settings.html', settings=settings)
-@app.route('/update-settings', methods=['POST'])
-@token_required
-def update_settings(user_id):
-    data = request.get_json()
-    if not data:
-        return jsonify({"error": "No data provided"}), 400
-
-    cursor.execute('''INSERT OR REPLACE INTO user_settings (user_id, language, subject_generator_enabled, 
-                      deal_alerts_enabled, email_notifications, sms_notifications, mailchimp_group_id, 
-                      constant_contact_group_id, realnex_group_id, apollo_group_id, seamless_group_id, zoominfo_group_id)
-                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                   (user_id, data.get('language', 'en'), int(data.get('subject_generator_enabled', 0)),
-                    int(data.get('deal_alerts_enabled', 0)), int(data.get('email_notifications', 0)),
-                    int(data.get('sms_notifications', 0)), data.get('mailchimp_group_id', ''),
-                    data.get('constant_contact_group_id', ''), data.get('realnex_group_id', ''),
-                    data.get('apollo_group_id', ''), data.get('seamless_group_id', ''), data.get('zoominfo_group_id', '')))
-    conn.commit()
-    logger.info(f"Settings updated for user {user_id}.")
-    return jsonify({"status": "Settings updated"})
-
 @app.route('/set-token', methods=['POST'])
 @token_required
 def set_token(user_id):
