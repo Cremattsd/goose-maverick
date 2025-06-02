@@ -217,7 +217,8 @@ def field_map(user_id):
 def ocr_page(user_id):
     logger.info("OCR scanner page accessed.")
     return render_template('ocr.html')
-    @app.route('/upload-file', methods=['POST'])
+
+@app.route('/upload-file', methods=['POST'])
 @token_required
 def upload_file(user_id):
     if 'file' not in request.files:
@@ -455,7 +456,8 @@ def upload_file(user_id):
                 except Exception as e:
                     logger.error(f"Failed to create contact {contact_data['id']} in RealNex: {e}")
                     return jsonify({"error": f"Failed to create contact: {str(e)}"}), 500
-                                # Process companies
+
+            # Process companies
             synced_companies = []
             for company in companies:
                 company_data = {
@@ -1006,7 +1008,7 @@ def upload_file(user_id):
             leasecomp_mappings = asyncio.run(utils.get_field_mappings(user_id, "leasecomp", cursor))
             salecomp_mappings = asyncio.run(utils.get_field_mappings(user_id, "salecomp", cursor))
 
-            if not all([property_mappings, space_mappings, company_mappings, project_mappings, leasecomp_mappings, salecomp_mappings]):
+            if not all([property_mappings, space_mappings, company_mappings, project_mappings, leasecomps_mappings, salecomps_mappings]):
                 return jsonify({"error": "Failed to fetch field mappings from RealNex."}), 500
 
             # Process PDF for all entities
@@ -1149,48 +1151,6 @@ def upload_file(user_id):
                         })
                     except Exception as e:
                         logger.error(f"Failed to parse history entry '{history_text}': {e}")
-                                            # Search RealNex to avoid duplicates
-                    query_params = {"$filter": f"subject eq '{event_data['subject']}' and startDate eq '{event_data['startDate']}'"}
-                    search_results = asyncio.run(utils.search_realnex_entities(user_id, "event", query_params, cursor))
-                    if search_results and len(search_results) > 0:
-                        utils.log_duplicate(user_id, event_data, "event", cursor, conn)
-                        continue
-
-                    try:
-                        with httpx.Client() as client:
-                            response = client.post(
-                                "https://sync.realnex.com/api/v1/Crm/event",
-                                headers={'Authorization': f'Bearer {realnex_token}'},
-                                json={
-                                    "userKey": user_id,
-                                    "subject": event_data["subject"],
-                                    "startDate": event_data["startDate"],
-                                    "endDate": event_data["endDate"],
-                                    "timeZone": "UTC",
-                                    "timeless": False,
-                                    "allDay": False,
-                                    "finished": False,
-                                    "alarmMinutes": 0,
-                                    "eventType": {"key": 1},
-                                    "priority": {"key": 1},
-                                    "objectGroups": [{"key": realnex_group_id}],
-                                    "source": "CRE Chat Bot"
-                                }
-                            )
-                            response.raise_for_status()
-                            event_response = response.json()
-                            event_key = event_response.get("key", event_data["id"])
-                            event_data["id"] = event_key
-                            synced_events.append(event_data)
-                            utils.log_user_activity(user_id, "sync_realnex_event", {"event_id": event_data["id"], "group_id": realnex_group_id}, cursor, conn)
-                            utils.log_change(user_id, "event", event_data["id"], "created", {"subject": event_data["subject"], "changed_by": user_name}, cursor, conn)
-                            # Sync history to RealNex
-                            asyncio.run(utils.sync_changes_to_realnex(user_id, cursor, conn))
-                    except Exception as e:
-                        logger.error(f"Failed to sync event {event_data['id']} to RealNex: {e}")
-                        return jsonify({"error": f"Failed to sync event: {str(e)}"}), 500
-                else:
-                    utils.log_duplicate(user_id, event_data, "event", cursor, conn)
 
             # Process history entries and create events
             synced_history_events = []
@@ -1364,7 +1324,8 @@ def upload_file(user_id):
                         "Prospect": True,
                         "Investor": False
                     })
-                                # Process contacts
+
+            # Process contacts
             realnex_token = utils.get_token(user_id, "realnex", cursor)
             realnex_group_id = utils.get_user_settings(user_id, cursor, conn).get("realnex_group_id")
             if not realnex_token or not realnex_group_id:
@@ -1462,6 +1423,12 @@ def upload_file(user_id):
         except Exception as e:
             logger.error(f"Failed to delete temporary file {file_path}: {e}")
 
+@app.route('/settings', methods=['GET'])
+@token_required
+def settings_page(user_id):
+    logger.info("Settings page accessed.")
+    settings = utils.get_user_settings(user_id, cursor, conn)
+    return render_template('settings.html', settings=settings)
 @app.route('/settings', methods=['GET'])
 @token_required
 def settings_page(user_id):
