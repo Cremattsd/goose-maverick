@@ -1410,12 +1410,6 @@ def settings_page(user_id):
     logger.info("Settings page accessed.")
     settings = utils.get_user_settings(user_id, cursor, conn)
     return render_template('settings.html', settings=settings)
-@app.route('/settings', methods=['GET'])
-@token_required
-def settings_page(user_id):
-    logger.info("Settings page accessed.")
-    settings = utils.get_user_settings(user_id, cursor, conn)
-    return render_template('settings.html', settings=settings)
 
 @app.route('/update-settings', methods=['POST'])
 @token_required
@@ -1436,7 +1430,7 @@ def update_settings(user_id):
     conn.commit()
     logger.info(f"Settings updated for user {user_id}.")
     return jsonify({"status": "Settings updated"})
-
+    
 @app.route('/set-token', methods=['POST'])
 @token_required
 def set_token(user_id):
@@ -1831,7 +1825,183 @@ def get_duplicates_log(user_id):
     duplicates = [{"id": row[0], "contact_hash": row[1], "contact_data": json.loads(row[2]), "timestamp": row[3]}
                  for row in cursor.fetchall()]
     return jsonify({"duplicates": duplicates})
+@app.route('/group-by-history-date', methods=['POST'])
+@token_required
+def group_by_history_date(user_id):
+    data = request.get_json()
+    days_ago = data.get('days_ago')
+    group_name = data.get('group_name', f"History_{days_ago}_Days_Ago")
+    
+    if days_ago is None:
+        return jsonify({"error": "days_ago is required"}), 400
 
+    try:
+        days_ago = int(days_ago)
+        if days_ago < 0:
+            return jsonify({"error": "days_ago must be a non-negative integer"}), 400
+    except ValueError:
+        return jsonify({"error": "days_ago must be an integer"}), 400
+
+    cutoff_date = (datetime.now() - timedelta(days=days_ago)).isoformat()
+    
+    # Fetch history entries from RealNex
+    realnex_token = utils.get_token(user_id, "realnex", cursor)
+    realnex_group_id = utils.get_user_settings(user_id, cursor, conn).get("realnex_group_id")
+    if not realnex_token or not realnex_group_id:
+        return jsonify({"error": "RealNex token or group ID missing"}), 401
+
+    try:
+        with httpx.Client() as client:
+            # Fetch history entries since cutoff date
+            query_params = {"$filter": f"changeDate ge '{cutoff_date}'"}
+            response = client.get(
+                "https://sync.realnex.com/api/v1/Crm/history",
+                headers={'Authorization': f'Bearer {realnex_token}'},
+                params=query_params
+            )
+            response.raise_for_status()
+            history_entries = response.json()
+    except Exception as e:
+        logger.error(f"Failed to fetch history from RealNex: {e}")
+        return jsonify({"error": f"Failed to fetch history: {str(e)}"}), 500
+
+    # Group contacts by history entries
+    grouped_contacts = []
+    processed_contact_ids = set()
+
+    for entry in history_entries:
+        if entry.get("entityType") != "contact":
+            continue
+        contact_id = entry.get("entityId")
+        if contact_id in processed_contact_ids:
+            continue
+
+        try:
+            # Fetch contact details
+            with httpx.Client() as client:
+                response = client.get(
+                    f"https://sync.realnex.com/api/v1/Crm/contact/{contact_id}",
+                    headers={'Authorization': f'Bearer {realnex_token}'}
+                )
+                response.raise_for_status()
+                contact = response.json()
+                grouped_contacts.append({
+                    "contact_id": contact_id,
+                    "fullName": contact.get("fullName", ""),
+                    "email": contact.get("email", ""),
+                    "history_note": entry.get("details", {}).get("note", "")
+                })
+                processed_contact_ids.add(contact_id)
+        except Exception as e:
+            logger.error(f"Failed to fetch contact {contact_id} from RealNex: {e}")
+            continue
+
+    # Assign contacts to a new group in RealNex
+    try:
+        with httpx.Client() as client:
+            # Create a new group
+            response = client.post(
+                "https://sync.realnex.com/api/v1/Crm/objectgroup",
+                headers={'Authorization': f'Bearer {realnex_token}'},
+                json={
+                    "name": group_name,
+                    "type": "contact",
+                    "source": "CRE Chat Bot"
+                }
+            )
+            response.raise_for_status()
+            new_group = response.json()
+            new_group_id = new_group.get("key")
+
+            # Assign contacts to the group
+            for contact in grouped_contacts:
+                contact_id = contact["contact_id"]
+                response = client.put(
+                    f"https://sync.realnex.com/api/v1/Crm/contact/{contact_id}",
+                    headers={'Authorization': f'Bearer {realnex_token}'},
+                    json={
+                        "objectGroups": [{"key": new_group_id}]
+                    }
+                )
+                response.raise_for_status()
+                utils.log_user_activity(user_id, "group_by_history", 
+                                      {"contact_id": contact_id, "group_id": new_group_id}, 
+                                      cursor, conn)
+    except Exception as e:
+        logger.error(f"Failed to create group or assign contacts in RealNex: {e}")
+        return jsonify({"error": f"Failed to group contacts: {str(e)}"}), 500
+
+    return jsonify({
+        "status": f"Contacts grouped under {group_name}",
+        "group_id": new_group_id,
+        "contacts": grouped_contacts
+    })
+
+@app.route('/trigger-for-contact', methods=['POST'])
+@token_required
+def trigger_for_contact(user_id):
+    data = request.get_json()
+    contact_id = data.get('contact_id')
+    trigger_type = data.get('trigger_type')  # e.g., "email", "sms", "call"
+    schedule_time = data.get('schedule_time')  # ISO format
+    message = data.get('message', '')
+
+    if not all([contact_id, trigger_type, schedule_time]):
+        return jsonify({"error": "Contact ID, trigger type, and schedule time are required"}), 400
+
+    # Validate trigger type
+    valid_triggers = ["email", "sms", "call"]
+    if trigger_type not in valid_triggers:
+        return jsonify({"error": f"Invalid trigger type. Must be one of {valid_triggers}"}), 400
+
+    # Fetch contact details from RealNex
+    realnex_token = utils.get_token(user_id, "realnex", cursor)
+    if not realnex_token:
+        return jsonify({"error": "RealNex token missing"}), 401
+
+    try:
+        with httpx.Client() as client:
+            response = client.get(
+                f"https://sync.realnex.com/api/v1/Crm/contact/{contact_id}",
+                headers={'Authorization': f'Bearer {realnex_token}'}
+            )
+            response.raise_for_status()
+            contact = response.json()
+    except Exception as e:
+        logger.error(f"Failed to fetch contact {contact_id} from RealNex: {e}")
+        return jsonify({"error": f"Failed to fetch contact: {str(e)}"}), 500
+
+    # Prepare task data
+    task_data = {
+        "contact_id": contact_id,
+        "fullName": contact.get("fullName", ""),
+        "email": contact.get("email", ""),
+        "phone": contact.get("mobile", ""),
+        "trigger_type": trigger_type,
+        "message": message
+    }
+
+    # Schedule the task
+    cursor.execute("INSERT INTO scheduled_tasks (user_id, task_type, task_data, schedule_time, status) VALUES (?, ?, ?, ?, ?)",
+                   (user_id, f"trigger_{trigger_type}", json.dumps(task_data), schedule_time, "pending"))
+    conn.commit()
+
+    # Log the activity
+    utils.log_user_activity(user_id, "schedule_trigger", 
+                          {"contact_id": contact_id, "trigger_type": trigger_type, "schedule_time": schedule_time}, 
+                          cursor, conn)
+
+    # Emit WebSocket notification
+    socketio.emit('task_scheduled', {
+        'user_id': user_id,
+        'message': f"Scheduled {trigger_type} trigger for {contact.get('fullName', 'contact')} at {schedule_time}"
+    }, namespace='/chat')
+
+    return jsonify({
+        "status": f"{trigger_type.capitalize()} trigger scheduled for contact {contact_id}",
+        "task_data": task_data,
+        "schedule_time": schedule_time
+    })
 @app.route('/activity-log', methods=['GET'])
 @token_required
 def get_activity_log(user_id):
