@@ -1404,25 +1404,6 @@ def upload_file(user_id):
                     logger.error(f"Failed to create contact {contact_data['id']} in RealNex: {e}")
                     return jsonify({"error": f"Failed to create contact: {str(e)}"}), 500
 
-            return jsonify({
-                "status": "Image processed and synced to RealNex",
-                "contacts": synced_contacts
-            })
-
-        else:
-            return jsonify({"error": "Unsupported file type"}), 400
-
-    except Exception as e:
-        logger.error(f"Error processing file {filename}: {e}")
-        return jsonify({"error": f"Failed to process file: {str(e)}"}), 500
-    finally:
-        # Clean up: delete the file after processing
-        try:
-            os.remove(file_path)
-            logger.info(f"Deleted temporary file: {file_path}")
-        except Exception as e:
-            logger.error(f"Failed to delete temporary file {file_path}: {e}")
-
 @app.route('/settings', methods=['GET'])
 @token_required
 def settings_page(user_id):
