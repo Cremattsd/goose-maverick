@@ -196,11 +196,12 @@ def activity(user_id):
 @token_required
 def deal_trends(user_id):
     logger.info("Deal trends page accessed.")
+    current_date = datetime.now().isoformat()
     historical_data = [
-        {"sq_ft": 1000, "rent_month": 2000, "sale_price": 500000, "deal_type": "LeaseComp"},
-        {"sq_ft": 2000, "rent_month": 3500, "sale_price": 750000, "deal_type": "LeaseComp"},
-        {"sq_ft": 3000, "rent_month": 5000, "sale_price": 1000000, "deal_type": "SaleComp"},
-        {"sq_ft": 4000, "rent_month": 6500, "sale_price": 1200000, "deal_type": "SaleComp"}
+        {"sq_ft": 1000, "rent_month": 2000, "sale_price": 500000, "deal_type": "LeaseComp", "date": current_date},
+        {"sq_ft": 2000, "rent_month": 3500, "sale_price": 750000, "deal_type": "LeaseComp", "date": current_date},
+        {"sq_ft": 3000, "rent_month": 5000, "sale_price": 1000000, "deal_type": "SaleComp", "date": current_date},
+        {"sq_ft": 4000, "rent_month": 6500, "sale_price": 1200000, "deal_type": "SaleComp", "date": current_date}
     ]
     lease_data = [item for item in historical_data if item["deal_type"] == "LeaseComp"]
     sale_data = [item for item in historical_data if item["deal_type"] == "SaleComp"]
@@ -320,7 +321,7 @@ def upload_file(user_id):
                     project = {
                         "Project": str(row.get('Project Name', '')),
                         "Status": str(row.get('Project Status', 'Open')),
-                        "Date Opened": str(row.get('Date Opened', '2025-06-01T00:00:00Z'))
+                        "Date Opened": datetime.now().isoformat()
                     }
                     projects.append(project)
 
@@ -329,9 +330,9 @@ def upload_file(user_id):
                     leasecomp = {
                         "Suite": str(row.get('Lease Suite', '')),
                         "Property Name": properties[-1]["Name"] if properties else "Unknown Property",
-                        "Deal Date": str(row.get('Deal Date', '2025-06-01T00:00:00Z')),
-                        "Lease Commencement": str(row.get('Lease Commencement', '2025-06-01T00:00:00Z')),
-                        "Lease Expiry": str(row.get('Lease Expiry', '2025-06-01T00:00:00Z'))
+                        "Deal Date": datetime.now().isoformat(),
+                        "Lease Commencement": datetime.now().isoformat(),
+                        "Lease Expiry": datetime.now().isoformat()
                     }
                     leasecomps.append(leasecomp)
 
@@ -339,7 +340,7 @@ def upload_file(user_id):
                 if 'Sale Property' in row:
                     salecomp = {
                         "Property Name": str(row.get('Sale Property', '')),
-                        "Sale Date": str(row.get('Sale Date', '2025-06-01T00:00:00Z')),
+                        "Sale Date": datetime.now().isoformat(),
                         "Sale Price": float(row.get('Sale Price', 0))
                     }
                     salecomps.append(salecomp)
@@ -348,8 +349,8 @@ def upload_file(user_id):
                 if 'Meeting Subject' in row:
                     event = {
                         "Subject": str(row.get('Meeting Subject', '')),
-                        "Start Date": str(row.get('Start Date', '2025-06-01T09:00:00Z')),
-                        "End Date": str(row.get('End Date', '2025-06-01T10:00:00Z'))
+                        "Start Date": datetime.now().isoformat(),
+                        "End Date": (datetime.now() + timedelta(hours=1)).isoformat()
                     }
                     events.append(event)
 
@@ -843,148 +844,153 @@ def upload_file(user_id):
 
             # Process history entries and create events
             synced_history_events = []
-            for history in history_entries:
-                contact_name = history["contact_name"]
-                nickname = history["nickname"]
-                history_note = history["history_note"]
+            try:
+                for history in history_entries:
+                    contact_name = history["contact_name"]
+                    nickname = history["nickname"]
+                    history_note = history["history_note"]
 
-                # Search for the contact in RealNex
-                query_params = {"$filter": f"fullName eq '{contact_name}'"}
-                search_results = asyncio.run(utils.search_realnex_entities(user_id, "contact", query_params, cursor))
-                contact_id = None
-                if search_results and len(search_results) > 0:
-                    contact_id = search_results[0]["key"]
-                else:
-                    # Create the contact if not found
-                    try:
-                        first_name = contact_name.split(' ')[0] if contact_name else ''
-                        last_name = ' '.join(contact_name.split(' ')[1:]) if len(contact_name.split(' ')) > 1 else ''
-                        with httpx.Client() as client:
-                            response = client.post(
-                                "https://sync.realnex.com/api/v1/Crm/contact",
-                                headers={'Authorization': f'Bearer {realnex_token}'},
-                                json={
-                                    "firstName": first_name,
-                                    "lastName": last_name,
-                                    "email": "",
-                                    "mobile": "",
-                                    "address": {"country": "USA"},
-                                    "prospect": True,
-                                    "investor": False,
-                                    "doNotEmail": False,
-                                    "doNotCall": False,
-                                    "doNotFax": False,
-                                    "doNotMail": False,
-                                    "objectGroups": [{"key": realnex_group_id}],
-                                    "source": "CRE Chat Bot"
-                                }
-                            )
-                            response.raise_for_status()
-                            contact_response = response.json()
-                            contact_id = contact_response.get("key")
-                            synced_contacts.append({
-                                "id": contact_id,
-                                "firstName": first_name,
-                                "lastName": last_name,
-                                "email": "",
-                                "mobile": ""
-                            })
-                            cursor.execute("INSERT INTO contacts (id, name, email, phone, user_id) VALUES (?, ?, ?, ?, ?)",
-                                           (contact_id, contact_name, "", "", user_id))
-                            conn.commit()
-                            utils.log_change(user_id, "contact", contact_id, "created", {"firstName": first_name, "lastName": last_name, "changed_by": user_name}, cursor, conn)
-                            # Sync history to RealNex
-                            asyncio.run(utils.sync_changes_to_realnex(user_id, cursor, conn))
-                    except Exception as e:
-                        logger.error(f"Failed to create contact for history entry {contact_name}: {e}")
-                        continue
-
-                # If the history note mentions "jokes," create an event
-                if "jokes" in history_note.lower():
-                    event_subject = f"Call {nickname}, ask him a joke"
-                    # Determine priority and alarm based on context
-                    priority_key = 2 if "urgent" in history_note.lower() else 1  # Higher priority if urgent
-                    alarm_minutes = 15 if "urgent" in history_note.lower() else 0  # Reminder 15 minutes before if urgent
-                    event_data = {
-                        "id": f"event_{len(synced_events) + len(synced_history_events)}_{user_id}",
-                        "subject": event_subject,
-                        "startDate": "2025-06-02T09:00:00Z",
-                        "endDate": "2025-06-02T09:30:00Z",
-                        "contact_id": contact_id,
-                        "description": f"Note: {history_note}"
-                    }
-                    event_hash = utils.hash_entity(event_data, "event")
-                    cursor.execute("SELECT contact_hash FROM duplicates_log WHERE user_id = ? AND contact_hash = ?", (user_id, event_hash))
-                    if not cursor.fetchone():
-                        # Search RealNex to avoid duplicates
-                        query_params = {"$filter": f"subject eq '{event_data['subject']}' and startDate eq '{event_data['startDate']}'"}
-                        search_results = asyncio.run(utils.search_realnex_entities(user_id, "event", query_params, cursor))
-                        if search_results and len(search_results) > 0:
-                            utils.log_duplicate(user_id, event_data, "event", cursor, conn)
-                            continue
-
+                    # Search for the contact in RealNex
+                    query_params = {"$filter": f"fullName eq '{contact_name}'"}
+                    search_results = asyncio.run(utils.search_realnex_entities(user_id, "contact", query_params, cursor))
+                    contact_id = None
+                    if search_results and len(search_results) > 0:
+                        contact_id = search_results[0]["key"]
+                    else:
+                        # Create the contact if not found
                         try:
+                            first_name = contact_name.split(' ')[0] if contact_name else ''
+                            last_name = ' '.join(contact_name.split(' ')[1:]) if len(contact_name.split(' ')) > 1 else ''
                             with httpx.Client() as client:
                                 response = client.post(
-                                    "https://sync.realnex.com/api/v1/Crm/event",
+                                    "https://sync.realnex.com/api/v1/Crm/contact",
                                     headers={'Authorization': f'Bearer {realnex_token}'},
                                     json={
-                                        "userKey": user_id,
-                                        "subject": event_data["subject"],
-                                        "description": event_data["description"],
-                                        "startDate": event_data["startDate"],
-                                        "endDate": event_data["endDate"],
-                                        "timeZone": "UTC",
-                                        "timeless": False,
-                                        "allDay": False,
-                                        "finished": False,
-                                        "alarmMinutes": alarm_minutes,
-                                        "eventType": {"key": 1},
-                                        "priority": {"key": priority_key},
-                                        "eventObjects": [{"type": "contact", "key": contact_id}],
+                                        "firstName": first_name,
+                                        "lastName": last_name,
+                                        "email": "",
+                                        "mobile": "",
+                                        "address": {"country": "USA"},
+                                        "prospect": True,
+                                        "investor": False,
+                                        "doNotEmail": False,
+                                        "doNotCall": False,
+                                        "doNotFax": False,
+                                        "doNotMail": False,
                                         "objectGroups": [{"key": realnex_group_id}],
                                         "source": "CRE Chat Bot"
                                     }
                                 )
                                 response.raise_for_status()
-                                event_response = response.json()
-                                event_key = event_response.get("key", event_data["id"])
-                                event_data["id"] = event_key
-                                synced_history_events.append(event_data)
-                                utils.log_user_activity(user_id, "sync_realnex_event", {"event_id": event_data["id"], "group_id": realnex_group_id}, cursor, conn)
-                                utils.log_change(user_id, "event", event_data["id"], "created", {"subject": event_data["subject"], "changed_by": user_name}, cursor, conn)
+                                contact_response = response.json()
+                                contact_id = contact_response.get("key")
+                                synced_contacts.append({
+                                    "id": contact_id,
+                                    "firstName": first_name,
+                                    "lastName": last_name,
+                                    "email": "",
+                                    "mobile": ""
+                                })
+                                cursor.execute("INSERT INTO contacts (id, name, email, phone, user_id) VALUES (?, ?, ?, ?, ?)",
+                                               (contact_id, contact_name, "", "", user_id))
+                                conn.commit()
+                                utils.log_change(user_id, "contact", contact_id, "created", {"firstName": first_name, "lastName": last_name, "changed_by": user_name}, cursor, conn)
                                 # Sync history to RealNex
                                 asyncio.run(utils.sync_changes_to_realnex(user_id, cursor, conn))
                         except Exception as e:
-                            logger.error(f"Failed to create event for history entry {history_note}: {e}")
+                            logger.error(f"Failed to create contact for history entry {contact_name}: {e}")
                             continue
+
+                    # If the history note mentions "jokes," create an event
+                    if "jokes" in history_note.lower():
+                        event_subject = f"Call {nickname}, ask him a joke"
+                        # Determine priority and alarm based on context
+                        priority_key = 2 if "urgent" in history_note.lower() else 1  # Higher priority if urgent
+                        alarm_minutes = 15 if "urgent" in history_note.lower() else 0  # Reminder 15 minutes before if urgent
+                        event_data = {
+                            "id": f"event_{len(synced_events) + len(synced_history_events)}_{user_id}",
+                            "subject": event_subject,
+                            "startDate": datetime.now().isoformat(),
+                            "endDate": (datetime.now() + timedelta(minutes=30)).isoformat(),
+                            "contact_id": contact_id,
+                            "description": f"Note: {history_note}"
+                        }
+                        event_hash = utils.hash_entity(event_data, "event")
+                        cursor.execute("SELECT contact_hash FROM duplicates_log WHERE user_id = ? AND contact_hash = ?", (user_id, event_hash))
+                        if not cursor.fetchone():
+                            # Search RealNex to avoid duplicates
+                            query_params = {"$filter": f"subject eq '{event_data['subject']}' and startDate eq '{event_data['startDate']}'"}
+                            search_results = asyncio.run(utils.search_realnex_entities(user_id, "event", query_params, cursor))
+                            if search_results and len(search_results) > 0:
+                                utils.log_duplicate(user_id, event_data, "event", cursor, conn)
+                                continue
+
+                            try:
+                                with httpx.Client() as client:
+                                    response = client.post(
+                                        "https://sync.realnex.com/api/v1/Crm/event",
+                                        headers={'Authorization': f'Bearer {realnex_token}'},
+                                        json={
+                                            "userKey": user_id,
+                                            "subject": event_data["subject"],
+                                            "description": event_data["description"],
+                                            "startDate": event_data["startDate"],
+                                            "endDate": event_data["endDate"],
+                                            "timeZone": "UTC",
+                                            "timeless": False,
+                                            "allDay": False,
+                                            "finished": False,
+                                            "alarmMinutes": alarm_minutes,
+                                            "eventType": {"key": 1},
+                                            "priority": {"key": priority_key},
+                                            "eventObjects": [{"type": "contact", "key": contact_id}],
+                                            "objectGroups": [{"key": realnex_group_id}],
+                                            "source": "CRE Chat Bot"
+                                        }
+                                    )
+                                    response.raise_for_status()
+                                    event_response = response.json()
+                                    event_key = event_response.get("key", event_data["id"])
+                                    event_data["id"] = event_key
+                                    synced_history_events.append(event_data)
+                                    utils.log_user_activity(user_id, "sync_realnex_event", {"event_id": event_data["id"], "group_id": realnex_group_id}, cursor, conn)
+                                    utils.log_change(user_id, "event", event_data["id"], "created", {"subject": event_data["subject"], "changed_by": user_name}, cursor, conn)
+                                    # Sync history to RealNex
+                                    asyncio.run(utils.sync_changes_to_realnex(user_id, cursor, conn))
+                            except Exception as e:
+                                logger.error(f"Failed to create event for history entry {history_note}: {e}")
+                                continue
+                        else:
+                            utils.log_duplicate(user_id, event_data, "event", cursor, conn)
                     else:
-                        utils.log_duplicate(user_id, event_data, "event", cursor, conn)
-                else:
-                    # Log the history note to RealNex history
-                    try:
-                        with httpx.Client() as client:
-                            history_entry = {
-                                "entityType": "contact",
-                                "entityId": contact_id,
-                                "action": "note_added",
-                                "description": f"History note added for {contact_name}",
-                                "details": {"note": history_note},
-                                "changeDate": datetime.now().isoformat(),
-                                "user": {"userName": user_name}
-                            }
-                            response = client.post(
-                                "https://sync.realnex.com/api/v1/Crm/history",
-                                headers={'Authorization': f'Bearer {realnex_token}'},
-                                json=history_entry
-                            )
-                            response.raise_for_status()
-                            utils.log_user_activity(user_id, "sync_realnex_history", {"contact_id": contact_id, "note": history_note}, cursor, conn)
-                            utils.log_change(user_id, "contact", contact_id, "history_added", {"note": history_note, "changed_by": user_name}, cursor, conn)
-                            # Sync history to RealNex
-                            asyncio.run(utils.sync_changes_to_realnex(user_id, cursor, conn))
-                    except Exception as e:
-                        logger.error(f"Failed to log history note for {contact_name}: {e}")
+                        # Log the history note to RealNex history
+                        try:
+                            with httpx.Client() as client:
+                                history_entry = {
+                                    "entityType": "contact",
+                                    "entityId": contact_id,
+                                    "action": "note_added",
+                                    "description": f"History note added for {contact_name}",
+                                    "details": {"note": history_note},
+                                    "changeDate": datetime.now().isoformat(),
+                                    "user": {"userName": user_name}
+                                }
+                                response = client.post(
+                                    "https://sync.realnex.com/api/v1/Crm/history",
+                                    headers={'Authorization': f'Bearer {realnex_token}'},
+                                    json=history_entry
+                                )
+                                response.raise_for_status()
+                                utils.log_user_activity(user_id, "sync_realnex_history", {"contact_id": contact_id, "note": history_note}, cursor, conn)
+                                utils.log_change(user_id, "contact", contact_id, "history_added", {"note": history_note, "changed_by": user_name}, cursor, conn)
+                                # Sync history to RealNex
+                                asyncio.run(utils.sync_changes_to_realnex(user_id, cursor, conn))
+                        except Exception as e:
+                            logger.error(f"Failed to log history note for {contact_name}: {e}")
+                            continue
+            except Exception as e:
+                logger.error(f"Failed to process history entries in XLSX: {e}")
+                return jsonify({"error": f"Failed to process history entries: {str(e)}"}), 500
 
             return jsonify({
                 "status": "XLSX processed and synced to RealNex",
@@ -1008,7 +1014,7 @@ def upload_file(user_id):
             leasecomp_mappings = asyncio.run(utils.get_field_mappings(user_id, "leasecomp", cursor))
             salecomp_mappings = asyncio.run(utils.get_field_mappings(user_id, "salecomp", cursor))
 
-            if not all([property_mappings, space_mappings, company_mappings, project_mappings, leasecomps_mappings, salecomps_mappings]):
+            if not all([property_mappings, space_mappings, company_mappings, project_mappings, leasecomp_mappings, salecomp_mappings]):
                 return jsonify({"error": "Failed to fetch field mappings from RealNex."}), 500
 
             # Process PDF for all entities
@@ -1094,7 +1100,7 @@ def upload_file(user_id):
                 # Match project fields
                 if "project" in project_mappings and project_mappings["project"] in line:
                     project_name = line.replace(project_mappings["project"], "").strip()
-                    current_project = {"project": project_name, "status": "Open", "dateOpened": "2025-06-01T00:00:00Z", "id": f"project_{len(projects)}_{user_id}"}
+                    current_project = {"project": project_name, "status": "Open", "dateOpened": datetime.now().isoformat(), "id": f"project_{len(projects)}_{user_id}"}
                     projects.append(current_project)
                     current_project = None
 
@@ -1105,9 +1111,9 @@ def upload_file(user_id):
                         "id": f"leasecomp_{len(leasecomps)}_{user_id}",
                         "suite": suite,
                         "propertyName": properties[-1]["name"] if properties else "Unknown Property",
-                        "dealDate": "2025-06-01T00:00:00Z",
-                        "leaseCommencement": "2025-06-01T00:00:00Z",
-                        "leaseExpiry": "2025-06-01T00:00:00Z"
+                        "dealDate": datetime.now().isoformat(),
+                        "leaseCommencement": datetime.now().isoformat(),
+                        "leaseExpiry": datetime.now().isoformat()
                     }
                     leasecomps.append(current_leasecomp)
                     current_leasecomp = None
@@ -1118,7 +1124,7 @@ def upload_file(user_id):
                     current_salecomp = {
                         "id": f"salecomp_{len(salecomps)}_{user_id}",
                         "propertyName": property_name,
-                        "saleDate": "2025-06-01T00:00:00Z",
+                        "saleDate": datetime.now().isoformat(),
                         "salePrice": 0
                     }
                     salecomps.append(current_salecomp)
@@ -1130,8 +1136,8 @@ def upload_file(user_id):
                     current_event = {
                         "id": f"event_{len(events)}_{user_id}",
                         "subject": subject,
-                        "startDate": "2025-06-01T09:00:00Z",
-                        "endDate": "2025-06-01T10:00:00Z"
+                        "startDate": datetime.now().isoformat(),
+                        "endDate": (datetime.now() + timedelta(hours=1)).isoformat()
                     }
                     events.append(current_event)
                     current_event = None
@@ -1154,148 +1160,153 @@ def upload_file(user_id):
 
             # Process history entries and create events
             synced_history_events = []
-            for history in history_entries:
-                contact_name = history["contact_name"]
-                nickname = history["nickname"]
-                history_note = history["history_note"]
+            try:
+                for history in history_entries:
+                    contact_name = history["contact_name"]
+                    nickname = history["nickname"]
+                    history_note = history["history_note"]
 
-                # Search for the contact in RealNex
-                query_params = {"$filter": f"fullName eq '{contact_name}'"}
-                search_results = asyncio.run(utils.search_realnex_entities(user_id, "contact", query_params, cursor))
-                contact_id = None
-                if search_results and len(search_results) > 0:
-                    contact_id = search_results[0]["key"]
-                else:
-                    # Create the contact if not found
-                    try:
-                        first_name = contact_name.split(' ')[0] if contact_name else ''
-                        last_name = ' '.join(contact_name.split(' ')[1:]) if len(contact_name.split(' ')) > 1 else ''
-                        with httpx.Client() as client:
-                            response = client.post(
-                                "https://sync.realnex.com/api/v1/Crm/contact",
-                                headers={'Authorization': f'Bearer {realnex_token}'},
-                                json={
-                                    "firstName": first_name,
-                                    "lastName": last_name,
-                                    "email": "",
-                                    "mobile": "",
-                                    "address": {"country": "USA"},
-                                    "prospect": True,
-                                    "investor": False,
-                                    "doNotEmail": False,
-                                    "doNotCall": False,
-                                    "doNotFax": False,
-                                    "doNotMail": False,
-                                    "objectGroups": [{"key": realnex_group_id}],
-                                    "source": "CRE Chat Bot"
-                                }
-                            )
-                            response.raise_for_status()
-                            contact_response = response.json()
-                            contact_id = contact_response.get("key")
-                            synced_contacts.append({
-                                "id": contact_id,
-                                "firstName": first_name,
-                                "lastName": last_name,
-                                "email": "",
-                                "mobile": ""
-                            })
-                            cursor.execute("INSERT INTO contacts (id, name, email, phone, user_id) VALUES (?, ?, ?, ?, ?)",
-                                           (contact_id, contact_name, "", "", user_id))
-                            conn.commit()
-                            utils.log_change(user_id, "contact", contact_id, "created", {"firstName": first_name, "lastName": last_name, "changed_by": user_name}, cursor, conn)
-                            # Sync history to RealNex
-                            asyncio.run(utils.sync_changes_to_realnex(user_id, cursor, conn))
-                    except Exception as e:
-                        logger.error(f"Failed to create contact for history entry {contact_name}: {e}")
-                        continue
-
-                # If the history note mentions "jokes," create an event
-                if "jokes" in history_note.lower():
-                    event_subject = f"Call {nickname}, ask him a joke"
-                    # Determine priority and alarm based on context
-                    priority_key = 2 if "urgent" in history_note.lower() else 1  # Higher priority if urgent
-                    alarm_minutes = 15 if "urgent" in history_note.lower() else 0  # Reminder 15 minutes before if urgent
-                    event_data = {
-                        "id": f"event_{len(synced_events) + len(synced_history_events)}_{user_id}",
-                        "subject": event_subject,
-                        "startDate": "2025-06-02T09:00:00Z",
-                        "endDate": "2025-06-02T09:30:00Z",
-                        "contact_id": contact_id,
-                        "description": f"Note: {history_note}"
-                    }
-                    event_hash = utils.hash_entity(event_data, "event")
-                    cursor.execute("SELECT contact_hash FROM duplicates_log WHERE user_id = ? AND contact_hash = ?", (user_id, event_hash))
-                    if not cursor.fetchone():
-                        # Search RealNex to avoid duplicates
-                        query_params = {"$filter": f"subject eq '{event_data['subject']}' and startDate eq '{event_data['startDate']}'"}
-                        search_results = asyncio.run(utils.search_realnex_entities(user_id, "event", query_params, cursor))
-                        if search_results and len(search_results) > 0:
-                            utils.log_duplicate(user_id, event_data, "event", cursor, conn)
-                            continue
-
+                    # Search for the contact in RealNex
+                    query_params = {"$filter": f"fullName eq '{contact_name}'"}
+                    search_results = asyncio.run(utils.search_realnex_entities(user_id, "contact", query_params, cursor))
+                    contact_id = None
+                    if search_results and len(search_results) > 0:
+                        contact_id = search_results[0]["key"]
+                    else:
+                        # Create the contact if not found
                         try:
+                            first_name = contact_name.split(' ')[0] if contact_name else ''
+                            last_name = ' '.join(contact_name.split(' ')[1:]) if len(contact_name.split(' ')) > 1 else ''
                             with httpx.Client() as client:
                                 response = client.post(
-                                    "https://sync.realnex.com/api/v1/Crm/event",
+                                    "https://sync.realnex.com/api/v1/Crm/contact",
                                     headers={'Authorization': f'Bearer {realnex_token}'},
                                     json={
-                                        "userKey": user_id,
-                                        "subject": event_data["subject"],
-                                        "description": event_data["description"],
-                                        "startDate": event_data["startDate"],
-                                        "endDate": event_data["endDate"],
-                                        "timeZone": "UTC",
-                                        "timeless": False,
-                                        "allDay": False,
-                                        "finished": False,
-                                        "alarmMinutes": alarm_minutes,
-                                        "eventType": {"key": 1},
-                                        "priority": {"key": priority_key},
-                                        "eventObjects": [{"type": "contact", "key": contact_id}],
+                                        "firstName": first_name,
+                                        "lastName": last_name,
+                                        "email": "",
+                                        "mobile": "",
+                                        "address": {"country": "USA"},
+                                        "prospect": True,
+                                        "investor": False,
+                                        "doNotEmail": False,
+                                        "doNotCall": False,
+                                        "doNotFax": False,
+                                        "doNotMail": False,
                                         "objectGroups": [{"key": realnex_group_id}],
                                         "source": "CRE Chat Bot"
                                     }
                                 )
                                 response.raise_for_status()
-                                event_response = response.json()
-                                event_key = event_response.get("key", event_data["id"])
-                                event_data["id"] = event_key
-                                synced_history_events.append(event_data)
-                                utils.log_user_activity(user_id, "sync_realnex_event", {"event_id": event_data["id"], "group_id": realnex_group_id}, cursor, conn)
-                                utils.log_change(user_id, "event", event_data["id"], "created", {"subject": event_data["subject"], "changed_by": user_name}, cursor, conn)
+                                contact_response = response.json()
+                                contact_id = contact_response.get("key")
+                                synced_contacts.append({
+                                    "id": contact_id,
+                                    "firstName": first_name,
+                                    "lastName": last_name,
+                                    "email": "",
+                                    "mobile": ""
+                                })
+                                cursor.execute("INSERT INTO contacts (id, name, email, phone, user_id) VALUES (?, ?, ?, ?, ?)",
+                                               (contact_id, contact_name, "", "", user_id))
+                                conn.commit()
+                                utils.log_change(user_id, "contact", contact_id, "created", {"firstName": first_name, "lastName": last_name, "changed_by": user_name}, cursor, conn)
                                 # Sync history to RealNex
                                 asyncio.run(utils.sync_changes_to_realnex(user_id, cursor, conn))
                         except Exception as e:
-                            logger.error(f"Failed to create event for history entry {history_note}: {e}")
+                            logger.error(f"Failed to create contact for history entry {contact_name}: {e}")
                             continue
+
+                    # If the history note mentions "jokes," create an event
+                    if "jokes" in history_note.lower():
+                        event_subject = f"Call {nickname}, ask him a joke"
+                        # Determine priority and alarm based on context
+                        priority_key = 2 if "urgent" in history_note.lower() else 1  # Higher priority if urgent
+                        alarm_minutes = 15 if "urgent" in history_note.lower() else 0  # Reminder 15 minutes before if urgent
+                        event_data = {
+                            "id": f"event_{len(synced_events) + len(synced_history_events)}_{user_id}",
+                            "subject": event_subject,
+                            "startDate": datetime.now().isoformat(),
+                            "endDate": (datetime.now() + timedelta(minutes=30)).isoformat(),
+                            "contact_id": contact_id,
+                            "description": f"Note: {history_note}"
+                        }
+                        event_hash = utils.hash_entity(event_data, "event")
+                        cursor.execute("SELECT contact_hash FROM duplicates_log WHERE user_id = ? AND contact_hash = ?", (user_id, event_hash))
+                        if not cursor.fetchone():
+                            # Search RealNex to avoid duplicates
+                            query_params = {"$filter": f"subject eq '{event_data['subject']}' and startDate eq '{event_data['startDate']}'"}
+                            search_results = asyncio.run(utils.search_realnex_entities(user_id, "event", query_params, cursor))
+                            if search_results and len(search_results) > 0:
+                                utils.log_duplicate(user_id, event_data, "event", cursor, conn)
+                                continue
+
+                            try:
+                                with httpx.Client() as client:
+                                    response = client.post(
+                                        "https://sync.realnex.com/api/v1/Crm/event",
+                                        headers={'Authorization': f'Bearer {realnex_token}'},
+                                        json={
+                                            "userKey": user_id,
+                                            "subject": event_data["subject"],
+                                            "description": event_data["description"],
+                                            "startDate": event_data["startDate"],
+                                            "endDate": event_data["endDate"],
+                                            "timeZone": "UTC",
+                                            "timeless": False,
+                                            "allDay": False,
+                                            "finished": False,
+                                            "alarmMinutes": alarm_minutes,
+                                            "eventType": {"key": 1},
+                                            "priority": {"key": priority_key},
+                                            "eventObjects": [{"type": "contact", "key": contact_id}],
+                                            "objectGroups": [{"key": realnex_group_id}],
+                                            "source": "CRE Chat Bot"
+                                        }
+                                    )
+                                    response.raise_for_status()
+                                    event_response = response.json()
+                                    event_key = event_response.get("key", event_data["id"])
+                                    event_data["id"] = event_key
+                                    synced_history_events.append(event_data)
+                                    utils.log_user_activity(user_id, "sync_realnex_event", {"event_id": event_data["id"], "group_id": realnex_group_id}, cursor, conn)
+                                    utils.log_change(user_id, "event", event_data["id"], "created", {"subject": event_data["subject"], "changed_by": user_name}, cursor, conn)
+                                    # Sync history to RealNex
+                                    asyncio.run(utils.sync_changes_to_realnex(user_id, cursor, conn))
+                            except Exception as e:
+                                logger.error(f"Failed to create event for history entry {history_note}: {e}")
+                                continue
+                        else:
+                            utils.log_duplicate(user_id, event_data, "event", cursor, conn)
                     else:
-                        utils.log_duplicate(user_id, event_data, "event", cursor, conn)
-                else:
-                    # Log the history note to RealNex history
-                    try:
-                        with httpx.Client() as client:
-                            history_entry = {
-                                "entityType": "contact",
-                                "entityId": contact_id,
-                                "action": "note_added",
-                                "description": f"History note added for {contact_name}",
-                                "details": {"note": history_note},
-                                "changeDate": datetime.now().isoformat(),
-                                "user": {"userName": user_name}
-                            }
-                            response = client.post(
-                                "https://sync.realnex.com/api/v1/Crm/history",
-                                headers={'Authorization': f'Bearer {realnex_token}'},
-                                json=history_entry
-                            )
-                            response.raise_for_status()
-                            utils.log_user_activity(user_id, "sync_realnex_history", {"contact_id": contact_id, "note": history_note}, cursor, conn)
-                            utils.log_change(user_id, "contact", contact_id, "history_added", {"note": history_note, "changed_by": user_name}, cursor, conn)
-                            # Sync history to RealNex
-                            asyncio.run(utils.sync_changes_to_realnex(user_id, cursor, conn))
-                    except Exception as e:
-                        logger.error(f"Failed to log history note for {contact_name}: {e}")
+                        # Log the history note to RealNex history
+                        try:
+                            with httpx.Client() as client:
+                                history_entry = {
+                                    "entityType": "contact",
+                                    "entityId": contact_id,
+                                    "action": "note_added",
+                                    "description": f"History note added for {contact_name}",
+                                    "details": {"note": history_note},
+                                    "changeDate": datetime.now().isoformat(),
+                                    "user": {"userName": user_name}
+                                }
+                                response = client.post(
+                                    "https://sync.realnex.com/api/v1/Crm/history",
+                                    headers={'Authorization': f'Bearer {realnex_token}'},
+                                    json=history_entry
+                                )
+                                response.raise_for_status()
+                                utils.log_user_activity(user_id, "sync_realnex_history", {"contact_id": contact_id, "note": history_note}, cursor, conn)
+                                utils.log_change(user_id, "contact", contact_id, "history_added", {"note": history_note, "changed_by": user_name}, cursor, conn)
+                                # Sync history to RealNex
+                                asyncio.run(utils.sync_changes_to_realnex(user_id, cursor, conn))
+                        except Exception as e:
+                            logger.error(f"Failed to log history note for {contact_name}: {e}")
+                            continue
+            except Exception as e:
+                logger.error(f"Failed to process history entries in PDF: {e}")
+                return jsonify({"error": f"Failed to process history entries: {str(e)}"}), 500
 
             return jsonify({
                 "status": "PDF processed and synced to RealNex",
@@ -1404,6 +1415,25 @@ def upload_file(user_id):
                     logger.error(f"Failed to create contact {contact_data['id']} in RealNex: {e}")
                     return jsonify({"error": f"Failed to create contact: {str(e)}"}), 500
 
+            return jsonify({
+                "status": "Image processed and synced to RealNex",
+                "contacts": synced_contacts
+            })
+
+        else:
+            return jsonify({"error": "Unsupported file type"}), 400
+
+    except Exception as e:
+        logger.error(f"Error processing file {filename}: {e}")
+        return jsonify({"error": f"Failed to process file: {str(e)}"}), 500
+    finally:
+        # Clean up: delete the file after processing
+        try:
+            os.remove(file_path)
+            logger.info(f"Deleted temporary file: {file_path}")
+        except Exception as e:
+            logger.error(f"Failed to delete temporary file {file_path}: {e}")
+
 @app.route('/settings', methods=['GET'])
 @token_required
 def settings_page(user_id):
@@ -1430,7 +1460,7 @@ def update_settings(user_id):
     conn.commit()
     logger.info(f"Settings updated for user {user_id}.")
     return jsonify({"status": "Settings updated"})
-    
+
 @app.route('/set-token', methods=['POST'])
 @token_required
 def set_token(user_id):
@@ -1528,11 +1558,7 @@ def generate_2fa(user_id):
     code = ''.join([str(random.randint(0, 9)) for _ in range(6)])
     expiry = datetime.now() + timedelta(minutes=10)
     cursor.execute("INSERT OR REPLACE INTO two_fa_codes (user_id, code, expiry) VALUES (?, ?, ?)",
-                   (user_id, code, expiry.isoformat()))
-    conn.commit()
-    logger.info(f"2FA code generated for user {user_id}: code={code}, expiry={expiry}")
-    return jsonify({"code": code, "expiry": expiry.isoformat()})
-
+                   (user_id, code, expiry
 @app.route('/verify-2fa', methods=['POST'])
 @token_required
 def verify_2fa(user_id):
