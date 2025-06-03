@@ -1,6 +1,6 @@
 Flask==2.3.3
-Flask-Cors==4.0.1
 Flask-SocketIO==5.3.6
+Flask-Cors==4.0.1
 gunicorn==22.0.0
 PyMuPDF==1.23.8
 pandas==2.2.2
@@ -19,7 +19,7 @@ twilio==9.1.0
 fuzzywuzzy==0.18.0
 python-Levenshtein==0.25.1
 scikit-learn==1.5.0
-python-dotenv
+python-dotenv==1.0.1
 fpdf==1.7.2
 matplotlib==3.9.0
 seaborn==0.13.2
