@@ -1,7 +1,7 @@
 import re
 import logging
 import httpx
-from .utils import get_user_settings, get_token, log_user_activity, log_duplicate
+from utils import get_user_settings, get_token, log_user_activity, log_duplicate
 
 # Configure logging
 logging.basicConfig(
