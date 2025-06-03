@@ -2194,4 +2194,5 @@ def handle_join(data):
 
 # Run the app
 if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=int(os.getenv('PORT', 5000)), debug=True)
+    port = int(os.getenv('PORT', 5000))  # Use $PORT if available, else default to 5000
+    socketio.run(app, host='0.0.0.0', port=port, debug=True)
