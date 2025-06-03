@@ -21,7 +21,7 @@ SMTP_USER = os.getenv('SMTP_USER', 'your-email@gmail.com')
 SMTP_PASSWORD = os.getenv('SMTP_PASSWORD', 'your-password')
 
 # API base URLs and credentials
-REALNEX_API_BASE = os.getenv('REALNEX_API_BASE', 'https://sync.realnex.com/api/v1')
+REALNEX_API_BASE = os.getenv('REALNEX_API_BASE', 'https://sync.realnex.com/api/v1/Crm')
 TWILIO_SID = os.getenv('TWILIO_SID', 'your-twilio-sid')
 TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN', 'your-twilio-auth-token')
 TWILIO_PHONE = os.getenv('TWILIO_PHONE', 'your-twilio-phone')
