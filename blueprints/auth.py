@@ -1,11 +1,11 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from datetime import datetime, timedelta
 import jwt
 import random
 from functools import wraps
 
-# Assuming app.py passes these through context or imports
-from app import app, logger, cursor, conn
+# Import shared resources
+from db import logger, cursor, conn
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -18,7 +18,8 @@ def token_required(f):
             logger.warning("No token provided in request.")
             return jsonify({"error": "Token is missing—don’t leave me hanging like an unsigned lease! 📜"}), 401
         try:
-            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+            # Use current_app to access the Flask app's config
+            data = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
             user_id = data.get('user_id', 'default')
             cursor.execute("SELECT id FROM users WHERE id = ?", (user_id,))
             if not cursor.fetchone():
