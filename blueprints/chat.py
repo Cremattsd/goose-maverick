@@ -1,24 +1,44 @@
 from flask import Blueprint, request, jsonify, redirect, url_for, render_template
-from flask_socketio import emit, join_room
 from datetime import datetime
 import httpx
 import commands
 
-# Assuming app.py passes these through context or imports
-from app import app, logger, cursor, conn, socketio
+# Import shared resources
+from db import logger, cursor, conn
+from flask_socketio import emit, join_room
 
+# We'll pass socketio when registering the Blueprint
 chat_bp = Blueprint('chat', __name__)
 
+def init_socketio(socketio):
+    @socketio.on('connect', namespace='/chat')
+    def handle_connect():
+        logger.info("Client connected to /chat namespace—time to chat like a CRE pro! 💬")
+
+    @socketio.on('disconnect', namespace='/chat')
+    def handle_disconnect():
+        logger.info("Client disconnected from /chat namespace—hope they signed the lease before leaving! 📝")
+
+    @socketio.on('join')
+    def handle_join(data):
+        user_id = data.get('user_id')
+        if user_id:
+            join_room(user_id)
+            logger.info(f"User {user_id} joined SocketIO room—ready to chat about CRE deals! 💬")
+
 @chat_bp.route('/', methods=['GET'])
+@token_required
 def index(user_id):
     logger.info("Redirecting to chat hub—like a CRE agent pointing you to the best property! 🏢")
     return redirect(url_for('chat.chat_hub'))
 
 @chat_bp.route('/hub', methods=['GET'])
+@token_required
 def chat_hub(user_id):
     return render_template('index.html')
 
 @chat_bp.route('', methods=['POST'])
+@token_required
 def chat(user_id):
     data = request.get_json()
     message = data.get('message')
@@ -72,6 +92,7 @@ def chat(user_id):
         return jsonify({"error": f"Failed to process message: {str(e)}"}), 500
 
 @chat_bp.route('/history', methods=['GET'])
+@token_required
 def get_chat_history(user_id):
     try:
         cursor.execute("SELECT sender, message, timestamp FROM chat_messages WHERE user_id = ? ORDER BY timestamp ASC",
@@ -82,18 +103,3 @@ def get_chat_history(user_id):
     except Exception as e:
         logger.error(f"Failed to retrieve chat history for user {user_id}: {e}")
         return jsonify({"error": f"Failed to retrieve chat history: {str(e)}"}), 500
-
-@socketio.on('connect', namespace='/chat')
-def handle_connect():
-    logger.info("Client connected to /chat namespace—time to chat like a CRE pro! 💬")
-
-@socketio.on('disconnect', namespace='/chat')
-def handle_disconnect():
-    logger.info("Client disconnected from /chat namespace—hope they signed the lease before leaving! 📝")
-
-@socketio.on('join')
-def handle_join(data):
-    user_id = data.get('user_id')
-    if user_id:
-        join_room(user_id)
-        logger.info(f"User {user_id} joined SocketIO room—ready to chat about CRE deals! 💬")
