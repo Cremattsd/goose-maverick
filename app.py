@@ -32,13 +32,14 @@ logger = logging.getLogger(__name__)
 # Initialize Flask app
 app = Flask(__name__, template_folder='templates')
 app.config['SECRET_KEY'] = SECRET_KEY
-app.config['UPLOAD_FOLDER'] = 'uploads'
+# Removed UPLOAD_FOLDER since we're not saving files locally
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB limit
 CORS(app, resources={r"/*": {"origins": "*"}})
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-# Database setup
-conn = sqlite3.connect('chatbot.db', check_same_thread=False)
+# Database setup with Render Disk path
+db_path = os.getenv('DB_PATH', 'chatbot.db')
+conn = sqlite3.connect(db_path, check_same_thread=False)
 cursor = conn.cursor()
 
 # Create tables (combined schema)
@@ -206,9 +207,7 @@ cursor.execute('''
 ''')
 conn.commit()
 
-# Ensure uploads directory exists
-if not os.path.exists(app.config['UPLOAD_FOLDER']):
-    os.makedirs(app.config['UPLOAD_FOLDER'])
+# Removed uploads directory creation since we're not saving files locally
 
 # Register Blueprints
 app.register_blueprint(auth_bp, url_prefix='/auth')
@@ -226,7 +225,4 @@ app.register_blueprint(webhooks_bp, url_prefix='/webhooks')
 def health_check():
     return jsonify({"status": "Healthy—ready to close some CRE deals! 🏢"}), 200
 
-# Run the app
-if __name__ == '__main__':
-    port = int(os.getenv('PORT', 5000))
-    socketio.run(app, host='0.0.0.0', port=port, debug=True)
+# Removed the if __name__ == '__main__' block since we're using gunicorn for production
