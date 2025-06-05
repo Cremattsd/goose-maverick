@@ -1,10 +1,10 @@
 from flask import Blueprint, request, jsonify, current_app
 from db import logger, cursor, conn
 
-user_bp = Blueprint('user', __name__)
-
 # Import the token_required decorator
 from blueprints.auth import token_required
+
+user_bp = Blueprint('user', __name__)
 
 @user_bp.route('/settings', methods=['GET'])
 @token_required
