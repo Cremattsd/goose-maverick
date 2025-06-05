@@ -90,23 +90,37 @@ cursor.execute('''
         FOREIGN KEY (user_id) REFERENCES users(id)
     )
 ''')
-cursor.execute('''
-    CREATE TABLE IF NOT EXISTS user_settings (
-        user_id TEXT PRIMARY KEY,
-        language TEXT,
-        subject_generator_enabled INTEGER,
-        deal_alerts_enabled INTEGER,
-        email_notifications INTEGER,
-        sms_notifications INTEGER,
-        mailchimp_group_id TEXT,
-        constant_contact_group_id TEXT,
-        realnex_group_id TEXT,
-        apollo_group_id TEXT,
-        seamless_group_id TEXT,
-        zoominfo_group_id TEXT,
-        FOREIGN KEY (user_id) REFERENCES users(id)
-    )
-''')
+
+# Updated user_settings table with API key columns
+cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_settings'")
+if cursor.fetchone():
+    cursor.execute("PRAGMA table_info(user_settings)")
+    columns = {row[1] for row in cursor.fetchall()}
+    if 'mailchimp_api_key' not in columns:
+        cursor.execute("ALTER TABLE user_settings ADD COLUMN mailchimp_api_key TEXT")
+    if 'realnex_api_key' not in columns:
+        cursor.execute("ALTER TABLE user_settings ADD COLUMN realnex_api_key TEXT")
+else:
+    cursor.execute('''
+        CREATE TABLE user_settings (
+            user_id TEXT PRIMARY KEY,
+            language TEXT,
+            subject_generator_enabled INTEGER,
+            deal_alerts_enabled INTEGER,
+            email_notifications INTEGER,
+            sms_notifications INTEGER,
+            mailchimp_group_id TEXT,
+            mailchimp_api_key TEXT,
+            constant_contact_group_id TEXT,
+            realnex_group_id TEXT,
+            realnex_api_key TEXT,
+            apollo_group_id TEXT,
+            seamless_group_id TEXT,
+            zoominfo_group_id TEXT,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    ''')
+
 cursor.execute('''
     CREATE TABLE IF NOT EXISTS user_points (
         user_id TEXT PRIMARY KEY,
