@@ -7,6 +7,9 @@ import commands
 from db import logger, cursor, conn
 from flask_socketio import emit, join_room
 
+# Import token_required decorator from auth.py
+from blueprints.auth import token_required
+
 # We'll pass socketio when registering the Blueprint
 chat_bp = Blueprint('chat', __name__)
 
