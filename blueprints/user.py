@@ -48,7 +48,7 @@ def update_settings(user_id):
         columns = ", ".join([f"{key} = ?" for key in settings.keys()])
         values = list(settings.values())
         values.append(user_id)  # For the WHERE clause
-        query = f"INSERT OR REPLACE INTO user_settings (user_id, {', '.join(settings.keys())}) VALUES ({', '.join(['?' for _ in range(len(settings) + 1)]})"
+        query = f"INSERT OR REPLACE INTO user_settings (user_id, {', '.join(settings.keys())}) VALUES ({', '.join(['?' for _ in range(len(settings) + 1)])})"
         cursor.execute(query, values)
         conn.commit()
 
