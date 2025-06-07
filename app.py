@@ -44,3 +44,6 @@ init_tasks_socketio(socketio)
 @app.route('/health', methods=['GET'])
 def health_check():
     return jsonify({"status": "Healthy—ready to close some CRE deals! 🏢"}), 200
+if __name__ == "__main__":
+    import os
+    socketio.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
