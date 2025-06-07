@@ -3,10 +3,10 @@ from flask_socketio import SocketIO
 from flask_cors import CORS
 from config import *
 
-# Import shared resources
+# Shared resources
 from db import logger, conn, cursor
 
-# Import Blueprints
+# Blueprints
 from blueprints.auth import auth_bp
 from blueprints.chat import chat_bp, init_socketio as init_chat_socketio
 from blueprints.contacts import contacts_bp
@@ -17,10 +17,10 @@ from blueprints.templates import templates_bp
 from blueprints.reports import reports_bp
 from blueprints.webhooks import webhooks_bp
 
-# Initialize Flask app
+# Initialize app
 app = Flask(__name__, template_folder='templates')
 app.config['SECRET_KEY'] = SECRET_KEY
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB limit
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 CORS(app, resources={r"/*": {"origins": "*"}})
 socketio = SocketIO(app, cors_allowed_origins="*")
 
@@ -35,15 +35,15 @@ app.register_blueprint(templates_bp, url_prefix='/templates')
 app.register_blueprint(reports_bp, url_prefix='/reports')
 app.register_blueprint(webhooks_bp, url_prefix='/webhooks')
 
-# Initialize SocketIO handlers for Blueprints
+# Initialize socket event handlers
 init_chat_socketio(socketio)
 init_deals_socketio(socketio)
 init_tasks_socketio(socketio)
 
-# Health check endpoint
 @app.route('/health', methods=['GET'])
 def health_check():
     return jsonify({"status": "Healthy—ready to close some CRE deals! 🏢"}), 200
+
 if __name__ == "__main__":
     import os
     import eventlet
