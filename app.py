@@ -17,10 +17,10 @@ from blueprints.templates import templates_bp
 from blueprints.reports import reports_bp
 from blueprints.webhooks import webhooks_bp
 
-# Initialize app
+# Initialize Flask app
 app = Flask(__name__, template_folder='templates')
 app.config['SECRET_KEY'] = SECRET_KEY
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB limit
 CORS(app, resources={r"/*": {"origins": "*"}})
 socketio = SocketIO(app, cors_allowed_origins="*")
 
@@ -35,15 +35,17 @@ app.register_blueprint(templates_bp, url_prefix='/templates')
 app.register_blueprint(reports_bp, url_prefix='/reports')
 app.register_blueprint(webhooks_bp, url_prefix='/webhooks')
 
-# Initialize socket event handlers
+# Init socket handlers per blueprint
 init_chat_socketio(socketio)
 init_deals_socketio(socketio)
 init_tasks_socketio(socketio)
 
+# Health check route
 @app.route('/health', methods=['GET'])
 def health_check():
     return jsonify({"status": "Healthy—ready to close some CRE deals! 🏢"}), 200
 
+# Boot it up
 if __name__ == "__main__":
     import os
     import eventlet
