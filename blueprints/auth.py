@@ -1,10 +1,12 @@
 import jwt
+import uuid
 import functools
 from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify, current_app
 
 # Import shared resources
 from db import logger, cursor, conn
+
 
 auth_bp = Blueprint('auth', __name__)
 
