@@ -4,7 +4,7 @@ services:
     env: python
     plan: free
     buildCommand: bash install_tesseract.sh && pip install -r requirements.txt && python -c "import matplotlib.pyplot"
-    startCommand: gunicorn -w 1 -k eventlet app:app
+    startCommand: gunicorn -w 1 -k eventlet --bind 0.0.0.0:$PORT app:app  # ✅ Corrected to bind to $PORT
     envVars:
       - key: XAI_API_KEY
         sync: false
