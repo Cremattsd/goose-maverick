@@ -5,6 +5,7 @@ from db import logger, cursor, conn
 from blueprints.auth import token_required
 
 user_bp = Blueprint('user', __name__)
+@token_required
 
 @user_bp.route('/settings', methods=['GET'])
 @token_required
@@ -20,6 +21,7 @@ def get_settings(user_id):
         return jsonify({"settings": {}})
     except Exception as e:
         logger.error(f"Failed to retrieve settings for user {user_id}: {e}")
+@token_required
         return jsonify({"error": f"Failed to retrieve settings: {str(e)}"}), 500
 
 @user_bp.route('/settings', methods=['POST'])

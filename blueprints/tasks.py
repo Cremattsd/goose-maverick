@@ -7,6 +7,7 @@ import httpx
 from app import logger, cursor, conn, socketio
 
 tasks_bp = Blueprint('tasks', __name__)
+@token_required
 
 @tasks_bp.route('/schedule', methods=['POST'])
 def schedule_task(user_id):
@@ -25,6 +26,7 @@ def schedule_task(user_id):
         return jsonify({"status": "Task scheduled—let’s keep the CRE momentum going! 🚀"})
     except Exception as e:
         logger.error(f"Failed to schedule task for user {user_id}: {e}")
+@token_required
         return jsonify({"error": f"Failed to schedule task: {str(e)}"}), 500
 
 @tasks_bp.route('', methods=['GET'])
@@ -37,6 +39,7 @@ def get_scheduled_tasks(user_id):
         logger.info(f"Scheduled tasks retrieved for user {user_id}—their calendar is busier than a CRE broker! 🗓️")
         return jsonify({"tasks": tasks})
     except Exception as e:
+@token_required
         logger.error(f"Failed to retrieve scheduled tasks for user {user_id}: {e}")
         return jsonify({"error": f"Failed to retrieve scheduled tasks: {str(e)}"}), 500
 
@@ -90,8 +93,8 @@ def trigger_for_contact(user_id):
         conn.commit()
 
         # Log the activity
-        utils.log_user_activity(user_id, "schedule_trigger", 
-                              {"contact_id": contact_id, "trigger_type": trigger_type, "schedule_time": schedule_time}, 
+        utils.log_user_activity(user_id, "schedule_trigger",
+                              {"contact_id": contact_id, "trigger_type": trigger_type, "schedule_time": schedule_time},
                               cursor, conn)
 
         # Emit WebSocket notification

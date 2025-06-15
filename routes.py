@@ -23,6 +23,7 @@ def register_routes(app):
     def health():
         """Health check endpoint for Render to detect the app."""
         return jsonify({"status": "healthy"})
+@token_required
 
     @app.route('/', methods=['GET'])
     @token_required
@@ -34,6 +35,7 @@ def register_routes(app):
     @token_required
     def chat_hub(user_id):
         logger.info("Chat hub page accessed.")
+@token_required
         return render_template('index.html')
 
     @app.route('/dashboard', methods=['GET'])
@@ -89,6 +91,7 @@ def register_routes(app):
                 'user': username,
                 'exp': datetime.utcnow() + timedelta(hours=24)
             }, SECRET_KEY, algorithm='HS256')
+@token_required
             return jsonify({"token": token})
         return jsonify({"error": "Invalid credentials"}), 401
 
@@ -99,15 +102,16 @@ def register_routes(app):
         data = request.json
         service = data.get('service')
         token = data.get('token')
-        
+
         if not service or not token:
             return jsonify({"error": "Service and token are required"}), 400
-        
+
         cursor.execute("INSERT OR REPLACE INTO user_tokens (user_id, service, token) VALUES (?, ?, ?)",
                        (user_id, service, token))
         conn.commit()
         redis = init_redis()
         if redis:
+@token_required
             redis.setex(f"token:{user_id}:{service}", 3600, token)
         log_user_activity(user_id, "save_token", {"service": service}, cursor, conn)
         return jsonify({"status": f"Token for {service} saved successfully"})
@@ -122,6 +126,7 @@ def register_routes(app):
         for dup in duplicates:
             result.append({
                 "contact_hash": dup[0],
+@token_required
                 "contact_data": json.loads(dup[1]),
                 "timestamp": dup[2]
             })
@@ -144,10 +149,11 @@ def register_routes(app):
         template_name = data.get('template_name')
         subject = data.get('subject')
         body = data.get('body')
-        
+
         if not all([template_name, subject, body]):
             return jsonify({"error": "Template name, subject, and body are required"}), 400
-        
+
+@token_required
         cursor.execute("INSERT INTO email_templates (user_id, template_name, subject, body) VALUES (?, ?, ?, ?)",
                        (user_id, template_name, subject, body))
         conn.commit()
@@ -171,10 +177,11 @@ def register_routes(app):
         task_type = data.get('task_type')
         task_data = data.get('task_data')
         schedule_time = data.get('schedule_time')
-        
+
         if not all([task_type, task_data, schedule_time]):
             return jsonify({"error": "Task type, data, and schedule time are required"}), 400
-        
+@token_required
+
         cursor.execute("INSERT INTO scheduled_tasks (user_id, task_type, task_data, schedule_time, status) VALUES (?, ?, ?, ?, ?)",
                        (user_id, task_type, json.dumps(task_data), schedule_time, "pending"))
         conn.commit()
@@ -187,7 +194,7 @@ def register_routes(app):
         """Generate a PDF report based on user data."""
         data = request.json
         report_type = data.get('report_type', 'activity')
-        
+
         if report_type == 'activity':
             cursor.execute("SELECT action, details, timestamp FROM user_activity_log WHERE user_id = ? ORDER BY timestamp DESC LIMIT 10", (user_id,))
             logs = cursor.fetchall()
@@ -195,10 +202,11 @@ def register_routes(app):
             for i, log in enumerate(logs, 1):
                 report_data[f"Activity {i}"] = f"{log[0]} at {log[2]}: {json.loads(log[1])}"
             title = "Recent Activity Report"
-        
+
         pdf_output = generate_pdf_report(user_id, report_data, title, cursor, conn)
         log_user_activity(user_id, "generate_report", {"report_type": report_type}, cursor, conn)
-        
+@token_required
+
         return send_file(
             pdf_output,
             attachment_filename=f"{report_type}_report_{user_id}.pdf",
@@ -211,15 +219,17 @@ def register_routes(app):
     def save_message(user_id):
         """Save a chat message to the database."""
         data = request.json
+@token_required
         sender = data.get('sender')
         message = data.get('message')
         timestamp = datetime.now().isoformat()
-        
+
         cursor.execute("INSERT INTO chat_messages (user_id, sender, message, timestamp) VALUES (?, ?, ?, ?)",
                        (user_id, sender, message, timestamp))
         conn.commit()
         return jsonify({"status": "Message saved"})
 
+@token_required
     @app.route('/get-messages', methods=['GET'])
     @token_required
     def get_messages(user_id):
@@ -242,6 +252,7 @@ def register_routes(app):
                 logger.debug(f"Cache hit for {cache_key}")
                 return jsonify(json.loads(cached_data))
 
+@token_required
         lead_scores = [
             {"contact_id": "contact1", "score": 85},
             {"contact_id": "contact2", "score": 92}
@@ -264,6 +275,7 @@ def register_routes(app):
             if cached_data:
                 logger.debug(f"Cache hit for {cache_key}")
                 return jsonify(json.loads(cached_data))
+@token_required
 
         stats = {
             "total_imports": 150,
@@ -282,6 +294,7 @@ def register_routes(app):
         """Fetch a mission summary with caching."""
         cache_key = f"mission_summary:{user_id}"
         redis = init_redis()
+@token_required
         if redis:
             cached_data = redis.get(cache_key)
             if cached_data:
@@ -322,6 +335,7 @@ def register_routes(app):
         )
 
         try:
+@token_required
             response = openai_client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
@@ -351,10 +365,11 @@ def register_routes(app):
         cursor.execute("SELECT id, name, email FROM contacts WHERE user_id = ?", (user_id,))
         contacts = cursor.fetchall()
         duplicates = []
-        
+
         for i, contact in enumerate(contacts):
             for j, other in enumerate(contacts[i+1:], start=i+1):
                 name_similarity = fuzz.token_sort_ratio(contact[1], other[1])
+@token_required
                 email_similarity = fuzz.token_sort_ratio(contact[2], other[2])
                 if name_similarity > 85 or email_similarity > 90:
                     duplicates.append({
@@ -363,7 +378,7 @@ def register_routes(app):
                         "name_similarity": name_similarity,
                         "email_similarity": email_similarity
                     })
-        
+
         data = {"duplicates": duplicates}
         if redis:
             redis.setex(cache_key, 300, json.dumps(data))
@@ -384,34 +399,37 @@ def register_routes(app):
 
         cursor.execute("SELECT amount, close_date FROM deals WHERE user_id = ? ORDER BY close_date", (user_id,))
         deals = cursor.fetchall()
-        
+
         if not deals:
             data = {"trends": [], "predictions": []}
             if redis:
                 redis.setex(cache_key, 300, json.dumps(data))
             return jsonify(data)
-        
+
         dates = [datetime.strptime(deal[1], '%Y-%m-%d').timestamp() for deal in deals]
         amounts = [deal[0] for deal in deals]
-        
+
         X = np.array(dates).reshape(-1, 1)
         y = np.array(amounts)
-        
+
         model = LinearRegression()
+@token_required
         model.fit(X, y)
-        
+
         last_date = dates[-1]
         future_dates = [last_date + i * 30 * 24 * 60 * 60 for i in range(1, 4)]
         future_X = np.array(future_dates).reshape(-1, 1)
         predictions = model.predict(future_X).tolist()
-        
+@token_required
+
         trends = [{"date": deal[1], "amount": deal[0]} for deal in deals]
         future_predictions = [{"date": datetime.fromtimestamp(fd).strftime('%Y-%m-%d'), "amount": int(pred)} for fd, pred in zip(future_dates, predictions)]
-        
+
         data = {"trends": trends, "predictions": future_predictions}
         if redis:
             redis.setex(cache_key, 300, json.dumps(data))
             logger.debug(f"Cache set for {cache_key}")
+@token_required
         return jsonify(data)
 
     @app.route('/field-map/saved/<name>', methods=['GET'])
@@ -471,6 +489,7 @@ def register_routes(app):
                 csv_data = csv_buffer.getvalue()
 
                 async with httpx.AsyncClient() as client:
+@token_required
                     response = await client.post(
                         f"{REALNEX_API_BASE}/ImportData",
                         headers={'Authorization': f'Bearer {token}', 'Content-Type': 'text/csv'},
@@ -482,6 +501,7 @@ def register_routes(app):
                                    (contact["Email"], contact["Full Name"], contact["Email"], user_id))
                     conn.commit()
                     log_user_activity(user_id, "auto_sync_ocr_contact", {"contact": contact}, cursor, conn)
+@token_required
                     return jsonify({"text": text, "parsed_contact": contact, "sync_status": "Contact synced to RealNex"})
                 else:
                     return jsonify({"text": text, "parsed_contact": contact, "sync_status": f"Failed to sync: {response.text}"})
@@ -494,6 +514,7 @@ def register_routes(app):
     @token_required
     def get_settings(user_id):
         """Fetch current settings."""
+@token_required
         try:
             with open('settings.json', 'r') as f:
                 settings = json.load(f)
@@ -513,6 +534,7 @@ def register_routes(app):
             return jsonify({"status": "Settings saved"})
         except Exception as e:
             logger.error(f"Failed to save settings: {str(e)}")
+@token_required
             return jsonify({"error": str(e)}), 500
 
     @app.route('/register-webhook', methods=['POST'])

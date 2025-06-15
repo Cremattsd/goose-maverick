@@ -9,6 +9,7 @@ from db import logger, cursor, conn
 from blueprints.auth import token_required
 
 templates_bp = Blueprint('templates', __name__)
+@token_required
 
 @templates_bp.route('', methods=['POST'])
 @token_required
@@ -32,6 +33,7 @@ def create_template(user_id):
         return jsonify({"status": "Template created", "template_id": template_id})
     except Exception as e:
         logger.error(f"Failed to create template for user {user_id}: {e}")
+@token_required
         return jsonify({"error": f"Failed to create template: {str(e)}"}), 500
 
 @templates_bp.route('', methods=['GET'])
@@ -43,6 +45,7 @@ def get_templates(user_id):
         logger.info(f"Templates retrieved for user {user_id}—their CRE templates are ready to shine! ✨")
         return jsonify({"templates": templates})
     except Exception as e:
+@token_required
         logger.error(f"Failed to retrieve templates for user {user_id}: {e}")
         return jsonify({"error": f"Failed to retrieve templates: {str(e)}"}), 500
 
@@ -80,6 +83,7 @@ def update_template(user_id, template_id):
 
         logger.info(f"Template updated for user {user_id}: {template_id}—they’re keeping their CRE templates fresh! 🌟")
         return jsonify({"status": "Template updated"})
+@token_required
     except Exception as e:
         logger.error(f"Failed to update template for user {user_id}: {e}")
         return jsonify({"error": f"Failed to update template: {str(e)}"}), 500

@@ -15,6 +15,7 @@ from utils import get_user_settings, get_token, log_user_activity, log_duplicate
 from blueprints.auth import token_required
 
 contacts_bp = Blueprint('contacts', __name__)
+@token_required
 
 @contacts_bp.route('', methods=['POST'])
 @token_required
@@ -54,6 +55,7 @@ def create_contact(user_id):
         return jsonify({"status": "Contact created", "contact_id": contact_id})
     except Exception as e:
         logger.error(f"Failed to create contact for user {user_id}: {e}")
+@token_required
         return jsonify({"error": f"Failed to create contact: {str(e)}"}), 500
 
 @contacts_bp.route('', methods=['GET'])
@@ -65,6 +67,7 @@ def get_contacts(user_id):
         logger.info(f"Contacts retrieved for user {user_id}—they’ve got a network hotter than a CRE market boom! 🔥")
         return jsonify({"contacts": contacts})
     except Exception as e:
+@token_required
         logger.error(f"Failed to retrieve contacts for user {user_id}: {e}")
         return jsonify({"error": f"Failed to retrieve contacts: {str(e)}"}), 500
 
@@ -123,6 +126,7 @@ def update_contact(user_id, contact_id):
 
         logger.info(f"Contact updated for user {user_id}: {contact_id}—they’re keeping their CRE network fresh! 🌟")
         return jsonify({"status": "Contact updated"})
+@token_required
     except Exception as e:
         logger.error(f"Failed to update contact for user {user_id}: {e}")
         return jsonify({"error": f"Failed to update contact: {str(e)}"}), 500
@@ -140,6 +144,7 @@ def delete_contact(user_id, contact_id):
 
         log_user_activity(user_id, "delete_contact", {"contact_id": contact_id}, cursor, conn)
         logger.info(f"Contact deleted for user {user_id}: {contact_id}—they’re clearing space for new CRE opportunities! 🏢")
+@token_required
         return jsonify({"status": "Contact deleted"})
     except Exception as e:
         logger.error(f"Failed to delete contact for user {user_id}: {e}")
@@ -182,6 +187,7 @@ def upload_file(user_id):
         sync_to_mailchimp(user_id, contact_data, cursor, conn)
 
         log_user_activity(user_id, "upload_contact_file", {"contact_id": contact_data["id"]}, cursor, conn)
+@token_required
         logger.info(f"File uploaded and contact created for user {user_id}: {contact_data['id']}—they’re filling their CRE pipeline! 📈")
         return jsonify({"status": "File processed", "contact_id": contact_data["id"]})
     except Exception as e:

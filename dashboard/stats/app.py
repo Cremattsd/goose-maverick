@@ -1,4 +1,4 @@
-// === app.py: Now supports dashboard phrase detection + file upload + Goose OCR with CRM sync + graph data + weekly summary + auto-clean ===
+# === app.py: Now supports dashboard phrase detection + file upload + Goose OCR with CRM sync + graph data + weekly summary + auto-clean ===
 
 from flask import Flask, request, jsonify, send_file
 from datetime import datetime, timedelta
@@ -17,6 +17,7 @@ DASHBOARD_PHRASES = [
     "launch dashboard", "give me an update", "open goose dashboard",
     "pull my metrics", "sync update", "how are my stats", "check my data"
 ]
+@token_required
 
 @app.route('/dashboard/stats')
 def dashboard_stats():
@@ -40,6 +41,7 @@ def dashboard_errors():
         with open(ERROR_LOG, 'r') as f:
             return jsonify({"errors": f.readlines()[-10:]})
     except Exception as e:
+@token_required
         return jsonify({"error": str(e)}), 500
 
 @app.route('/dashboard/data')
@@ -49,6 +51,7 @@ def dashboard_data():
             return jsonify([])
         with open(CRM_DATA_FILE, 'r') as f:
             return jsonify(json.load(f))
+@token_required
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -61,6 +64,7 @@ def dashboard_weekly_summary():
         with open(CRM_DATA_FILE, 'r') as f:
             records = json.load(f)
         recent = [r for r in records if datetime.fromisoformat(r['timestamp']) >= one_week_ago]
+@token_required
         return jsonify(recent)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -76,6 +80,7 @@ def clean_old_records():
             filtered = [r for r in records if datetime.fromisoformat(r['timestamp']) >= thirty_days_ago]
             f.seek(0)
             json.dump(filtered, f, indent=2)
+@token_required
             f.truncate()
         return jsonify({"message": f"Cleaned. {len(records) - len(filtered)} old records removed."})
     except Exception as e:
@@ -110,6 +115,7 @@ def upload():
                 f.truncate()
 
         return jsonify({
+@token_required
             "message": "Upload complete with OCR scan and CRM sync.",
             "ocrText": ocr_result
         })

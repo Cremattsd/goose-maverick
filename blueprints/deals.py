@@ -22,6 +22,7 @@ def init_socketio(socketio):
                 "deal_id": deal_id,
                 "status": "updated"
             }, namespace='/deals', room=user_id)
+@token_required
 
 @deals_bp.route('', methods=['POST'])
 @token_required
@@ -48,6 +49,7 @@ def create_deal(user_id):
         return jsonify({"status": "Deal created", "deal_id": deal_id})
     except Exception as e:
         logger.error(f"Failed to create deal for user {user_id}: {e}")
+@token_required
         return jsonify({"error": f"Failed to create deal: {str(e)}"}), 500
 
 @deals_bp.route('', methods=['GET'])
@@ -59,6 +61,7 @@ def get_deals(user_id):
         logger.info(f"Deals retrieved for user {user_id}—their CRE portfolio is looking hot! 🔥")
         return jsonify({"deals": deals})
     except Exception as e:
+@token_required
         logger.error(f"Failed to retrieve deals for user {user_id}: {e}")
         return jsonify({"error": f"Failed to retrieve deals: {str(e)}"}), 500
 
@@ -105,6 +108,7 @@ def update_deal(user_id, deal_id):
 
         logger.info(f"Deal updated for user {user_id}: {deal_id}—they’re keeping their CRE deals fresh! 🌟")
         return jsonify({"status": "Deal updated"})
+@token_required
     except Exception as e:
         logger.error(f"Failed to update deal for user {user_id}: {e}")
         return jsonify({"error": f"Failed to update deal: {str(e)}"}), 500

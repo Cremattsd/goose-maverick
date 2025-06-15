@@ -18,11 +18,12 @@ def generate_pdf_report(user_id, data, report_title):
 
     for key, value in data.items():
         pdf.cell(200, 10, txt=f"{key}: {value}", ln=True)
-    
+
     pdf_output = BytesIO()
     pdf.output(pdf_output, 'F')
     pdf_output.seek(0)
     return pdf_output
+@token_required
 
 @reports_bp.route('/generate', methods=['POST'])
 def generate_report(user_id):
@@ -54,6 +55,7 @@ def generate_report(user_id):
             return jsonify({"error": "Unsupported report type—let’s stick to the CRE classics! 📜"}), 400
     except Exception as e:
         logger.error(f"Failed to generate report for user {user_id}: {e}")
+@token_required
         return jsonify({"error": f"Failed to generate report: {str(e)}"}), 500
 
 @reports_bp.route('/duplicates-log', methods=['GET'])

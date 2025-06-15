@@ -9,7 +9,7 @@ def init_db():
     cursor.execute('''CREATE TABLE IF NOT EXISTS user_points
                       (user_id TEXT PRIMARY KEY, points INTEGER, email_credits INTEGER, has_msa INTEGER)''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS user_settings
-                      (user_id TEXT PRIMARY KEY, language TEXT, subject_generator_enabled INTEGER, 
+                      (user_id TEXT PRIMARY KEY, language TEXT, subject_generator_enabled INTEGER,
                        deal_alerts_enabled INTEGER, email_notifications INTEGER, sms_notifications INTEGER)''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS user_tokens
                       (user_id TEXT, service TEXT, token TEXT, PRIMARY KEY (user_id, service))''')
@@ -20,16 +20,16 @@ def init_db():
     cursor.execute('''CREATE TABLE IF NOT EXISTS two_fa_codes
                       (user_id TEXT PRIMARY KEY, code TEXT, expiry TIMESTAMP)''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS duplicates_log
-                      (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, contact_hash TEXT, 
+                      (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, contact_hash TEXT,
                        contact_data TEXT, timestamp TIMESTAMP)''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS user_activity_log
-                      (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, action TEXT, 
+                      (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, action TEXT,
                        details TEXT, timestamp TIMESTAMP)''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS email_templates
-                      (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, template_name TEXT, 
+                      (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, template_name TEXT,
                        subject TEXT, body TEXT)''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS scheduled_tasks
-                      (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, task_type TEXT, 
+                      (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, task_type TEXT,
                        task_data TEXT, schedule_time TIMESTAMP, status TEXT)''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS chat_messages
                      (id INTEGER PRIMARY KEY AUTOINCREMENT,

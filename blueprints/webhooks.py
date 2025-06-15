@@ -4,6 +4,7 @@ from flask import Blueprint, request, jsonify
 from app import logger, cursor, conn
 
 webhooks_bp = Blueprint('webhooks', __name__)
+@token_required
 
 @webhooks_bp.route('/set', methods=['POST'])
 def set_webhook(user_id):

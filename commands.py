@@ -22,7 +22,7 @@ def handle_sync_data(query, user_id, cursor, conn):
 
     sync_type = match.group(1).lower()
     settings = get_user_settings(user_id, cursor, conn)
-    
+
     # Fetch contacts from the database (populated via OCR or manual entry)
     cursor.execute("SELECT id, name, email FROM contacts WHERE user_id = ?", (user_id,))
     existing_contacts = cursor.fetchall()

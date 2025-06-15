@@ -1,10 +1,18 @@
-# Use an official Python runtime as the base image
+# ---------- Stage 1: Build Frontend ----------
+FROM node:20 AS frontend-builder
+
+WORKDIR /app
+COPY package.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+
+# ---------- Stage 2: Backend Setup ----------
 FROM python:3.11-slim
 
-# Set working directory
 WORKDIR /app
 
-# Install system dependencies (for Tesseract, build tools, and frontend)
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
     tesseract-ocr \
@@ -13,30 +21,19 @@ RUN apt-get update && apt-get install -y \
     poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js and npm for frontend build (using Node 20)
-RUN apt-get update && apt-get install -y \
-    curl \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy requirements files
+# Copy backend requirements
 COPY requirements.txt .
-COPY package.json .
 
-# Upgrade pip and install Python dependencies
+# Install Python dependencies
 RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
-# Install npm dependencies and clear cache to avoid EINTEGRITY errors
-RUN npm cache clean --force && npm install
+# Copy application and built frontend
+COPY --from=frontend-builder /app /app
 
-# Copy the rest of the application
-COPY . .
+# Set environment variables
+ENV FLASK_ENV=production
+ENV PYTHONUNBUFFERED=1
 
-# Build frontend (if using TailwindCSS/Webpack)
-RUN npm run build
-
-# Expose port for Render
 EXPOSE 8000
 
 # Run the Flask app with Gunicorn

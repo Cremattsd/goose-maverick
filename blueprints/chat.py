@@ -28,6 +28,7 @@ def init_socketio(socketio):
         if user_id:
             join_room(user_id)
             logger.info(f"User {user_id} joined SocketIO room—ready to chat about CRE deals! 💬")
+@token_required
 
 @chat_bp.route('/', methods=['GET'])
 @token_required
@@ -92,6 +93,7 @@ def chat(user_id):
         return jsonify({"status": "Message processed", "response": bot_response})
     except Exception as e:
         logger.error(f"Failed to process chat message for user {user_id}: {e}")
+@token_required
         return jsonify({"error": f"Failed to process message: {str(e)}"}), 500
 
 @chat_bp.route('/history', methods=['GET'])

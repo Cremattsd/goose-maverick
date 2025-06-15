@@ -14,7 +14,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Database setup with Render Disk path
-db_path = os.getenv('DB_PATH', 'chatbot.db')
+import os
+from pathlib import Path
+
+# Secure DB path
+base_path = Path(__file__).parent
+db_path = os.getenv('DB_PATH', str(base_path / 'chatbot.db'))
 conn = sqlite3.connect(db_path, check_same_thread=False)
 cursor = conn.cursor()
 
@@ -196,3 +201,16 @@ cursor.execute('''
     )
 ''')
 conn.commit()
+
+
+# --- Email Credentials Model (Scaffolded) ---
+email_credentials = []  # Replace with DB in production
+
+def save_email_credentials(user_id, provider, token_data):
+    email_credentials.append({
+        "user_id": user_id,
+        "provider": provider,
+        "access_token": token_data.get("access_token"),
+        "refresh_token": token_data.get("refresh_token"),
+        "expires_at": token_data.get("expires_at"),
+    })

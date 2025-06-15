@@ -105,7 +105,7 @@ def suggest_field_mapping(df, field_definitions):
                 for col in columns:
                     if col in matched_columns:
                         continue
-                    if (field_name.replace(" ", "") in col.replace(" ", "") or 
+                    if (field_name.replace(" ", "") in col.replace(" ", "") or
                         col in field_name.replace(" ", "")):
                         mapping[entity][field_name] = col
                         matched_columns.add(col)
