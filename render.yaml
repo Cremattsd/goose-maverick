@@ -3,8 +3,13 @@ services:
     name: realnex-chatbot
     env: python
     plan: free
-    buildCommand: bash install_tesseract.sh && pip install -r requirements.txt && python -c "import matplotlib.pyplot"
-    startCommand: echo "🟢 render.yaml is active" && gunicorn -w 1 -k eventlet --bind 0.0.0.0:$PORT app:app
+    buildCommand: >
+      bash install_tesseract.sh &&
+      pip install -r requirements.txt &&
+      python -c "import matplotlib.pyplot"
+    startCommand: >
+      echo "🟢 render.yaml is active" &&
+      gunicorn -w 1 -k gthread --bind 0.0.0.0:$PORT app:app
     envVars:
       - key: XAI_API_KEY
         sync: false
