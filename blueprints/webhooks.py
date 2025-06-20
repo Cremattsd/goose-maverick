@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 
 # Assuming app.py passes these through context or imports
-from app import logger, cursor, conn
+from db import logger, cursor, conn
 
 webhooks_bp = Blueprint('webhooks', __name__)
 @token_required
