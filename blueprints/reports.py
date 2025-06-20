@@ -3,8 +3,8 @@ from fpdf import FPDF
 from io import BytesIO
 import json
 
-# Assuming app.py passes these through context or imports
 from app import logger, cursor, conn
+from blueprints.auth import token_required
 
 reports_bp = Blueprint('reports', __name__)
 
@@ -23,9 +23,9 @@ def generate_pdf_report(user_id, data, report_title):
     pdf.output(pdf_output, 'F')
     pdf_output.seek(0)
     return pdf_output
-@token_required
 
 @reports_bp.route('/generate', methods=['POST'])
+@token_required
 def generate_report(user_id):
     data = request.get_json()
     report_type = data.get('report_type')
@@ -53,12 +53,13 @@ def generate_report(user_id):
 
         else:
             return jsonify({"error": "Unsupported report type—let’s stick to the CRE classics! 📜"}), 400
+
     except Exception as e:
         logger.error(f"Failed to generate report for user {user_id}: {e}")
-@token_required
         return jsonify({"error": f"Failed to generate report: {str(e)}"}), 500
 
 @reports_bp.route('/duplicates-log', methods=['GET'])
+@token_required
 def get_duplicates_log(user_id):
     try:
         cursor.execute("SELECT id, contact_hash, contact_data, timestamp FROM duplicates_log WHERE user_id = ? ORDER BY timestamp DESC",
@@ -72,6 +73,7 @@ def get_duplicates_log(user_id):
         return jsonify({"error": f"Failed to retrieve duplicates log: {str(e)}"}), 500
 
 @reports_bp.route('/health-history', methods=['GET'])
+@token_required
 def get_health_history(user_id):
     try:
         cursor.execute("SELECT contact_id, email_health_score, phone_health_score, timestamp FROM health_history WHERE user_id = ? ORDER BY timestamp DESC",
