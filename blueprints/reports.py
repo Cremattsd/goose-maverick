@@ -3,7 +3,7 @@ from fpdf import FPDF
 from io import BytesIO
 import json
 
-from app import logger, cursor, conn
+from db import logger, conn, cursor
 from blueprints.auth import token_required
 
 reports_bp = Blueprint('reports', __name__)
