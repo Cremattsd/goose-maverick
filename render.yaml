@@ -1,15 +1,10 @@
 services:
   - type: web
     name: realnex-chatbot
-    env: python
+    env: docker
     plan: free
-    buildCommand: >
-      bash install_tesseract.sh &&
-      pip install -r requirements.txt &&
-      python -c "import matplotlib.pyplot"
-    startCommand: >
-      echo "🟢 render.yaml is active" &&
-      gunicorn -w 1 -k gthread --bind 0.0.0.0:$PORT app:app
+    dockerfilePath: ./Dockerfile
+    autoDeploy: true
     envVars:
       - key: XAI_API_KEY
         sync: false
