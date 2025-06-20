@@ -6,7 +6,7 @@ from blueprints.chat import create_chat_blueprint
 from blueprints.auth import auth_bp
 from blueprints.contacts import contacts_bp
 from blueprints.deals import deals_bp
-from blueprints.tasks import tasks_bp
+from blueprints.tasks import create_tasks_blueprint  # <-- FIXED LINE
 from blueprints.user import user_bp
 from blueprints.webhooks import webhooks_bp
 
@@ -23,7 +23,7 @@ app.register_blueprint(create_chat_blueprint(socketio), url_prefix="/chat")
 app.register_blueprint(auth_bp, url_prefix="/auth")
 app.register_blueprint(contacts_bp, url_prefix="/contacts")
 app.register_blueprint(deals_bp, url_prefix="/deals")
-app.register_blueprint(tasks_bp, url_prefix="/tasks")
+app.register_blueprint(create_tasks_blueprint(socketio), url_prefix="/tasks")  # <-- FIXED LINE
 app.register_blueprint(user_bp, url_prefix="/user")
 app.register_blueprint(webhooks_bp, url_prefix="/webhooks")
 
