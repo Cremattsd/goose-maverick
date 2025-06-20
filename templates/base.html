@@ -1,112 +1,76 @@
-<!-- base.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}Goose Maverick{% endblock %}</title>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Poppins', sans-serif; }
-    body { background: linear-gradient(135deg, #1a1a2e, #16213e); min-height: 100vh; padding-top: 60px; color: white; }
-    nav {
-      position: fixed; top: 0; left: 0; width: 100%; background: rgba(0, 0, 0, 0.5);
-      backdrop-filter: blur(5px); padding: 10px 20px; display: flex; justify-content: space-between; align-items: center;
-    }
-    nav a, nav button {
-      color: #00ddeb; text-decoration: none; font-size: 14px; margin: 0 15px; background: none; border: none; cursor: pointer;
-    }
-    nav a:hover, nav button:hover { color: #ff6f61; }
-    main { padding: 20px; max-width: 1200px; margin: auto; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Goose Maverick{% endblock %}</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Poppins', sans-serif;
+        }
+        body {
+            background: linear-gradient(135deg, #1a1a2e, #16213e);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(5px);
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
+        }
+        nav a, nav button {
+            color: #00ddeb;
+            text-decoration: none;
+            font-size: 14px;
+            margin: 0 15px;
+            transition: color 0.3s ease;
+            background: none;
+            border: none;
+            cursor: pointer;
+        }
+        nav a:hover, nav button:hover {
+            color: #ff6f61;
+        }
+        #chat-container {
+            width: 100%;
+            max-width: 1200px;
+            margin: 80px auto 20px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+    </style>
+    {% block head %}{% endblock %}
 </head>
 <body>
-  <nav>
-    <a href="/chat-hub">Chat Hub</a>
-    <div>
-      <a href="/dashboard">Dashboard</a>
-      <a href="/deal-trends">Deal Trends</a>
-      <a href="/ocr">OCR Scanner</a>
-      <button onclick="window.location.href='/settings'">Settings</button>
-    </div>
-  </nav>
-  <main>
-    {% block content %}{% endblock %}
-  </main>
+    <nav>
+        <a href="/chat-hub">Chat Hub</a>
+        <div>
+            <a href="/dashboard">Dashboard</a>
+            <a href="/deal-trends">Deal Trends</a>
+            <a href="/ocr">OCR Scanner</a>
+            <button onclick="window.location.href='/settings'">Settings</button>
+        </div>
+    </nav>
+
+    <main>
+        {% block content %}{% endblock %}
+    </main>
 </body>
 </html>
-
-<!-- index.html -->
-{% extends 'base.html' %}
-
-{% block title %}Home | Goose Maverick{% endblock %}
-
-{% block content %}
-<div id="chat-container" style="background: rgba(255, 255, 255, 0.1); border-radius: 20px; padding: 20px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2); border: 1px solid rgba(255, 255, 255, 0.2);">
-  <h1 style="text-align:center; color:#00ddeb; margin-bottom:20px;">CRE Chat Bot</h1>
-  <div id="messages" style="max-height:600px; overflow-y:auto; background:rgba(0,0,0,0.3); padding:15px; border-radius:15px; margin-bottom:20px;"></div>
-  <div id="input-container" style="display:flex; gap:10px; align-items:center; background:rgba(255,255,255,0.05); padding:10px; border-radius:15px;">
-    <input type="text" id="message-input" placeholder="Type your command..." style="flex:1; padding:10px; background:transparent; border:none; color:white; font-size:14px;">
-    <button onclick="sendMessage()"><i class="fas fa-paper-plane"></i></button>
-    <button onclick="toggleVoiceInput()" id="voice-btn"><i class="fas fa-microphone"></i></button>
-    <button onclick="speakLastResponse()" id="speak-btn"><i class="fas fa-volume-up"></i></button>
-  </div>
-  <div id="voice-status" style="text-align:center; margin-top:10px; font-size:12px; color:rgba(255,255,255,0.7);"></div>
-</div>
-<script>
-  let recognition;
-  let isListening = false;
-  let lastBotResponse = '';
-
-  function addMessage(sender, message) {
-    const messagesDiv = document.getElementById('messages');
-    const msgDiv = document.createElement('div');
-    msgDiv.className = 'message';
-    msgDiv.textContent = `${sender}: ${message}`;
-    msgDiv.style.marginBottom = '10px';
-    messagesDiv.appendChild(msgDiv);
-    messagesDiv.scrollTop = messagesDiv.scrollHeight;
-    if (sender === 'bot') lastBotResponse = message;
-  }
-
-  function sendMessage() {
-    const input = document.getElementById('message-input');
-    const message = input.value.trim();
-    if (message) {
-      addMessage('user', message);
-      fetch('/ask', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: message })
-      })
-      .then(res => res.json())
-      .then(data => addMessage('bot', data.response));
-      input.value = '';
-    }
-  }
-
-  function toggleVoiceInput() {
-    if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
-      alert('Speech recognition not supported'); return;
-    }
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    recognition = new SpeechRecognition();
-    recognition.lang = 'en-US';
-    recognition.onresult = e => {
-      const transcript = e.results[0][0].transcript;
-      document.getElementById('message-input').value = transcript;
-      sendMessage();
-    };
-    recognition.onerror = e => console.error(e);
-    recognition.start();
-  }
-
-  function speakLastResponse() {
-    if (!lastBotResponse || !('speechSynthesis' in window)) return;
-    const utterance = new SpeechSynthesisUtterance(lastBotResponse);
-    utterance.lang = 'en-US';
-    window.speechSynthesis.speak(utterance);
-  }
-</script>
-{% endblock %}
