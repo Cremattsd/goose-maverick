@@ -22,7 +22,6 @@ def init_socketio(socketio):
                 "deal_id": deal_id,
                 "status": "updated"
             }, namespace='/deals', room=user_id)
-@token_required
 
 @deals_bp.route('', methods=['POST'])
 @token_required
@@ -40,28 +39,41 @@ def create_deal(user_id):
         sale_price = data.get('sale_price', 0)
         deal_type = data.get('deal_type', 'lease')
 
-        # Insert deal into database
-        cursor.execute("INSERT INTO deals (id, amount, close_date, user_id, sq_ft, rent_month, sale_price, deal_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                       (deal_id, amount, close_date, user_id, sq_ft, rent_month, sale_price, deal_type))
+        cursor.execute(
+            "INSERT INTO deals (id, amount, close_date, user_id, sq_ft, rent_month, sale_price, deal_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (deal_id, amount, close_date, user_id, sq_ft, rent_month, sale_price, deal_type)
+        )
         conn.commit()
 
         logger.info(f"Deal created for user {user_id}: {deal_id}—they’re closing CRE deals like a pro! 🤝")
         return jsonify({"status": "Deal created", "deal_id": deal_id})
     except Exception as e:
         logger.error(f"Failed to create deal for user {user_id}: {e}")
-@token_required
         return jsonify({"error": f"Failed to create deal: {str(e)}"}), 500
 
 @deals_bp.route('', methods=['GET'])
 @token_required
 def get_deals(user_id):
     try:
-        cursor.execute("SELECT id, amount, close_date, sq_ft, rent_month, sale_price, deal_type FROM deals WHERE user_id = ?", (user_id,))
-        deals = [{"id": row[0], "amount": row[1], "close_date": row[2], "sq_ft": row[3], "rent_month": row[4], "sale_price": row[5], "deal_type": row[6]} for row in cursor.fetchall()]
+        cursor.execute(
+            "SELECT id, amount, close_date, sq_ft, rent_month, sale_price, deal_type FROM deals WHERE user_id = ?",
+            (user_id,)
+        )
+        deals = [
+            {
+                "id": row[0],
+                "amount": row[1],
+                "close_date": row[2],
+                "sq_ft": row[3],
+                "rent_month": row[4],
+                "sale_price": row[5],
+                "deal_type": row[6]
+            }
+            for row in cursor.fetchall()
+        ]
         logger.info(f"Deals retrieved for user {user_id}—their CRE portfolio is looking hot! 🔥")
         return jsonify({"deals": deals})
     except Exception as e:
-@token_required
         logger.error(f"Failed to retrieve deals for user {user_id}: {e}")
         return jsonify({"error": f"Failed to retrieve deals: {str(e)}"}), 500
 
@@ -108,7 +120,6 @@ def update_deal(user_id, deal_id):
 
         logger.info(f"Deal updated for user {user_id}: {deal_id}—they’re keeping their CRE deals fresh! 🌟")
         return jsonify({"status": "Deal updated"})
-@token_required
     except Exception as e:
         logger.error(f"Failed to update deal for user {user_id}: {e}")
         return jsonify({"error": f"Failed to update deal: {str(e)}"}), 500
