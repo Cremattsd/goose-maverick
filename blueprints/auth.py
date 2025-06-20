@@ -126,7 +126,7 @@ from flask import Blueprint, request, jsonify, send_file
 from fpdf import FPDF
 from io import BytesIO
 import json
-from app import logger, cursor, conn
+from db import logger, cursor, conn
 from blueprints.auth import token_required
 
 reports_bp = Blueprint('reports', __name__)
