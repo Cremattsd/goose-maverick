@@ -4,7 +4,7 @@ import json
 import httpx
 
 # Assuming app.py passes these through context or imports
-from app import logger, cursor, conn, socketio
+from db import logger, cursor, conn, socketio
 
 tasks_bp = Blueprint('tasks', __name__)
 @token_required
