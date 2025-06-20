@@ -37,4 +37,4 @@ ENV PYTHONUNBUFFERED=1
 EXPOSE 8000
 
 # Run the Flask app with Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:$PORT", "--workers", "3", "app:app"]
+CMD gunicorn --bind 0.0.0.0:$PORT --workers 3 app:app
