@@ -5,17 +5,11 @@ from datetime import datetime
 import httpx
 import uuid
 
-# Import shared resources
 from db import logger, cursor, conn
-
-# Import utility functions
 from utils import get_user_settings, get_token, log_user_activity, log_duplicate, sync_to_mailchimp, search_realnex_entities
-
-# Import token_required decorator
 from blueprints.auth import token_required
 
 contacts_bp = Blueprint('contacts', __name__)
-@token_required
 
 @contacts_bp.route('', methods=['POST'])
 @token_required
@@ -30,15 +24,12 @@ def create_contact(user_id):
         email = data.get('email', '')
         phone = data.get('phone', '')
 
-        # Insert contact into database
         cursor.execute("INSERT INTO contacts (id, name, email, phone, user_id) VALUES (?, ?, ?, ?, ?)",
                        (contact_id, name, email, phone, user_id))
         conn.commit()
 
-        # Log the activity
         log_user_activity(user_id, "create_contact", {"contact_id": contact_id}, cursor, conn)
 
-        # Prepare contact data for syncing
         contact_data = {
             "id": contact_id,
             "name": name,
@@ -48,14 +39,12 @@ def create_contact(user_id):
             "lastName": " ".join(name.split()[1:]) if len(name.split()) > 1 else ""
         }
 
-        # Sync to Mailchimp
         sync_to_mailchimp(user_id, contact_data, cursor, conn)
 
         logger.info(f"Contact created for user {user_id}: {contact_id}—they’re building their CRE network like a pro! 🤝")
         return jsonify({"status": "Contact created", "contact_id": contact_id})
     except Exception as e:
         logger.error(f"Failed to create contact for user {user_id}: {e}")
-@token_required
         return jsonify({"error": f"Failed to create contact: {str(e)}"}), 500
 
 @contacts_bp.route('', methods=['GET'])
@@ -67,7 +56,6 @@ def get_contacts(user_id):
         logger.info(f"Contacts retrieved for user {user_id}—they’ve got a network hotter than a CRE market boom! 🔥")
         return jsonify({"contacts": contacts})
     except Exception as e:
-@token_required
         logger.error(f"Failed to retrieve contacts for user {user_id}: {e}")
         return jsonify({"error": f"Failed to retrieve contacts: {str(e)}"}), 500
 
@@ -109,7 +97,6 @@ def update_contact(user_id, contact_id):
 
         log_user_activity(user_id, "update_contact", {"contact_id": contact_id}, cursor, conn)
 
-        # Prepare updated contact data for syncing
         cursor.execute("SELECT * FROM contacts WHERE id = ? AND user_id = ?", (contact_id, user_id))
         contact = cursor.fetchone()
         contact_data = {
@@ -121,12 +108,10 @@ def update_contact(user_id, contact_id):
             "lastName": " ".join(contact[1].split()[1:]) if len(contact[1].split()) > 1 else ""
         }
 
-        # Sync to Mailchimp
         sync_to_mailchimp(user_id, contact_data, cursor, conn)
 
         logger.info(f"Contact updated for user {user_id}: {contact_id}—they’re keeping their CRE network fresh! 🌟")
         return jsonify({"status": "Contact updated"})
-@token_required
     except Exception as e:
         logger.error(f"Failed to update contact for user {user_id}: {e}")
         return jsonify({"error": f"Failed to update contact: {str(e)}"}), 500
@@ -144,7 +129,6 @@ def delete_contact(user_id, contact_id):
 
         log_user_activity(user_id, "delete_contact", {"contact_id": contact_id}, cursor, conn)
         logger.info(f"Contact deleted for user {user_id}: {contact_id}—they’re clearing space for new CRE opportunities! 🏢")
-@token_required
         return jsonify({"status": "Contact deleted"})
     except Exception as e:
         logger.error(f"Failed to delete contact for user {user_id}: {e}")
@@ -158,8 +142,6 @@ def upload_file(user_id):
 
     file = request.files['file']
     try:
-        # In a real app, we'd process the file (e.g., CSV, Excel) to extract contacts
-        # For this example, we'll mock the processing
         contact_data = {
             "id": str(uuid.uuid4()),
             "name": "John Doe",
@@ -169,7 +151,6 @@ def upload_file(user_id):
             "lastName": "Doe"
         }
 
-        # Check for duplicates
         contact_hash = hashlib.md5(json.dumps(contact_data, sort_keys=True).encode()).hexdigest()
         cursor.execute("SELECT * FROM duplicates_log WHERE contact_hash = ? AND user_id = ?",
                        (contact_hash, user_id))
@@ -177,17 +158,13 @@ def upload_file(user_id):
             log_duplicate(user_id, contact_data, "contact", cursor, conn)
             return jsonify({"status": "Duplicate contact detected—already leased this space! 🏙️"})
 
-        # Insert contact
         cursor.execute("INSERT INTO contacts (id, name, email, phone, user_id) VALUES (?, ?, ?, ?, ?)",
                        (contact_data["id"], contact_data["name"], contact_data["email"],
                         contact_data["phone"], user_id))
         conn.commit()
 
-        # Sync to Mailchimp
         sync_to_mailchimp(user_id, contact_data, cursor, conn)
-
         log_user_activity(user_id, "upload_contact_file", {"contact_id": contact_data["id"]}, cursor, conn)
-@token_required
         logger.info(f"File uploaded and contact created for user {user_id}: {contact_data['id']}—they’re filling their CRE pipeline! 📈")
         return jsonify({"status": "File processed", "contact_id": contact_data["id"]})
     except Exception as e:
