@@ -5,8 +5,13 @@ from datetime import datetime
 import httpx
 import uuid
 
+# Import shared resources
 from db import logger, cursor, conn
+
+# Import utility functions
 from utils import get_user_settings, get_token, log_user_activity, log_duplicate, sync_to_mailchimp, search_realnex_entities
+
+# Import token_required decorator
 from blueprints.auth import token_required
 
 contacts_bp = Blueprint('contacts', __name__)
@@ -24,12 +29,15 @@ def create_contact(user_id):
         email = data.get('email', '')
         phone = data.get('phone', '')
 
+        # Insert contact into database
         cursor.execute("INSERT INTO contacts (id, name, email, phone, user_id) VALUES (?, ?, ?, ?, ?)",
                        (contact_id, name, email, phone, user_id))
         conn.commit()
 
+        # Log the activity
         log_user_activity(user_id, "create_contact", {"contact_id": contact_id}, cursor, conn)
 
+        # Prepare contact data for syncing
         contact_data = {
             "id": contact_id,
             "name": name,
@@ -39,6 +47,7 @@ def create_contact(user_id):
             "lastName": " ".join(name.split()[1:]) if len(name.split()) > 1 else ""
         }
 
+        # Sync to Mailchimp
         sync_to_mailchimp(user_id, contact_data, cursor, conn)
 
         logger.info(f"Contact created for user {user_id}: {contact_id}—they’re building their CRE network like a pro! 🤝")
@@ -142,6 +151,7 @@ def upload_file(user_id):
 
     file = request.files['file']
     try:
+        # Mock file processing for example
         contact_data = {
             "id": str(uuid.uuid4()),
             "name": "John Doe",
