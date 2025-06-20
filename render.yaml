@@ -14,7 +14,7 @@ services:
       - key: XAI_API_KEY
         sync: false
       - key: PYTHON_VERSION
-        value: 3.9
+        value: 3.9.18
       - key: REDIS_HOST
         value: redis-11362.c265.us-east-1-2.ec2.redns.redis-cloud.com
       - key: REDIS_PORT
