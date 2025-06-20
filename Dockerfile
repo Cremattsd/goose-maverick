@@ -34,7 +34,7 @@ COPY --from=frontend-builder /app /app
 ENV FLASK_ENV=production
 ENV PYTHONUNBUFFERED=1
 
-EXPOSE 8000
+EXPOSE $PORT
 
 # Run the Flask app with Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "3", "app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:$PORT", "--workers", "3", "app:app"]
