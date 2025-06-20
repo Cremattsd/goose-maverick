@@ -2,14 +2,11 @@ from flask import Blueprint, request, jsonify
 from datetime import datetime
 import uuid
 
-# Import shared resources
 from db import logger, cursor, conn
-
-# Import token_required decorator
 from blueprints.auth import token_required
 
 templates_bp = Blueprint('templates', __name__)
-@token_required
+
 
 @templates_bp.route('', methods=['POST'])
 @token_required
@@ -24,30 +21,36 @@ def create_template(user_id):
         template_content = data.get('template_content', '')
         template_type = data.get('template_type', 'email')
 
-        # Insert template into database
-        cursor.execute("INSERT INTO templates (id, user_id, template_name, template_content, template_type) VALUES (?, ?, ?, ?, ?)",
-                       (template_id, user_id, template_name, template_content, template_type))
+        cursor.execute(
+            "INSERT INTO templates (id, user_id, template_name, template_content, template_type) VALUES (?, ?, ?, ?, ?)",
+            (template_id, user_id, template_name, template_content, template_type)
+        )
         conn.commit()
 
-        logger.info(f"Template created for user {user_id}: {template_id}—they’re crafting CRE templates like a pro! 📝")
+        logger.info(f"Template created for user {user_id}: {template_id}")
         return jsonify({"status": "Template created", "template_id": template_id})
     except Exception as e:
         logger.error(f"Failed to create template for user {user_id}: {e}")
-@token_required
         return jsonify({"error": f"Failed to create template: {str(e)}"}), 500
+
 
 @templates_bp.route('', methods=['GET'])
 @token_required
 def get_templates(user_id):
     try:
         cursor.execute("SELECT id, template_name, template_content, template_type FROM templates WHERE user_id = ?", (user_id,))
-        templates = [{"id": row[0], "template_name": row[1], "template_content": row[2], "template_type": row[3]} for row in cursor.fetchall()]
-        logger.info(f"Templates retrieved for user {user_id}—their CRE templates are ready to shine! ✨")
+        templates = [{
+            "id": row[0],
+            "template_name": row[1],
+            "template_content": row[2],
+            "template_type": row[3]
+        } for row in cursor.fetchall()]
+        logger.info(f"Templates retrieved for user {user_id}")
         return jsonify({"templates": templates})
     except Exception as e:
-@token_required
         logger.error(f"Failed to retrieve templates for user {user_id}: {e}")
         return jsonify({"error": f"Failed to retrieve templates: {str(e)}"}), 500
+
 
 @templates_bp.route('/<template_id>', methods=['PUT'])
 @token_required
@@ -81,12 +84,12 @@ def update_template(user_id, template_id):
         cursor.execute(query, values)
         conn.commit()
 
-        logger.info(f"Template updated for user {user_id}: {template_id}—they’re keeping their CRE templates fresh! 🌟")
+        logger.info(f"Template updated for user {user_id}: {template_id}")
         return jsonify({"status": "Template updated"})
-@token_required
     except Exception as e:
         logger.error(f"Failed to update template for user {user_id}: {e}")
         return jsonify({"error": f"Failed to update template: {str(e)}"}), 500
+
 
 @templates_bp.route('/<template_id>', methods=['DELETE'])
 @token_required
@@ -99,7 +102,7 @@ def delete_template(user_id, template_id):
         cursor.execute("DELETE FROM templates WHERE id = ? AND user_id = ?", (template_id, user_id))
         conn.commit()
 
-        logger.info(f"Template deleted for user {user_id}: {template_id}—they’re clearing space for new CRE opportunities! 🏢")
+        logger.info(f"Template deleted for user {user_id}: {template_id}")
         return jsonify({"status": "Template deleted"})
     except Exception as e:
         logger.error(f"Failed to delete template for user {user_id}: {e}")
