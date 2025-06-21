@@ -4,7 +4,6 @@ from blueprints.auth import token_required
 
 user_bp = Blueprint('user', __name__)
 
-
 @user_bp.route('/settings', methods=['GET'])
 @token_required
 def get_settings(user_id):
@@ -38,17 +37,22 @@ def update_settings(user_id):
             "realnex_group_id", "realnex_api_key",
             "apollo_group_id", "seamless_group_id", "zoominfo_group_id"
         ]
-        settings = {field: data.get(field) for field in allowed_fields if field in data}
 
+        # Reject unknown fields
+        invalid_keys = [k for k in data if k not in allowed_fields]
+        if invalid_keys:
+            return jsonify({"error": f"Invalid keys: {invalid_keys}"}), 400
+
+        settings = {field: data.get(field) for field in allowed_fields if field in data}
         if not settings:
             return jsonify({"error": "No valid settings provided—let’s fill that vacancy! 🏙️"}), 400
 
-        columns = ', '.join(settings.keys())
+        columns = 'user_id, ' + ', '.join(settings.keys())
         placeholders = ', '.join(['?'] * (len(settings) + 1))
-        values = list(settings.values()) + [user_id]
+        values = [user_id] + list(settings.values())
 
         query = f"""
-            INSERT INTO user_settings (user_id, {columns})
+            INSERT INTO user_settings ({columns})
             VALUES ({placeholders})
             ON CONFLICT(user_id) DO UPDATE SET {', '.join([f"{k} = excluded.{k}" for k in settings.keys()])}
         """
