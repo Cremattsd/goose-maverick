@@ -1,48 +1,43 @@
 {% extends 'base.html' %}
-
-{% block title %}Home | Goose Maverick{% endblock %}
+{% block title %}Goose Maverick{% endblock %}
 
 {% block head %}
 <style>
   body {
     display: flex;
-    flex-direction: column;
-    align-items: center;
-    background: linear-gradient(135deg, #1a1a2e, #16213e);
-    min-height: 100vh;
-    margin: 0;
-    padding-top: 80px;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 20px;
+    height: 100vh;
+    background: #0b1120;
   }
 
-  #chat-wrapper {
-    flex-grow: 1;
-    width: 100%;
+  #chat-container {
     max-width: 1000px;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-start;
-    padding: 30px;
+    width: 100%;
     background: rgba(255, 255, 255, 0.05);
     border-radius: 20px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    padding: 30px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
     border: 1px solid rgba(255, 255, 255, 0.1);
+    margin-top: 80px;
   }
 
   h1 {
     text-align: center;
     color: #00ddeb;
-    font-size: 24px;
     margin-bottom: 20px;
+    font-size: 24px;
+    letter-spacing: 1px;
   }
 
   #messages {
-    flex-grow: 1;
     max-height: 600px;
     overflow-y: auto;
+    margin-bottom: 20px;
+    padding: 15px;
     background: rgba(0, 0, 0, 0.3);
     border-radius: 15px;
-    padding: 15px;
-    margin-bottom: 20px;
   }
 
   .message {
@@ -115,7 +110,7 @@
 {% endblock %}
 
 {% block content %}
-<div id="chat-wrapper">
+<div id="chat-container">
   <h1>CRE Chat Bot</h1>
   <div id="messages"></div>
   <div id="input-container">
@@ -161,39 +156,43 @@
   function sendMessage() {
     const input = document.getElementById('message-input');
     const message = input.value.trim();
-    if (message) {
-      addMessage('user', message);
+    if (!message) return;
+
+    addMessage('user', message);
+
+    fetch('/save-message', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + localStorage.getItem('token')
+      },
+      body: JSON.stringify({ sender: 'user', message })
+    });
+
+    fetch('/ask', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + localStorage.getItem('token')
+      },
+      body: JSON.stringify({ query: message })
+    })
+    .then(response => response.json())
+    .then(data => {
+      const reply = data.response || 'Sorry, no response.';
+      addMessage('bot', reply);
+
       fetch('/save-message', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer ' + localStorage.getItem('token')
         },
-        body: JSON.stringify({ sender: 'user', message: message })
+        body: JSON.stringify({ sender: 'bot', message: reply })
       });
+    });
 
-      fetch('/ask', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + localStorage.getItem('token')
-        },
-        body: JSON.stringify({ query: message })
-      })
-      .then(response => response.json())
-      .then(data => {
-        addMessage('bot', data.response);
-        fetch('/save-message', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + localStorage.getItem('token')
-          },
-          body: JSON.stringify({ sender: 'bot', message: data.response })
-        });
-      });
-      input.value = '';
-    }
+    input.value = '';
   }
 
   function toggleVoiceInput() {
