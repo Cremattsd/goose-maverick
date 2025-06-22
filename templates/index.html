@@ -6,38 +6,43 @@
 <style>
   body {
     display: flex;
-    justify-content: center;
-    align-items: flex-start;
-    padding: 20px;
-    height: 100vh;
+    flex-direction: column;
+    align-items: center;
+    background: linear-gradient(135deg, #1a1a2e, #16213e);
+    min-height: 100vh;
+    margin: 0;
+    padding-top: 80px;
   }
 
-  #chat-container {
-    max-width: 1000px;
+  #chat-wrapper {
+    flex-grow: 1;
     width: 100%;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 20px;
+    max-width: 1000px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
     padding: 30px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 20px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    margin-top: 80px; /* ✅ Added for spacing below nav */
+    border: 1px solid rgba(255, 255, 255, 0.1);
   }
 
   h1 {
     text-align: center;
     color: #00ddeb;
-    margin-bottom: 20px;
     font-size: 24px;
-    letter-spacing: 1px;
+    margin-bottom: 20px;
   }
 
   #messages {
+    flex-grow: 1;
     max-height: 600px;
     overflow-y: auto;
-    margin-bottom: 20px;
-    padding: 15px;
     background: rgba(0, 0, 0, 0.3);
     border-radius: 15px;
+    padding: 15px;
+    margin-bottom: 20px;
   }
 
   .message {
@@ -110,7 +115,7 @@
 {% endblock %}
 
 {% block content %}
-<div id="chat-container">
+<div id="chat-wrapper">
   <h1>CRE Chat Bot</h1>
   <div id="messages"></div>
   <div id="input-container">
