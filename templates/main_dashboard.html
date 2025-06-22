@@ -1,39 +1,11 @@
 {% extends 'base.html' %}
-{% block content %}
-{% extends 'base.html' %}
-{% block title %}Goose Maverick{% endblock %}
+{% block title %}Main Dashboard - Goose Maverick{% endblock %}
 
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Main Dashboard - Matty's Maverick & Goose</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        body {
-            background: linear-gradient(135deg, #1e3a8a, #3b82f6);
-            font-family: 'Inter', sans-serif;
-        }
-        .glass {
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 1rem;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
-        }
-        .btn {
-            transition: transform 0.2s ease;
-        }
-        .btn:hover {
-            transform: translateY(-2px);
-        }
-    </style>
-</head>
-<body class="min-h-screen p-6">
+{% block content %}
+<div class="min-h-screen p-6 bg-gradient-to-br from-blue-900 to-blue-500 font-sans">
     <div class="container mx-auto glass p-6">
         <h1 class="text-3xl font-bold text-white text-center mb-6">Main Dashboard</h1>
-        
+
         <!-- Market Insights -->
         <div class="mb-6">
             <h2 class="text-xl font-semibold text-white mb-2">Market Insights</h2>
@@ -64,107 +36,71 @@
             <a href="/deal-trends" class="btn bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Deal Trends</a>
         </div>
     </div>
-    <script>
-        async function fetchWithErrorHandling(url, options) {
-            try {
-                const response = await fetch(url, options);
-                if (response.status === 401) {
-                    window.location.href = '/login?redirect=/';
-                    return null;
-                }
-                if (!response.ok) {
-                    alert(`Error: ${response.statusText}`);
-                    return null;
-                }
-                return await response.json();
-            } catch (error) {
-                alert(`Error: ${error.message}`);
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    async function fetchWithErrorHandling(url, options) {
+        try {
+            const response = await fetch(url, options);
+            if (response.status === 401) {
+                window.location.href = '/login?redirect=/';
                 return null;
             }
+            if (!response.ok) {
+                alert(`Error: ${response.statusText}`);
+                return null;
+            }
+            return await response.json();
+        } catch (error) {
+            alert(`Error: ${error.message}`);
+            return null;
         }
+    }
 
-        async function loadMarketInsights() {
-            const token = localStorage.getItem('token');
-            if (!token) {
-                window.location.href = '/login?redirect=/';
-                return;
-            }
+    async function loadMarketInsights() {
+        const token = localStorage.getItem('token');
+        if (!token) return window.location.href = '/login?redirect=/';
+        const response = await fetchWithErrorHandling('/market-insights', { headers: { 'Authorization': 'Bearer ' + token } });
+        document.getElementById('marketInsights').innerText = response?.insight || 'Failed to load market insights.';
+    }
 
-            const response = await fetchWithErrorHandling('/market-insights', {
-                headers: { 'Authorization': 'Bearer ' + token }
-            });
-
-            if (response && response.insight) {
-                document.getElementById('marketInsights').innerText = response.insight;
-            } else {
-                document.getElementById('marketInsights').innerText = 'Failed to load market insights.';
-            }
+    async function loadLeadScores() {
+        const token = localStorage.getItem('token');
+        if (!token) return window.location.href = '/login?redirect=/';
+        const response = await fetchWithErrorHandling('/dashboard-data', { headers: { 'Authorization': 'Bearer ' + token } });
+        if (response?.lead_scores) {
+            document.getElementById('leadScores').innerHTML = response.lead_scores.map(score =>
+                `<p>Contact ID: ${score.contact_id}, Score: ${score.score}</p>`
+            ).join('');
         }
+    }
 
-        async function loadLeadScores() {
-            const token = localStorage.getItem('token');
-            if (!token) {
-                window.location.href = '/login?redirect=/';
-                return;
-            }
-
-            const response = await fetchWithErrorHandling('/dashboard-data', {
-                headers: { 'Authorization': 'Bearer ' + token }
-            });
-
-            if (response && response.lead_scores) {
-                const leadScores = document.getElementById('leadScores');
-                leadScores.innerHTML = response.lead_scores.map(score => 
-                    `<p>Contact ID: ${score.contact_id}, Score: ${score.score}</p>`
-                ).join('');
-            }
+    async function loadImportStats() {
+        const token = localStorage.getItem('token');
+        if (!token) return window.location.href = '/login?redirect=/';
+        const response = await fetchWithErrorHandling('/import-stats', { headers: { 'Authorization': 'Bearer ' + token } });
+        if (response) {
+            document.getElementById('importStats').innerHTML = `
+                <p>Total Imports: ${response.total_imports}</p>
+                <p>Successful Imports: ${response.successful_imports}</p>
+                <p>Duplicates Detected: ${response.duplicates_detected}</p>`;
         }
+    }
 
-        async function loadImportStats() {
-            const token = localStorage.getItem('token');
-            if (!token) {
-                window.location.href = '/login?redirect=/';
-                return;
-            }
+    async function loadMissionSummary() {
+        const token = localStorage.getItem('token');
+        if (!token) return window.location.href = '/login?redirect=/';
+        const response = await fetchWithErrorHandling('/mission-summary', { headers: { 'Authorization': 'Bearer ' + token } });
+        document.getElementById('missionSummary').innerText = response?.summary || '';
+    }
 
-            const response = await fetchWithErrorHandling('/import-stats', {
-                headers: { 'Authorization': 'Bearer ' + token }
-            });
-
-            if (response) {
-                const importStats = document.getElementById('importStats');
-                importStats.innerHTML = `
-                    <p>Total Imports: ${response.total_imports}</p>
-                    <p>Successful Imports: ${response.successful_imports}</p>
-                    <p>Duplicates Detected: ${response.duplicates_detected}</p>
-                `;
-            }
-        }
-
-        async function loadMissionSummary() {
-            const token = localStorage.getItem('token');
-            if (!token) {
-                window.location.href = '/login?redirect=/';
-                return;
-            }
-
-            const response = await fetchWithErrorHandling('/mission-summary', {
-                headers: { 'Authorization': 'Bearer ' + token }
-            });
-
-            if (response) {
-                document.getElementById('missionSummary').innerText = response.summary;
-            }
-        }
-
-        window.onload = () => {
-            loadMarketInsights();
-            loadLeadScores();
-            loadImportStats();
-            loadMissionSummary();
-        };
-    </script>
-</body>
-</html>
-
+    window.onload = () => {
+        loadMarketInsights();
+        loadLeadScores();
+        loadImportStats();
+        loadMissionSummary();
+    };
+</script>
 {% endblock %}
