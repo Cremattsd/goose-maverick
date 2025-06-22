@@ -1,216 +1,183 @@
 {% extends 'base.html' %}
+{% block title %}OCR Scanner | Goose{% endblock %}
+
 {% block content %}
-{% extends 'base.html' %}
-{% block title %}Goose Maverick{% endblock %}
+<style>
+    /* ✅ keep all your CSS here, not in <head> */
+    body {
+        background: linear-gradient(135deg, #1a1a2e, #16213e);
+        padding: 20px;
+    }
 
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OCR Scanner</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Poppins', sans-serif;
-        }
-        body {
-            background: linear-gradient(135deg, #1a1a2e, #16213e);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 20px;
-        }
-        nav {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            background: rgba(0, 0, 0, 0.5);
-            backdrop-filter: blur(5px);
-            padding: 10px 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            z-index: 10;
-        }
-        nav a {
-            color: #00ddeb;
-            text-decoration: none;
-            font-size: 14px;
-            margin: 0 15px;
-            transition: color 0.3s ease;
-        }
-        nav a:hover {
-            color: #ff6f61;
-        }
-        #scanner-container {
-            width: 100%;
-            max-width: 700px;
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            padding: 20px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            margin-top: 60px;
-            color: white;
-        }
-        h1 {
-            color: #00ddeb;
-            text-align: center;
-            margin-bottom: 20px;
-            font-size: 24px;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-        }
-        #drop-zone {
-            border: 2px dashed #00ddeb;
-            border-radius: 15px;
-            padding: 20px;
-            text-align: center;
-            margin-bottom: 20px;
-            background: rgba(0, 0, 0, 0.3);
-            transition: background 0.3s ease;
-        }
-        #drop-zone.dragover {
-            background: rgba(0, 0, 0, 0.5);
-        }
-        #drop-zone p {
-            color: rgba(255, 255, 255, 0.7);
-            font-size: 14px;
-        }
-        #preview {
-            width: 100%;
-            max-height: 300px;
-            margin-bottom: 20px;
-            display: none;
-            border-radius: 10px;
-        }
-        #result {
-            margin-top: 20px;
-            padding: 15px;
-            background: rgba(0, 0, 0, 0.3);
-            border-radius: 15px;
-            max-height: 200px;
-            overflow-y: auto;
-            font-size: 14px;
-        }
-        button, label {
-            background: linear-gradient(135deg, #00ddeb, #007bff);
-            border: none;
-            padding: 10px 20px;
-            border-radius: 10px;
-            color: white;
-            font-size: 14px;
-            cursor: pointer;
-            display: inline-block;
-            margin: 5px;
-            transition: background 0.3s ease;
-        }
-        button:hover, label:hover {
-            background: linear-gradient(135deg, #ff6f61, #ff3e5a);
-        }
-        input[type="file"] {
-            display: none;
-        }
-        @media (max-width: 600px) {
-            nav {
-                flex-direction: column;
-                gap: 5px;
-                padding: 10px;
-            }
-            nav a {
-                margin: 5px 0;
-            }
-            #scanner-container {
-                max-width: 100%;
-                padding: 15px;
-                margin-top: 120px;
-            }
-            #preview {
-                max-height: 200px;
-            }
-            #drop-zone {
-                padding: 15px;
-            }
-            #result {
-                max-height: 150px;
-                font-size: 12px;
-            }
-        }
-    </style>
-</head>
-<body>
-    <nav>
-        <a href="/chat-hub"><i class="fas fa-comment-alt"></i> Chat Hub</a>
-        <div>
-            <a href="/dashboard"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
-            <a href="/deal-trends"><i class="fas fa-chart-line"></i> Deal Trends</a>
-            <a href="/ocr"><i class="fas fa-camera"></i> OCR Scanner</a>
-            <a href="/settings"><i class="fas fa-cog"></i> Settings</a>
-        </div>
-    </nav>
-    <div id="scanner-container">
-        <h1>OCR Scanner</h1>
-        <div id="drop-zone">
-            <p>Drag & Drop Files Here (PDF, XLSX, Images) or</p>
-            <label for="file-input"><i class="fas fa-upload"></i> Browse Files</label>
-            <input type="file" id="file-input" accept=".xlsx,.pdf,.png,.jpg,.jpeg">
-        </div>
-        <button onclick="startCamera()"><i class="fas fa-camera"></i> Use Camera</button>
-        <button onclick="captureImage()" id="capture-btn" style="display: none;"><i class="fas fa-camera-retro"></i> Capture</button>
-        <button onclick="stopCamera()" id="stop-btn" style="display: none;"><i class="fas fa-stop"></i> Stop Camera</button>
-        <video id="preview" autoplay></video>
-        <div id="result"></div>
+    #scanner-container {
+        width: 100%;
+        max-width: 700px;
+        margin: 100px auto;
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px);
+        border-radius: 20px;
+        padding: 20px;
+        color: white;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    h1 {
+        color: #00ddeb;
+        text-align: center;
+        margin-bottom: 20px;
+        font-size: 24px;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+    }
+
+    #drop-zone {
+        border: 2px dashed #00ddeb;
+        border-radius: 15px;
+        padding: 20px;
+        text-align: center;
+        margin-bottom: 20px;
+        background: rgba(0, 0, 0, 0.3);
+        transition: background 0.3s ease;
+    }
+
+    #drop-zone.dragover {
+        background: rgba(0, 0, 0, 0.5);
+    }
+
+    #preview {
+        width: 100%;
+        max-height: 300px;
+        margin-bottom: 20px;
+        display: none;
+        border-radius: 10px;
+    }
+
+    #result {
+        margin-top: 20px;
+        padding: 15px;
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 15px;
+        max-height: 200px;
+        overflow-y: auto;
+        font-size: 14px;
+    }
+
+    button, label {
+        background: linear-gradient(135deg, #00ddeb, #007bff);
+        border: none;
+        padding: 10px 20px;
+        border-radius: 10px;
+        color: white;
+        font-size: 14px;
+        cursor: pointer;
+        display: inline-block;
+        margin: 5px;
+        transition: background 0.3s ease;
+    }
+
+    button:hover, label:hover {
+        background: linear-gradient(135deg, #ff6f61, #ff3e5a);
+    }
+
+    input[type="file"] {
+        display: none;
+    }
+</style>
+
+<div id="scanner-container">
+    <h1>OCR Scanner</h1>
+    <div id="drop-zone">
+        <p>Drag & Drop Files Here (PDF, XLSX, Images) or</p>
+        <label for="file-input"><i class="fas fa-upload"></i> Browse Files</label>
+        <input type="file" id="file-input" accept=".xlsx,.pdf,.png,.jpg,.jpeg">
     </div>
+    <button onclick="startCamera()"><i class="fas fa-camera"></i> Use Camera</button>
+    <button onclick="captureImage()" id="capture-btn" style="display: none;"><i class="fas fa-camera-retro"></i> Capture</button>
+    <button onclick="stopCamera()" id="stop-btn" style="display: none;"><i class="fas fa-stop"></i> Stop Camera</button>
+    <video id="preview" autoplay></video>
+    <div id="result"></div>
+</div>
 
-    <script>
-        let stream;
-        const video = document.getElementById('preview');
-        const captureBtn = document.getElementById('capture-btn');
-        const stopBtn = document.getElementById('stop-btn');
-        const dropZone = document.getElementById('drop-zone');
-        const fileInput = document.getElementById('file-input');
-        const resultDiv = document.getElementById('result');
+<script>
+    let stream;
+    const video = document.getElementById('preview');
+    const captureBtn = document.getElementById('capture-btn');
+    const stopBtn = document.getElementById('stop-btn');
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const resultDiv = document.getElementById('result');
 
-        // Drag-and-Drop Handlers
-        dropZone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            dropZone.classList.add('dragover');
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('dragover');
+    });
+
+    dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('dragover');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        const files = e.dataTransfer.files;
+        if (files.length > 0) handleFiles(files);
+    });
+
+    fileInput.addEventListener('change', (e) => {
+        const files = e.target.files;
+        if (files.length > 0) handleFiles(files);
+    });
+
+    function handleFiles(files) {
+        const file = files[0];
+        const formData = new FormData();
+        formData.append('file', file);
+        fetch('/upload-file', {
+            method: 'POST',
+            headers: {
+                'Authorization': 'Bearer ' + localStorage.getItem('token')
+            },
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            resultDiv.textContent = data.error || JSON.stringify(data.contacts, null, 2);
+        })
+        .catch(err => {
+            resultDiv.textContent = 'Error: ' + err.message;
         });
+    }
 
-        dropZone.addEventListener('dragleave', () => {
-            dropZone.classList.remove('dragover');
-        });
+    async function startCamera() {
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            video.srcObject = stream;
+            video.style.display = 'block';
+            captureBtn.style.display = 'inline-block';
+            stopBtn.style.display = 'inline-block';
+        } catch (err) {
+            resultDiv.textContent = 'Error accessing camera: ' + err.message;
+        }
+    }
 
-        dropZone.addEventListener('drop', (e) => {
-            e.preventDefault();
-            dropZone.classList.remove('dragover');
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                handleFiles(files);
-            }
-        });
+    function stopCamera() {
+        if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+            video.style.display = 'none';
+            captureBtn.style.display = 'none';
+            stopBtn.style.display = 'none';
+        }
+    }
 
-        // File Input Handler
-        fileInput.addEventListener('change', (e) => {
-            const files = e.target.files;
-            if (files.length > 0) {
-                handleFiles(files);
-            }
-        });
-
-        function handleFiles(files) {
-            const file = files[0];
+    function captureImage() {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext('2d').drawImage(video, 0, 0);
+        canvas.toBlob(blob => {
             const formData = new FormData();
-            formData.append('file', file);
-
+            formData.append('file', blob, 'capture.jpg');
             fetch('/upload-file', {
                 method: 'POST',
                 headers: {
@@ -220,70 +187,12 @@
             })
             .then(response => response.json())
             .then(data => {
-                if (data.error) {
-                    resultDiv.textContent = 'Error: ' + data.error;
-                } else {
-                    resultDiv.textContent = JSON.stringify(data.contacts, null, 2);
-                }
+                resultDiv.textContent = data.error || JSON.stringify(data.contacts, null, 2);
             })
             .catch(err => {
                 resultDiv.textContent = 'Error: ' + err.message;
             });
-        }
-
-        // Camera Access
-        async function startCamera() {
-            try {
-                stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                video.srcObject = stream;
-                video.style.display = 'block';
-                captureBtn.style.display = 'inline-block';
-                stopBtn.style.display = 'inline-block';
-            } catch (err) {
-                resultDiv.textContent = 'Error accessing camera: ' + err.message;
-            }
-        }
-
-        function stopCamera() {
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-                video.style.display = 'none';
-                captureBtn.style.display = 'none';
-                stopBtn.style.display = 'none';
-            }
-        }
-
-        function captureImage() {
-            const canvas = document.createElement('canvas');
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            canvas.getContext('2d').drawImage(video, 0, 0);
-            canvas.toBlob(blob => {
-                const formData = new FormData();
-                formData.append('file', blob, 'capture.jpg');
-
-                fetch('/upload-file', {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': 'Bearer ' + localStorage.getItem('token')
-                    },
-                    body: formData
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.error) {
-                        resultDiv.textContent = 'Error: ' + data.error;
-                    } else {
-                        resultDiv.textContent = JSON.stringify(data.contacts, null, 2);
-                    }
-                })
-                .catch(err => {
-                    resultDiv.textContent = 'Error: ' + err.message;
-                });
-            }, 'image/jpeg');
-        }
-    </script>
-</body>
-</html>
-
+        }, 'image/jpeg');
+    }
+</script>
 {% endblock %}
