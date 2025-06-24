@@ -1,0 +1,110 @@
+{% extends 'base.html' %}
+{% block title %}Main Dashboard | Goose Maverick{% endblock %}
+{% block content %}
+<div class="container mx-auto glass p-6 mt-10 text-white">
+  <h1 class="text-3xl font-bold text-center mb-6">Main Dashboard</h1>
+
+  <!-- Market Insights -->
+  <div class="mb-6">
+    <h2 class="text-xl font-semibold mb-2">Market Insights</h2>
+    <div id="marketInsights" class="glass p-4"></div>
+  </div>
+
+  <!-- Lead Scores -->
+  <div class="mb-6">
+    <h2 class="text-xl font-semibold mb-2">Lead Scores</h2>
+    <div id="leadScores" class="glass p-4"></div>
+  </div>
+
+  <!-- Import Stats -->
+  <div class="mb-6">
+    <h2 class="text-xl font-semibold mb-2">Import Statistics</h2>
+    <div id="importStats" class="glass p-4"></div>
+  </div>
+
+  <!-- Mission Summary -->
+  <div class="mb-6">
+    <h2 class="text-xl font-semibold mb-2">Mission Summary</h2>
+    <div id="missionSummary" class="glass p-4"></div>
+  </div>
+
+  <div class="flex justify-center space-x-4 mt-6">
+    <a href="/chat-hub" class="btn bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Chat Hub</a>
+    <a href="/dashboard" class="btn bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Duplicates</a>
+    <a href="/deal-trends" class="btn bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Deal Trends</a>
+  </div>
+</div>
+
+<script>
+  async function fetchWithErrorHandling(url, options) {
+    try {
+      const response = await fetch(url, options);
+      if (response.status === 401) {
+        window.location.href = '/login?redirect=/';
+        return null;
+      }
+      if (!response.ok) {
+        alert(`Error: ${response.statusText}`);
+        return null;
+      }
+      return await response.json();
+    } catch (error) {
+      alert(`Error: ${error.message}`);
+      return null;
+    }
+  }
+
+  async function loadMarketInsights() {
+    const token = localStorage.getItem('token');
+    const response = await fetchWithErrorHandling('/market-insights', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    document.getElementById('marketInsights').innerText = response?.insight || 'Failed to load.';
+  }
+
+  async function loadLeadScores() {
+    const token = localStorage.getItem('token');
+    const response = await fetchWithErrorHandling('/dashboard-data', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const container = document.getElementById('leadScores');
+    container.innerHTML = response?.lead_scores?.map(s => `<p>ID: ${s.contact_id}, Score: ${s.score}</p>`).join('') || 'No scores.';
+  }
+
+  async function loadImportStats() {
+    const token = localStorage.getItem('token');
+    const response = await fetchWithErrorHandling('/import-stats', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    document.getElementById('importStats').innerHTML = response ? `
+      <p>Total: ${response.total_imports}</p>
+      <p>Successful: ${response.successful_imports}</p>
+      <p>Duplicates: ${response.duplicates_detected}</p>` : 'Failed to load stats.';
+  }
+
+  async function loadMissionSummary() {
+    const token = localStorage.getItem('token');
+    const response = await fetchWithErrorHandling('/mission-summary', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    document.getElementById('missionSummary').innerText = response?.summary || 'No summary.';
+  }
+
+  window.onload = () => {
+    loadMarketInsights();
+    loadLeadScores();
+    loadImportStats();
+    loadMissionSummary();
+  };
+</script>
+
+<style>
+  .glass {
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    border-radius: 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+  }
+</style>
+{% endblock %}
