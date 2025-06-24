@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Goose Maverick{% endblock %}
+{% block title %}Settings | Goose Maverick{% endblock %}
 {% block content %}
 
 <nav>
@@ -13,23 +13,107 @@
 </nav>
 
 <div id="settings-container">
-    <h1>Settings</h1>
+    <h1>User Settings</h1>
 
-    <!-- all your setting-group divs are here exactly as before... -->
-    <!-- I didn't modify the internal logic, just removed html/head/body wrappers -->
+    <div class="setting-group">
+        <label for="realnexToken">RealNex JWT Token</label>
+        <input type="text" id="realnexToken" placeholder="Enter RealNex Token">
+    </div>
 
-    <!-- buttons, selects, inputs etc. stay unchanged -->
+    <div class="setting-group">
+        <label for="mailchimpApi">Mailchimp API Key</label>
+        <input type="text" id="mailchimpApi" placeholder="Paste Mailchimp API key">
+    </div>
+
+    <div class="setting-group">
+        <label for="constantContactApi">Constant Contact API Key</label>
+        <input type="text" id="constantContactApi" placeholder="Paste Constant Contact API key">
+    </div>
+
+    <div class="setting-group">
+        <label for="apolloApi">Apollo AI API Key</label>
+        <input type="text" id="apolloApi" placeholder="Paste Apollo API key">
+    </div>
+
+    <div class="setting-group">
+        <label for="zoominfoApi">ZoomInfo Token</label>
+        <input type="text" id="zoominfoApi" placeholder="Paste ZoomInfo token">
+    </div>
+
+    <div class="setting-group">
+        <label for="alertEmail">Alert Email</label>
+        <input type="email" id="alertEmail" placeholder="you@example.com">
+    </div>
+
+    <div class="setting-group">
+        <label for="alertPriority">Trigger Alert For Priority Level:</label>
+        <select id="alertPriority">
+            <option value="low">Low</option>
+            <option value="medium" selected>Medium</option>
+            <option value="high">High</option>
+            <option value="urgent">Urgent</option>
+        </select>
+    </div>
+
+    <div class="setting-group">
+        <label>
+            <input type="checkbox" id="enableAlerts">
+            Enable Email Alerts
+        </label>
+    </div>
 
     <button onclick="saveSettings()">Save Settings</button>
     <div id="status-message"></div>
 </div>
 
 <script>
-    // all your fetch logic, settings handling, and group population stays unchanged
+    async function saveSettings() {
+        const settings = {
+            realnexToken: document.getElementById('realnexToken').value,
+            mailchimpApi: document.getElementById('mailchimpApi').value,
+            constantContactApi: document.getElementById('constantContactApi').value,
+            apolloApi: document.getElementById('apolloApi').value,
+            zoominfoApi: document.getElementById('zoominfoApi').value,
+            alertEmail: document.getElementById('alertEmail').value,
+            alertPriority: document.getElementById('alertPriority').value,
+            enableAlerts: document.getElementById('enableAlerts').checked,
+        };
+
+        const res = await fetch('/save-settings', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + localStorage.getItem('token')
+            },
+            body: JSON.stringify(settings)
+        });
+
+        const result = await res.json();
+        const status = document.getElementById('status-message');
+        status.textContent = result.message || 'Settings saved!';
+    }
+
+    async function loadSettings() {
+        const res = await fetch('/get-settings', {
+            headers: {
+                'Authorization': 'Bearer ' + localStorage.getItem('token')
+            }
+        });
+        const data = await res.json();
+        document.getElementById('realnexToken').value = data.realnexToken || '';
+        document.getElementById('mailchimpApi').value = data.mailchimpApi || '';
+        document.getElementById('constantContactApi').value = data.constantContactApi || '';
+        document.getElementById('apolloApi').value = data.apolloApi || '';
+        document.getElementById('zoominfoApi').value = data.zoominfoApi || '';
+        document.getElementById('alertEmail').value = data.alertEmail || '';
+        document.getElementById('alertPriority').value = data.alertPriority || 'medium';
+        document.getElementById('enableAlerts').checked = data.enableAlerts || false;
+    }
+
+    window.onload = loadSettings;
 </script>
 
 <style>
-    /* all your inline <style> moved here to keep it clean and valid */
     * {
         margin: 0;
         padding: 0;
@@ -96,7 +180,8 @@
         margin-bottom: 5px;
         color: #00ddeb;
     }
-    .setting-group input, .setting-group select {
+    .setting-group input,
+    .setting-group select {
         width: 100%;
         padding: 10px;
         background: rgba(255, 255, 255, 0.05);
@@ -127,7 +212,7 @@
         text-align: center;
         margin-top: 10px;
         font-size: 14px;
-        color: #ff6f61;
+        color: #00ddeb;
     }
     @media (max-width: 600px) {
         nav {
