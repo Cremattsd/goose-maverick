@@ -13,7 +13,7 @@ window.onload = function () {
   document.getElementById('start-voice').onclick = function () {
     try {
       recognition.start();
-      document.getElementById('start-voice').classList.add('recording');
+      this.classList.add('recording');
     } catch (e) {
       console.error("Speech recognition error:", e);
       alert("Oops! Couldn’t start voice recognition. Check your microphone and browser support!");
@@ -24,8 +24,7 @@ window.onload = function () {
     const transcript = e.results[0][0].transcript;
     document.getElementById('chat-message').value = transcript;
     document.getElementById('start-voice').classList.remove('recording');
-    // Auto-send the message if desired
-    sendMessage();
+    sendMessage(); // <- assumes sendMessage() handles bot reply
   };
 
   recognition.onerror = function (e) {
@@ -38,3 +37,19 @@ window.onload = function () {
     document.getElementById('start-voice').classList.remove('recording');
   };
 };
+
+// Text-to-Speech Response
+function speak(text) {
+  if (!('speechSynthesis' in window)) {
+    console.warn("Text-to-speech not supported in this browser.");
+    return;
+  }
+
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = 'en-US';
+  utterance.rate = 1;
+  utterance.pitch = 1;
+
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(utterance);
+}
