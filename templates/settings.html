@@ -1,234 +1,58 @@
-{% extends 'base.html' %}
-{% block title %}Settings | Goose Maverick{% endblock %}
-{% block content %}
-
-<nav>
-    <a href="/chat-hub"><i class="fas fa-comment-alt"></i> Chat Hub</a>
-    <div>
-        <a href="/dashboard"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
-        <a href="/deal-trends"><i class="fas fa-chart-line"></i> Deal Trends</a>
-        <a href="/ocr"><i class="fas fa-camera"></i> OCR Scanner</a>
-        <a href="/settings"><i class="fas fa-cog"></i> Settings</a>
-    </div>
-</nav>
-
-<div id="settings-container">
-    <h1>User Settings</h1>
-
-    <div class="setting-group">
-        <label for="realnexToken">RealNex JWT Token</label>
-        <input type="text" id="realnexToken" placeholder="Enter RealNex Token">
-    </div>
-
-    <div class="setting-group">
-        <label for="mailchimpApi">Mailchimp API Key</label>
-        <input type="text" id="mailchimpApi" placeholder="Paste Mailchimp API key">
-    </div>
-
-    <div class="setting-group">
-        <label for="constantContactApi">Constant Contact API Key</label>
-        <input type="text" id="constantContactApi" placeholder="Paste Constant Contact API key">
-    </div>
-
-    <div class="setting-group">
-        <label for="apolloApi">Apollo AI API Key</label>
-        <input type="text" id="apolloApi" placeholder="Paste Apollo API key">
-    </div>
-
-    <div class="setting-group">
-        <label for="zoominfoApi">ZoomInfo Token</label>
-        <input type="text" id="zoominfoApi" placeholder="Paste ZoomInfo token">
-    </div>
-
-    <div class="setting-group">
-        <label for="alertEmail">Alert Email</label>
-        <input type="email" id="alertEmail" placeholder="you@example.com">
-    </div>
-
-    <div class="setting-group">
-        <label for="alertPriority">Trigger Alert For Priority Level:</label>
-        <select id="alertPriority">
-            <option value="low">Low</option>
-            <option value="medium" selected>Medium</option>
-            <option value="high">High</option>
-            <option value="urgent">Urgent</option>
-        </select>
-    </div>
-
-    <div class="setting-group">
-        <label>
-            <input type="checkbox" id="enableAlerts">
-            Enable Email Alerts
-        </label>
-    </div>
-
-    <button onclick="saveSettings()">Save Settings</button>
-    <div id="status-message"></div>
+<div class="form-group">
+  <label for="realnex-token">RealNex JWT Token</label>
+  <input id="realnex-token" name="realnex_token" type="text" placeholder="Enter RealNex Token">
 </div>
 
-<script>
-    async function saveSettings() {
-        const settings = {
-            realnexToken: document.getElementById('realnexToken').value,
-            mailchimpApi: document.getElementById('mailchimpApi').value,
-            constantContactApi: document.getElementById('constantContactApi').value,
-            apolloApi: document.getElementById('apolloApi').value,
-            zoominfoApi: document.getElementById('zoominfoApi').value,
-            alertEmail: document.getElementById('alertEmail').value,
-            alertPriority: document.getElementById('alertPriority').value,
-            enableAlerts: document.getElementById('enableAlerts').checked,
-        };
+<div class="form-group">
+  <label for="mailchimp-key">Mailchimp API Key</label>
+  <input id="mailchimp-key" name="mailchimp_key" type="text" placeholder="Paste Mailchimp API key">
+</div>
 
-        const res = await fetch('/save-settings', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + localStorage.getItem('token')
-            },
-            body: JSON.stringify(settings)
-        });
+<div class="form-group">
+  <label for="constant-contact-key">Constant Contact API Key</label>
+  <input id="constant-contact-key" name="constant_contact_key" type="text" placeholder="Paste Constant Contact API key">
+</div>
 
-        const result = await res.json();
-        const status = document.getElementById('status-message');
-        status.textContent = result.message || 'Settings saved!';
-    }
+<div class="form-group">
+  <label for="apollo-key">Apollo AI API Key</label>
+  <input id="apollo-key" name="apollo_key" type="text" placeholder="Paste Apollo API key">
+</div>
 
-    async function loadSettings() {
-        const res = await fetch('/get-settings', {
-            headers: {
-                'Authorization': 'Bearer ' + localStorage.getItem('token')
-            }
-        });
-        const data = await res.json();
-        document.getElementById('realnexToken').value = data.realnexToken || '';
-        document.getElementById('mailchimpApi').value = data.mailchimpApi || '';
-        document.getElementById('constantContactApi').value = data.constantContactApi || '';
-        document.getElementById('apolloApi').value = data.apolloApi || '';
-        document.getElementById('zoominfoApi').value = data.zoominfoApi || '';
-        document.getElementById('alertEmail').value = data.alertEmail || '';
-        document.getElementById('alertPriority').value = data.alertPriority || 'medium';
-        document.getElementById('enableAlerts').checked = data.enableAlerts || false;
-    }
+<div class="form-group">
+  <label for="zoominfo-token">ZoomInfo Token</label>
+  <input id="zoominfo-token" name="zoominfo_token" type="text" placeholder="Paste ZoomInfo token">
+</div>
 
-    window.onload = loadSettings;
-</script>
+<div class="form-group">
+  <label for="alert-email">Alert Email</label>
+  <input id="alert-email" name="alert_email" type="email" placeholder="you@example.com">
+</div>
 
-<style>
-    * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-        font-family: 'Poppins', sans-serif;
-    }
-    body {
-        background: linear-gradient(135deg, #1a1a2e, #16213e);
-        min-height: 100vh;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        padding: 20px;
-    }
-    nav {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        background: rgba(0, 0, 0, 0.5);
-        backdrop-filter: blur(5px);
-        padding: 10px 20px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        z-index: 10;
-    }
-    nav a {
-        color: #00ddeb;
-        text-decoration: none;
-        font-size: 14px;
-        margin: 0 15px;
-        transition: color 0.3s ease;
-    }
-    nav a:hover {
-        color: #ff6f61;
-    }
-    #settings-container {
-        width: 100%;
-        max-width: 700px;
-        background: rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(10px);
-        border-radius: 20px;
-        padding: 20px;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        margin-top: 60px;
-        color: white;
-    }
-    h1 {
-        color: #00ddeb;
-        text-align: center;
-        margin-bottom: 20px;
-        font-size: 24px;
-        text-transform: uppercase;
-        letter-spacing: 2px;
-    }
-    .setting-group {
-        margin-bottom: 20px;
-    }
-    .setting-group label {
-        display: block;
-        font-size: 14px;
-        margin-bottom: 5px;
-        color: #00ddeb;
-    }
-    .setting-group input,
-    .setting-group select {
-        width: 100%;
-        padding: 10px;
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 10px;
-        color: white;
-        font-size: 14px;
-    }
-    .setting-group input[type="checkbox"] {
-        width: auto;
-        margin-right: 10px;
-    }
-    button {
-        background: linear-gradient(135deg, #00ddeb, #007bff);
-        border: none;
-        padding: 10px 20px;
-        border-radius: 10px;
-        color: white;
-        font-size: 14px;
-        cursor: pointer;
-        margin: 5px;
-        transition: background 0.3s ease;
-    }
-    button:hover {
-        background: linear-gradient(135deg, #ff6f61, #ff3e5a);
-    }
-    #status-message {
-        text-align: center;
-        margin-top: 10px;
-        font-size: 14px;
-        color: #00ddeb;
-    }
-    @media (max-width: 600px) {
-        nav {
-            flex-direction: column;
-            gap: 5px;
-            padding: 10px;
-        }
-        nav a {
-            margin: 5px 0;
-        }
-        #settings-container {
-            max-width: 100%;
-            padding: 15px;
-            margin-top: 120px;
-        }
-    }
-</style>
+<div class="form-group">
+  <label for="priority">Trigger Alert For Priority Level:</label>
+  <select id="priority" name="priority_level">
+    <option value="low">Low</option>
+    <option value="medium" selected>Medium</option>
+    <option value="high">High</option>
+  </select>
+</div>
 
-{% endblock %}
+<div class="form-group">
+  <input id="enable-alerts" name="enable_alerts" type="checkbox" checked>
+  <label for="enable-alerts">Enable Email Alerts</label>
+</div>
+
+<div class="form-group">
+  <label for="realnex-group">RealNex Contact Group to Sync</label>
+  <input id="realnex-group" name="realnex_group" type="text" placeholder="Enter group name (e.g. Leads, Prospects)">
+</div>
+
+<div class="form-group">
+  <label for="mailchimp-group">Mailchimp List or Group to Sync</label>
+  <input id="mailchimp-group" name="mailchimp_group" type="text" placeholder="e.g. Monthly CRE Newsletter">
+</div>
+
+<div class="form-group">
+  <label for="constant-group">Constant Contact List or Group to Sync</label>
+  <input id="constant-group" name="constant_group" type="text" placeholder="e.g. Clients or Agents">
+</div>
