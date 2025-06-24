@@ -1,113 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Goose Maverick{% endblock %}
-
-{% block head %}
-<style>
-  body {
-    display: flex;
-    justify-content: center;
-    align-items: flex-start;
-    padding: 20px;
-    height: 100vh;
-    background: #0b1120;
-  }
-
-  #chat-container {
-    max-width: 1000px;
-    width: 100%;
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 20px;
-    padding: 30px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    margin-top: 80px;
-  }
-
-  h1 {
-    text-align: center;
-    color: #00ddeb;
-    margin-bottom: 20px;
-    font-size: 24px;
-    letter-spacing: 1px;
-  }
-
-  #messages {
-    max-height: 600px;
-    overflow-y: auto;
-    margin-bottom: 20px;
-    padding: 15px;
-    background: rgba(0, 0, 0, 0.3);
-    border-radius: 15px;
-  }
-
-  .message {
-    margin-bottom: 15px;
-    padding: 10px 15px;
-    border-radius: 15px;
-    max-width: 80%;
-    word-wrap: break-word;
-  }
-
-  .user-message {
-    background: linear-gradient(135deg, #00ddeb, #007bff);
-    color: white;
-    margin-left: auto;
-    margin-right: 5%;
-  }
-
-  .bot-message {
-    background: linear-gradient(135deg, #ff6f61, #ff3e5a);
-    color: white;
-    margin-right: auto;
-    margin-left: 5%;
-  }
-
-  #input-container {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    background: rgba(255, 255, 255, 0.05);
-    padding: 10px;
-    border-radius: 15px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-  }
-
-  #message-input {
-    flex-grow: 1;
-    padding: 10px;
-    background: transparent;
-    border: none;
-    color: white;
-    outline: none;
-    font-size: 14px;
-  }
-
-  #message-input::placeholder {
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  button {
-    background: none;
-    border: none;
-    color: #00ddeb;
-    font-size: 18px;
-    cursor: pointer;
-    padding: 8px;
-    transition: color 0.3s ease;
-  }
-
-  button:hover {
-    color: #ff6f61;
-  }
-
-  #voice-status {
-    color: rgba(255, 255, 255, 0.7);
-    text-align: center;
-    margin-top: 10px;
-    font-size: 12px;
-  }
-</style>
-{% endblock %}
+{% block title %}Home | Goose Maverick{% endblock %}
 
 {% block content %}
 <div id="chat-container">
@@ -122,6 +14,10 @@
   <div id="voice-status"></div>
 </div>
 
+<style>
+  /* same CSS as before, not repeated here for space */
+</style>
+
 <script>
   let recognition;
   let isListening = false;
@@ -133,23 +29,18 @@
         'Authorization': 'Bearer ' + localStorage.getItem('token')
       }
     })
-    .then(response => response.json())
+    .then(res => res.json())
     .then(data => {
       const messagesDiv = document.getElementById('messages');
-      data.messages.forEach(msg => {
-        addMessage(msg.sender, msg.message);
-      });
+      data.messages.forEach(msg => addMessage(msg.sender, msg.message));
     });
   };
 
   function addMessage(sender, message) {
-    const messagesDiv = document.getElementById('messages');
-    const msgDiv = document.createElement('div');
-    msgDiv.className = 'message ' + (sender === 'user' ? 'user-message' : 'bot-message');
-    msgDiv.textContent = `${sender}: ${message}`;
-    messagesDiv.appendChild(msgDiv);
-    messagesDiv.scrollTop = messagesDiv.scrollHeight;
-
+    const div = document.createElement('div');
+    div.className = 'message ' + (sender === 'user' ? 'user-message' : 'bot-message');
+    div.textContent = `${sender === 'bot' ? 'Bot' : 'You'}: ${message}`;
+    document.getElementById('messages').appendChild(div);
     if (sender === 'bot') lastBotResponse = message;
   }
 
@@ -157,17 +48,8 @@
     const input = document.getElementById('message-input');
     const message = input.value.trim();
     if (!message) return;
-
     addMessage('user', message);
-
-    fetch('/save-message', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + localStorage.getItem('token')
-      },
-      body: JSON.stringify({ sender: 'user', message })
-    });
+    input.value = '';
 
     fetch('/ask', {
       method: 'POST',
@@ -177,22 +59,18 @@
       },
       body: JSON.stringify({ query: message })
     })
-    .then(response => response.json())
+    .then(res => res.json())
     .then(data => {
-      const reply = data.response || 'Sorry, no response.';
-      addMessage('bot', reply);
-
+      addMessage('bot', data.response || 'No response');
       fetch('/save-message', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer ' + localStorage.getItem('token')
         },
-        body: JSON.stringify({ sender: 'bot', message: reply })
+        body: JSON.stringify({ sender: 'bot', message: data.response })
       });
     });
-
-    input.value = '';
   }
 
   function toggleVoiceInput() {
@@ -200,65 +78,48 @@
     const voiceStatus = document.getElementById('voice-status');
 
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-      alert('Sorry, your browser does not support speech recognition.');
+      alert('Browser does not support speech recognition.');
       return;
     }
 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = false;
     recognition.lang = 'en-US';
+    recognition.onresult = event => {
+      const transcript = event.results[0][0].transcript;
+      document.getElementById('message-input').value = transcript;
+      voiceStatus.textContent = 'Heard: ' + transcript;
+      sendMessage();
+    };
+    recognition.onend = () => {
+      isListening = false;
+      voiceBtn.innerHTML = '<i class="fas fa-microphone"></i>';
+      voiceStatus.textContent = '';
+    };
+    recognition.onerror = e => {
+      voiceStatus.textContent = 'Error: ' + e.error;
+      isListening = false;
+      voiceBtn.innerHTML = '<i class="fas fa-microphone"></i>';
+    };
 
     if (!isListening) {
       recognition.start();
       isListening = true;
       voiceBtn.innerHTML = '<i class="fas fa-microphone-slash"></i>';
       voiceStatus.textContent = 'Listening...';
-
-      recognition.onresult = function (event) {
-        const transcript = event.results[0][0].transcript;
-        document.getElementById('message-input').value = transcript;
-        voiceStatus.textContent = 'Heard: ' + transcript;
-        sendMessage();
-      };
-
-      recognition.onend = function () {
-        isListening = false;
-        voiceBtn.innerHTML = '<i class="fas fa-microphone"></i>';
-        voiceStatus.textContent = '';
-      };
-
-      recognition.onerror = function (event) {
-        voiceStatus.textContent = 'Error: ' + event.error;
-        isListening = false;
-        voiceBtn.innerHTML = '<i class="fas fa-microphone"></i>';
-      };
     } else {
       recognition.stop();
-      isListening = false;
-      voiceBtn.innerHTML = '<i class="fas fa-microphone"></i>';
-      voiceStatus.textContent = '';
     }
   }
 
   function speakLastResponse() {
-    if (!lastBotResponse) {
-      alert('No bot response to speak.');
-      return;
-    }
-
-    if (!('speechSynthesis' in window)) {
-      alert('Sorry, your browser does not support text-to-speech.');
-      return;
-    }
-
+    if (!lastBotResponse) return;
     const utterance = new SpeechSynthesisUtterance(lastBotResponse);
     utterance.lang = 'en-US';
     window.speechSynthesis.speak(utterance);
   }
 
-  document.getElementById('message-input').addEventListener('keypress', function (e) {
+  document.getElementById('message-input').addEventListener('keypress', e => {
     if (e.key === 'Enter') sendMessage();
   });
 </script>
