@@ -1,198 +1,116 @@
 {% extends 'base.html' %}
-{% block title %}OCR Scanner | Goose{% endblock %}
-
+{% block title %}OCR Scanner | Goose Maverick{% endblock %}
 {% block content %}
-<style>
-    /* ✅ keep all your CSS here, not in <head> */
-    body {
-        background: linear-gradient(135deg, #1a1a2e, #16213e);
-        padding: 20px;
-    }
-
-    #scanner-container {
-        width: 100%;
-        max-width: 700px;
-        margin: 100px auto;
-        background: rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(10px);
-        border-radius: 20px;
-        padding: 20px;
-        color: white;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-        border: 1px solid rgba(255, 255, 255, 0.2);
-    }
-
-    h1 {
-        color: #00ddeb;
-        text-align: center;
-        margin-bottom: 20px;
-        font-size: 24px;
-        text-transform: uppercase;
-        letter-spacing: 2px;
-    }
-
-    #drop-zone {
-        border: 2px dashed #00ddeb;
-        border-radius: 15px;
-        padding: 20px;
-        text-align: center;
-        margin-bottom: 20px;
-        background: rgba(0, 0, 0, 0.3);
-        transition: background 0.3s ease;
-    }
-
-    #drop-zone.dragover {
-        background: rgba(0, 0, 0, 0.5);
-    }
-
-    #preview {
-        width: 100%;
-        max-height: 300px;
-        margin-bottom: 20px;
-        display: none;
-        border-radius: 10px;
-    }
-
-    #result {
-        margin-top: 20px;
-        padding: 15px;
-        background: rgba(0, 0, 0, 0.3);
-        border-radius: 15px;
-        max-height: 200px;
-        overflow-y: auto;
-        font-size: 14px;
-    }
-
-    button, label {
-        background: linear-gradient(135deg, #00ddeb, #007bff);
-        border: none;
-        padding: 10px 20px;
-        border-radius: 10px;
-        color: white;
-        font-size: 14px;
-        cursor: pointer;
-        display: inline-block;
-        margin: 5px;
-        transition: background 0.3s ease;
-    }
-
-    button:hover, label:hover {
-        background: linear-gradient(135deg, #ff6f61, #ff3e5a);
-    }
-
-    input[type="file"] {
-        display: none;
-    }
-</style>
 
 <div id="scanner-container">
-    <h1>OCR Scanner</h1>
-    <div id="drop-zone">
-        <p>Drag & Drop Files Here (PDF, XLSX, Images) or</p>
-        <label for="file-input"><i class="fas fa-upload"></i> Browse Files</label>
-        <input type="file" id="file-input" accept=".xlsx,.pdf,.png,.jpg,.jpeg">
-    </div>
-    <button onclick="startCamera()"><i class="fas fa-camera"></i> Use Camera</button>
-    <button onclick="captureImage()" id="capture-btn" style="display: none;"><i class="fas fa-camera-retro"></i> Capture</button>
-    <button onclick="stopCamera()" id="stop-btn" style="display: none;"><i class="fas fa-stop"></i> Stop Camera</button>
-    <video id="preview" autoplay></video>
-    <div id="result"></div>
+  <h1>OCR Scanner</h1>
+
+  <div id="drop-zone">
+    <p>Drag & drop an image or click to upload</p>
+    <input type="file" id="fileInput" accept="image/*">
+  </div>
+
+  <img id="preview" src="" alt="Preview" style="display:none;">
+  <div id="result"></div>
 </div>
 
 <script>
-    let stream;
-    const video = document.getElementById('preview');
-    const captureBtn = document.getElementById('capture-btn');
-    const stopBtn = document.getElementById('stop-btn');
-    const dropZone = document.getElementById('drop-zone');
-    const fileInput = document.getElementById('file-input');
-    const resultDiv = document.getElementById('result');
+  const dropZone = document.getElementById('drop-zone');
+  const fileInput = document.getElementById('fileInput');
+  const preview = document.getElementById('preview');
+  const result = document.getElementById('result');
 
-    dropZone.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        dropZone.classList.add('dragover');
-    });
+  dropZone.addEventListener('click', () => fileInput.click());
 
-    dropZone.addEventListener('dragleave', () => {
-        dropZone.classList.remove('dragover');
-    });
-
-    dropZone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        dropZone.classList.remove('dragover');
-        const files = e.dataTransfer.files;
-        if (files.length > 0) handleFiles(files);
-    });
-
-    fileInput.addEventListener('change', (e) => {
-        const files = e.target.files;
-        if (files.length > 0) handleFiles(files);
-    });
-
-    function handleFiles(files) {
-        const file = files[0];
-        const formData = new FormData();
-        formData.append('file', file);
-        fetch('/upload-file', {
-            method: 'POST',
-            headers: {
-                'Authorization': 'Bearer ' + localStorage.getItem('token')
-            },
-            body: formData
-        })
-        .then(response => response.json())
-        .then(data => {
-            resultDiv.textContent = data.error || JSON.stringify(data.contacts, null, 2);
-        })
-        .catch(err => {
-            resultDiv.textContent = 'Error: ' + err.message;
-        });
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length > 0) {
+      handleUpload(fileInput.files[0]);
     }
+  });
 
-    async function startCamera() {
-        try {
-            stream = await navigator.mediaDevices.getUserMedia({ video: true });
-            video.srcObject = stream;
-            video.style.display = 'block';
-            captureBtn.style.display = 'inline-block';
-            stopBtn.style.display = 'inline-block';
-        } catch (err) {
-            resultDiv.textContent = 'Error accessing camera: ' + err.message;
-        }
-    }
+  dropZone.addEventListener('dragover', e => {
+    e.preventDefault();
+    dropZone.classList.add('hover');
+  });
 
-    function stopCamera() {
-        if (stream) {
-            stream.getTracks().forEach(track => track.stop());
-            video.style.display = 'none';
-            captureBtn.style.display = 'none';
-            stopBtn.style.display = 'none';
-        }
-    }
+  dropZone.addEventListener('dragleave', () => {
+    dropZone.classList.remove('hover');
+  });
 
-    function captureImage() {
-        const canvas = document.createElement('canvas');
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        canvas.getContext('2d').drawImage(video, 0, 0);
-        canvas.toBlob(blob => {
-            const formData = new FormData();
-            formData.append('file', blob, 'capture.jpg');
-            fetch('/upload-file', {
-                method: 'POST',
-                headers: {
-                    'Authorization': 'Bearer ' + localStorage.getItem('token')
-                },
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                resultDiv.textContent = data.error || JSON.stringify(data.contacts, null, 2);
-            })
-            .catch(err => {
-                resultDiv.textContent = 'Error: ' + err.message;
-            });
-        }, 'image/jpeg');
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('hover');
+    if (e.dataTransfer.files.length > 0) {
+      handleUpload(e.dataTransfer.files[0]);
     }
+  });
+
+  async function handleUpload(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    preview.src = URL.createObjectURL(file);
+    preview.style.display = 'block';
+    result.innerHTML = 'Processing...';
+
+    try {
+      const res = await fetch('/ocr/upload', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + localStorage.getItem('token')
+        },
+        body: formData
+      });
+
+      const data = await res.json();
+      result.innerHTML = `<h3>Extracted Text:</h3><pre>${data.text || 'No text found.'}</pre>`;
+    } catch (err) {
+      result.innerHTML = `❌ Error: ${err.message}`;
+    }
+  }
 </script>
+
+<style>
+  #scanner-container {
+    max-width: 600px;
+    margin: 100px auto;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 20px;
+    padding: 30px;
+    color: white;
+    text-align: center;
+  }
+
+  #drop-zone {
+    border: 2px dashed #00ddeb;
+    padding: 40px;
+    cursor: pointer;
+    margin-bottom: 20px;
+    border-radius: 10px;
+    transition: background 0.3s;
+  }
+
+  #drop-zone.hover {
+    background: rgba(255,255,255,0.05);
+  }
+
+  #drop-zone p {
+    margin: 0;
+    color: #00ddeb;
+  }
+
+  #preview {
+    max-width: 100%;
+    margin-top: 20px;
+    border-radius: 10px;
+  }
+
+  #result {
+    margin-top: 20px;
+    text-align: left;
+    white-space: pre-wrap;
+  }
+</style>
+
 {% endblock %}
