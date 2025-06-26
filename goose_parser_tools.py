@@ -44,78 +44,31 @@ def extract_exif_location(image_path):
         with open(image_path, 'rb') as f:
             tags = exifread.process_file(f)
             if 'GPS GPSLatitude' in tags and 'GPS GPSLongitude' in tags:
-                lat = tags['GPS GPSLatitude'].values
-                lon = tags['GPS GPSLongitude'].values
-                lat_ref = tags['GPS GPSLatitudeRef'].values[0]
-                lon_ref = tags['GPS GPSLongitudeRef'].values[0]
+                lat = tags['GPS GPSLatitude']
+                lat_ref = tags['GPS GPSLatitudeRef'].values
+                lon = tags['GPS GPSLongitude']
+                lon_ref = tags['GPS GPSLongitudeRef'].values
                 return {
-                    "latitude": dms_to_decimal(lat, lat_ref),
-                    "longitude": dms_to_decimal(lon, lon_ref)
+                    "latitude": dms_to_decimal(lat.values, lat_ref),
+                    "longitude": dms_to_decimal(lon.values, lon_ref)
                 }
     except Exception as e:
-        logging.error(f"EXIF read error: {str(e)}")
+        logging.error(f"EXIF extraction error: {str(e)}")
     return None
 
-# Text Utilities
-def is_business_card(text):
-    return any(keyword in text.lower() for keyword in ['email', 'phone', 'www', '@', 'com', 'inc', 'llc'])
+# New function to parse contact data from OCR text
+def parse_contact_from_text(text):
+    contact = {"name": "", "email": "", "phone": ""}
 
-def parse_ocr_text(text):
-    parsed = {"firstName": "", "lastName": "", "email": "", "workPhone": "", "company": "", "notes": ""}
-    lines = text.split('\n')
-    email_re = r'[\w\.-]+@[\w\.-]+\.\w+'
-    phone_re = r'(\+?\d{1,2}[-.\s]?)?(\(?\d{3}\)?[-.\s]?)?\d{3}[-.\s]?\d{4}'
-    name_parts = []
+    name_match = re.search(r"Name[:\s]*([A-Za-z ,.'-]+)", text)
+    email_match = re.search(r"Email[:\s]*([\w\.-]+@[\w\.-]+)", text)
+    phone_match = re.search(r"Phone[:\s]*(\+?\d[\d\s\-]{7,}\d)", text)
 
-    for line in lines:
-        line = line.strip()
-        if not parsed["email"]:
-            match = re.search(email_re, line)
-            if match:
-                parsed["email"] = match.group()
-                continue
-        if not parsed["workPhone"]:
-            match = re.search(phone_re, line)
-            if match:
-                parsed["workPhone"] = match.group()
-                continue
-        if not parsed["company"] and any(x in line.lower() for x in ['inc', 'llc', 'corp']):
-            parsed["company"] = line
-            continue
-        if line.replace(" ", "").isalpha():
-            name_parts.append(line)
-    if name_parts:
-        parsed["firstName"] = name_parts[0]
-        if len(name_parts) > 1:
-            parsed["lastName"] = name_parts[-1]
-    return parsed
+    if name_match:
+        contact["name"] = name_match.group(1).strip()
+    if email_match:
+        contact["email"] = email_match.group(1).strip()
+    if phone_match:
+        contact["phone"] = phone_match.group(1).strip()
 
-# Field Mapping
-def suggest_field_mapping(df, field_definitions):
-    mapping = {entity: {} for entity in field_definitions.keys()}
-    columns = df.columns.str.lower()
-    matched_columns = set()  # Track matched columns to avoid duplicates
-    BATCH_SIZE = 500  # Process fields in batches
-
-    for entity, fields in field_definitions.items():
-        for i in range(0, len(fields), BATCH_SIZE):
-            batch = fields[i:i + BATCH_SIZE]
-            for field in batch:
-                field_name = field.get("name", "").lower()
-                for col in columns:
-                    if col in matched_columns:
-                        continue
-                    if (field_name.replace(" ", "") in col.replace(" ", "") or
-                        col in field_name.replace(" ", "")):
-                        mapping[entity][field_name] = col
-                        matched_columns.add(col)
-                        break  # Early exit once a match is found
-    return mapping
-
-def map_fields(row, fields):
-    mapped = {}
-    for target, source in fields.items():
-        val = row.get(source.lower())
-        if pd.notna(val):
-            mapped[target] = str(val)
-    return mapped if mapped else None
+    return contact
