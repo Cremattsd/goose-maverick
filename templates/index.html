@@ -63,29 +63,27 @@
 
   #message-input {
     flex-grow: 1;
-    padding: 0.75rem;
-    border: none;
+    padding: 0.5rem;
     border-radius: 6px;
-    font-size: 1rem;
+    border: none;
   }
 
   #chat-buttons button {
-    background: #444;
+    background: #4a5568;
+    color: white;
     border: none;
-    padding: 0.65rem 0.75rem;
+    padding: 0.5rem;
     border-radius: 6px;
-    color: #fff;
     cursor: pointer;
-    font-size: 1.1rem;
+    transition: background 0.3s ease;
   }
 
   #chat-buttons button:hover {
-    background: #666;
+    background: #2d3748;
   }
 
   #voice-status {
     margin-top: 0.5rem;
-    font-size: 0.9rem;
     color: #ccc;
   }
 </style>
@@ -128,72 +126,68 @@
     addMessage('user', message);
     input.value = '';
 
-    fetch('/ask', {
+    fetch('/chat/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer ' + localStorage.getItem('token')
       },
-      body: JSON.stringify({ query: message })
+      body: JSON.stringify({ message })
     })
     .then(res => res.json())
     .then(data => {
-      addMessage('bot', data.response || 'No response');
-      fetch('/save-message', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + localStorage.getItem('token')
-        },
-        body: JSON.stringify({ sender: 'bot', message: data.response })
-      });
+      if (data.bot) {
+        addMessage('bot', data.bot);
+      } else if (data.error) {
+        addMessage('bot', `⚠️ ${data.error}`);
+      }
+    })
+    .catch(err => {
+      addMessage('bot', `🚨 Error: ${err.message}`);
     });
   }
 
   function toggleVoiceInput() {
-    const voiceBtn = document.getElementById('voice-btn');
-    const voiceStatus = document.getElementById('voice-status');
-
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-      alert('Browser does not support speech recognition.');
+    if (!('webkitSpeechRecognition' in window)) {
+      alert("Your browser doesn't support Speech Recognition.");
       return;
     }
 
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    recognition = new SpeechRecognition();
-    recognition.lang = 'en-US';
-    recognition.onresult = event => {
-      const transcript = event.results[0][0].transcript;
-      document.getElementById('message-input').value = transcript;
-      voiceStatus.textContent = 'Heard: ' + transcript;
-      sendMessage();
-    };
-    recognition.onend = () => {
-      isListening = false;
-      voiceBtn.innerHTML = '<i class="fas fa-microphone"></i>';
-      voiceStatus.textContent = '';
-    };
-    recognition.onerror = e => {
-      voiceStatus.textContent = 'Error: ' + e.error;
-      isListening = false;
-      voiceBtn.innerHTML = '<i class="fas fa-microphone"></i>';
-    };
+    if (!recognition) {
+      recognition = new webkitSpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = 'en-US';
 
-    if (!isListening) {
-      recognition.start();
-      isListening = true;
-      voiceBtn.innerHTML = '<i class="fas fa-microphone-slash"></i>';
-      voiceStatus.textContent = 'Listening...';
-    } else {
+      recognition.onstart = () => {
+        isListening = true;
+        document.getElementById('voice-status').textContent = '🎤 Listening...';
+      };
+
+      recognition.onend = () => {
+        isListening = false;
+        document.getElementById('voice-status').textContent = '';
+      };
+
+      recognition.onresult = event => {
+        const transcript = event.results[0][0].transcript;
+        document.getElementById('message-input').value = transcript;
+        sendMessage();
+      };
+    }
+
+    if (isListening) {
       recognition.stop();
+    } else {
+      recognition.start();
     }
   }
 
   function speakLastResponse() {
-    if (!lastBotResponse) return;
-    const utterance = new SpeechSynthesisUtterance(lastBotResponse);
-    utterance.lang = 'en-US';
-    window.speechSynthesis.speak(utterance);
+    if ('speechSynthesis' in window && lastBotResponse) {
+      const utterance = new SpeechSynthesisUtterance(lastBotResponse);
+      speechSynthesis.speak(utterance);
+    }
   }
 </script>
 {% endblock %}
