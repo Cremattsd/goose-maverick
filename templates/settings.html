@@ -1,58 +1,48 @@
-<div class="form-group">
-  <label for="realnex-token">RealNex JWT Token</label>
-  <input id="realnex-token" name="realnex_token" type="text" placeholder="Enter RealNex Token">
+<div class="mb-4">
+  <label class="block mb-2 text-white" for="realnex-token">RealNex JWT Token</label>
+  <input class="block w-full p-2 rounded bg-gray-800 text-white border border-gray-600" id="realnex-token" name="realnex_token" type="text" placeholder="Enter RealNex Token">
 </div>
 
-<div class="form-group">
-  <label for="mailchimp-key">Mailchimp API Key</label>
-  <input id="mailchimp-key" name="mailchimp_key" type="text" placeholder="Paste Mailchimp API key">
+<div class="mb-4">
+  <label class="block mb-2 text-white" for="mailchimp-key">Mailchimp API Key</label>
+  <input class="block w-full p-2 rounded bg-gray-800 text-white border border-gray-600" id="mailchimp-key" name="mailchimp_key" type="text" placeholder="Paste Mailchimp API key">
 </div>
 
-<div class="form-group">
-  <label for="constant-contact-key">Constant Contact API Key</label>
-  <input id="constant-contact-key" name="constant_contact_key" type="text" placeholder="Paste Constant Contact API key">
+<div class="mb-4">
+  <label class="block mb-2 text-white" for="constant-contact-key">Constant Contact API Key</label>
+  <input class="block w-full p-2 rounded bg-gray-800 text-white border border-gray-600" id="constant-contact-key" name="constant_contact_key" type="text" placeholder="Paste Constant Contact API key">
 </div>
 
-<div class="form-group">
-  <label for="apollo-key">Apollo AI API Key</label>
-  <input id="apollo-key" name="apollo_key" type="text" placeholder="Paste Apollo API key">
+<div class="mb-4">
+  <label class="block mb-2 text-white" for="apollo-key">Apollo AI API Key</label>
+  <input class="block w-full p-2 rounded bg-gray-800 text-white border border-gray-600" id="apollo-key" name="apollo_key" type="text" placeholder="Paste Apollo API key">
 </div>
 
-<div class="form-group">
-  <label for="zoominfo-token">ZoomInfo Token</label>
-  <input id="zoominfo-token" name="zoominfo_token" type="text" placeholder="Paste ZoomInfo token">
+<div class="mb-4">
+  <label class="block mb-2 text-white" for="zoominfo-token">ZoomInfo Token</label>
+  <input class="block w-full p-2 rounded bg-gray-800 text-white border border-gray-600" id="zoominfo-token" name="zoominfo_token" type="text" placeholder="Paste ZoomInfo token">
 </div>
 
-<div class="form-group">
-  <label for="alert-email">Alert Email</label>
-  <input id="alert-email" name="alert_email" type="email" placeholder="you@example.com">
+<div class="mb-4">
+  <label class="block mb-2 text-white" for="alert-email">Alert Email</label>
+  <input class="block w-full p-2 rounded bg-gray-800 text-white border border-gray-600" id="alert-email" name="alert_email" type="email" placeholder="you@example.com">
 </div>
 
-<div class="form-group">
-  <label for="priority">Trigger Alert For Priority Level:</label>
-  <select id="priority" name="priority_level">
+<div class="mb-4">
+  <label class="block mb-2 text-white" for="priority">Trigger Alert For Priority Level:</label>
+  <select id="priority" name="priority_level" class="block w-full p-2 rounded bg-gray-800 text-white border border-gray-600">
     <option value="low">Low</option>
     <option value="medium" selected>Medium</option>
     <option value="high">High</option>
+    <option value="critical">Critical</option>
   </select>
 </div>
 
-<div class="form-group">
-  <input id="enable-alerts" name="enable_alerts" type="checkbox" checked>
-  <label for="enable-alerts">Enable Email Alerts</label>
+<div class="mb-4">
+  <label class="block mb-2 text-white" for="webhook-url">Webhook URL</label>
+  <input class="block w-full p-2 rounded bg-gray-800 text-white border border-gray-600" id="webhook-url" name="webhook_url" type="url" placeholder="https://yourapp.com/webhook">
 </div>
 
-<div class="form-group">
-  <label for="realnex-group">RealNex Contact Group to Sync</label>
-  <input id="realnex-group" name="realnex_group" type="text" placeholder="Enter group name (e.g. Leads, Prospects)">
-</div>
-
-<div class="form-group">
-  <label for="mailchimp-group">Mailchimp List or Group to Sync</label>
-  <input id="mailchimp-group" name="mailchimp_group" type="text" placeholder="e.g. Monthly CRE Newsletter">
-</div>
-
-<div class="form-group">
-  <label for="constant-group">Constant Contact List or Group to Sync</label>
-  <input id="constant-group" name="constant_group" type="text" placeholder="e.g. Clients or Agents">
+<div class="mb-4">
+  <input type="submit" value="Save Settings" class="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold py-2 px-4 rounded cursor-pointer">
 </div>
