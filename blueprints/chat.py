@@ -84,7 +84,7 @@ def create_chat_blueprint(socketio):
                     logger.error(f"Webhook failed: {e}")
 
             logger.info(f"Bot response: {bot_response}")
-            return jsonify({"bot": bot_response})  # ✅ THIS FIXED LINE
+            return jsonify({"bot": bot_response})
 
         except Exception as e:
             logger.error(f"Chat error: {e}")
@@ -107,12 +107,10 @@ def create_chat_blueprint(socketio):
             logger.error(f"History error: {e}")
             return jsonify({"error": f"Could not fetch history: {str(e)}"}), 500
 
+    # ✅ Add /ask route inside the function so chat_bp is in scope
+    @chat_bp.route('/ask', methods=['POST'])
+    @token_required
+    def ask(user_id):
+        return chat(user_id)
+
     return chat_bp
-
-
-
-# Add alias route for compatibility with frontend fetch('/ask')
-@chat_bp.route('/ask', methods=['POST'])
-@token_required
-def ask(user_id):
-    return chat(user_id)
