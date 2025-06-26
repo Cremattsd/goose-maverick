@@ -108,3 +108,11 @@ def create_chat_blueprint(socketio):
             return jsonify({"error": f"Could not fetch history: {str(e)}"}), 500
 
     return chat_bp
+
+
+
+# Add alias route for compatibility with frontend fetch('/ask')
+@chat_bp.route('/ask', methods=['POST'])
+@token_required
+def ask(user_id):
+    return chat(user_id)
