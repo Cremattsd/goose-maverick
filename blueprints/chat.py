@@ -67,7 +67,6 @@ def create_chat_blueprint(socketio):
                 "timestamp": timestamp
             }, namespace='/chat')
 
-            # Optional webhook notification
             cursor.execute("SELECT webhook_url FROM webhooks WHERE user_id = ?", (user_id,))
             webhook = cursor.fetchone()
             if webhook:
@@ -107,7 +106,6 @@ def create_chat_blueprint(socketio):
             logger.error(f"History error: {e}")
             return jsonify({"error": f"Could not fetch history: {str(e)}"}), 500
 
-    # ✅ Add /ask route inside the function so chat_bp is in scope
     @chat_bp.route('/ask', methods=['POST'])
     @token_required
     def ask(user_id):
