@@ -1,119 +1,123 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Goose Maverick{% endblock %}</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Goose Maverick{% endblock %}</title>
 
-    <!-- Font Awesome & Fonts -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
 
-    <!-- Base Styles -->
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Poppins', sans-serif;
-        }
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Poppins', sans-serif;
+    }
 
-        body {
-            background: linear-gradient(135deg, #1a1a2e, #16213e);
-            min-height: 100vh;
-            padding: 20px;
-            color: #f0f0f0;
-        }
+    body {
+      background: linear-gradient(135deg, #1a1a2e, #16213e);
+      min-height: 100vh;
+      padding: 20px;
+      color: #f0f0f0;
+    }
 
-        nav {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            background: rgba(0, 0, 0, 0.5);
-            backdrop-filter: blur(5px);
-            padding: 10px 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            z-index: 10;
-        }
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(5px);
+      padding: 10px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 10;
+    }
 
-        nav a, nav button {
-            color: #00ddeb;
-            text-decoration: none;
-            font-size: 14px;
-            margin: 0 15px;
-            transition: color 0.3s ease;
-            background: none;
-            border: none;
-            cursor: pointer;
-        }
+    nav a, nav button {
+      color: #00ddeb;
+      text-decoration: none;
+      font-size: 14px;
+      margin: 0 15px;
+      transition: color 0.3s ease;
+      background: none;
+      border: none;
+      cursor: pointer;
+    }
 
-        nav a:hover, nav button:hover {
-            color: #ff6f61;
-        }
+    nav a:hover, nav button:hover {
+      color: #ff6f61;
+    }
 
-        .container {
-            max-width: 960px;
-            margin: 80px auto 40px;
-            padding: 20px;
-            background: rgba(255, 255, 255, 0.02);
-            border-radius: 12px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.2);
-        }
+    .container {
+      max-width: 960px;
+      margin: 80px auto 40px;
+      padding: 20px;
+      background: rgba(255, 255, 255, 0.02);
+      border-radius: 12px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.2);
+    }
 
-        h1, h2, h3 {
-            margin-bottom: 1rem;
-        }
+    h1, h2, h3 {
+      margin-bottom: 1rem;
+    }
 
-        button, input[type="submit"] {
-            background-color: #00ddeb;
-            color: #111;
-            padding: 0.5rem 1rem;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 600;
-        }
+    button, input[type="submit"] {
+      background-color: #00ddeb;
+      color: #111;
+      padding: 0.5rem 1rem;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+    }
 
-        button:hover, input[type="submit"]:hover {
-            background-color: #00c3cf;
-        }
+    button:hover, input[type="submit"]:hover {
+      background-color: #00c3cf;
+    }
 
-        .text-white {
-            color: white;
-        }
+    .text-white {
+      color: white;
+    }
 
-        .mb-4 {
-            margin-bottom: 1rem;
-        }
-    </style>
+    .mb-4 {
+      margin-bottom: 1rem;
+    }
+  </style>
 </head>
 <body>
 
-    <nav>
-        <div class="nav-left">
-            <a href="/">🛫 Goose Maverick</a>
-        </div>
-        <div class="nav-right">
-            <a href="/dashboard">Dashboard</a>
-            <a href="/chat/hub">Chat</a>
-            <a href="/settings">Settings</a>
-            <button onclick="logout()">Logout</button>
-        </div>
-    </nav>
-
-    <div class="container">
-        {% block content %}{% endblock %}
+  <nav>
+    <div class="nav-left">
+      <a href="/">🛫 Goose Maverick</a>
     </div>
+    <div class="nav-right" id="nav-links">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/chat/hub">Chat</a>
+      <a href="/settings">Settings</a>
+      <button onclick="logout()">Logout</button>
+    </div>
+  </nav>
 
-    <script>
-      function logout() {
-          localStorage.removeItem("token");
-          window.location.href = "/auth/login";
-      }
-    </script>
+  <div class="container">
+    {% block content %}{% endblock %}
+  </div>
+
+  <script>
+    function logout() {
+      localStorage.removeItem("token");
+      localStorage.removeItem("user_id");
+      window.location.href = "/auth/login";
+    }
+
+    const protectedRoutes = ['/dashboard', '/chat/hub', '/settings'];
+    if (!localStorage.getItem("token") && protectedRoutes.includes(window.location.pathname)) {
+      window.location.href = "/auth/login";
+    }
+  </script>
 
 </body>
 </html>
