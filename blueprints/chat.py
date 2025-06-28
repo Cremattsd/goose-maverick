@@ -1,7 +1,6 @@
 from flask import Blueprint, request, jsonify, redirect, url_for, render_template, current_app
 from datetime import datetime
 import httpx
-import openai
 import commands
 from db import logger, cursor, conn
 from flask_socketio import emit, join_room
@@ -33,7 +32,7 @@ def create_chat_blueprint(socketio):
     @chat_bp.route('/hub', methods=['GET'])
     @token_required
     def chat_hub(user_id):
-        return render_template('index.html')
+        return render_template('index.html', user_id=user_id)
 
     @chat_bp.route('/chat', methods=['POST'])
     @token_required
@@ -52,17 +51,8 @@ def create_chat_blueprint(socketio):
             conn.commit()
 
             bot_response = commands.process_message(message, user_id, cursor, conn, socketio)
-
             if not bot_response:
-                openai.api_key = current_app.config.get("OPENAI_API_KEY")
-                completion = openai.ChatCompletion.create(
-                    model="gpt-4-turbo",
-                    messages=[
-                        {"role": "system", "content": "You are a helpful CRE assistant."},
-                        {"role": "user", "content": message}
-                    ]
-                )
-                bot_response = completion.choices[0].message.content.strip()
+                bot_response = f"Echo: {message}"
 
             cursor.execute(
                 "INSERT INTO chat_messages (user_id, sender, message, timestamp) VALUES (?, ?, ?, ?)",
@@ -75,26 +65,24 @@ def create_chat_blueprint(socketio):
                 "sender": "bot",
                 "message": bot_response,
                 "timestamp": timestamp
-            }, namespace='/chat')
+            }, namespace='/chat', room=user_id)
 
+            # Optional webhook
             cursor.execute("SELECT webhook_url FROM webhooks WHERE user_id = ?", (user_id,))
             webhook = cursor.fetchone()
             if webhook:
-                webhook_url = webhook[0]
                 try:
-                    with httpx.Client() as client:
-                        client.post(webhook_url, json={
-                            "user_id": user_id,
-                            "message": message,
-                            "response": bot_response,
-                            "timestamp": timestamp
-                        })
+                    httpx.post(webhook[0], json={
+                        "user_id": user_id,
+                        "message": message,
+                        "response": bot_response,
+                        "timestamp": timestamp
+                    })
                 except Exception as e:
                     logger.error(f"Webhook failed: {e}")
 
             logger.info(f"Bot response: {bot_response}")
             return jsonify({"bot": bot_response})
-
         except Exception as e:
             logger.error(f"Chat error: {e}")
             return jsonify({"error": f"Server error: {str(e)}"}), 500
