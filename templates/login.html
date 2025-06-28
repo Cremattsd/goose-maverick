@@ -1,82 +1,75 @@
 {% extends 'base.html' %}
+{% block title %}Login | Goose Maverick{% endblock %}
+
 {% block content %}
-{% extends 'base.html' %}
-{% block title %}Goose Maverick{% endblock %}
+<div class="login-container">
+  <h2>Login to Goose Maverick</h2>
+  <form id="login-form">
+    <input type="email" id="email" placeholder="Enter your email" required />
+    <button type="submit">Login</button>
+  </form>
+  <div id="login-error" style="color: red;"></div>
+</div>
 
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        body {
-            background: linear-gradient(135deg, #1e3a8a, #3b82f6);
-            font-family: 'Inter', sans-serif;
-        }
-        .glass {
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 1rem;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
-        }
-        .btn {
-            transition: transform 0.2s ease;
-        }
-        .btn:hover {
-            transform: translateY(-2px);
-        }
-        input {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            border-radius: 0.5rem;
-            color: white;
-        }
-        input::placeholder {
-            color: rgba(255, 255, 255, 0.7);
-        }
-    </style>
-</head>
-<body class="min-h-screen flex items-center justify-center">
-    <div class="glass p-6 max-w-sm w-full">
-        <h1 class="text-3xl font-bold text-white text-center mb-6">Login to Goose-Maverick</h1>
-        <div class="mb-4">
-            <label for="username" class="block text-white text-lg font-medium mb-2">Username</label>
-            <input type="text" id="username" placeholder="Enter username" class="w-full p-2">
-        </div>
-        <div class="mb-4">
-            <label for="password" class="block text-white text-lg font-medium mb-2">Password</label>
-            <input type="password" id="password" placeholder="Enter password" class="w-full p-2">
-        </div>
-        <button onclick="login()" class="btn bg-blue-600 text-white w-full py-2 rounded hover:bg-blue-700">Login</button>
-    </div>
-    <script>
-        async function login() {
-            const username = document.getElementById('username').value;
-            const password = document.getElementById('password').value;
-            const redirect = new URLSearchParams(window.location.search).get('redirect') || '/';
+<script>
+  document.getElementById('login-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const email = document.getElementById('email').value;
 
-            const res = await fetch('/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password })
-            });
-            const data = await res.json();
-            if (data.token) {
-                localStorage.setItem('token', data.token);
-                window.location.href = redirect;
-            } else {
-                alert(data.error || 'Login failed');
-            }
-        }
+    try {
+      const res = await fetch('/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      const data = await res.json();
 
-        document.getElementById('password').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') login();
-        });
-    </script>
-</body>
-</html>
+      if (data.token) {
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('user_id', data.user_id);
+        window.location.href = '/chat/hub';
+      } else {
+        document.getElementById('login-error').textContent = data.error || "Login failed.";
+      }
+    } catch (err) {
+      document.getElementById('login-error').textContent = "Something went wrong.";
+    }
+  });
+</script>
 
+<style>
+  .login-container {
+    max-width: 400px;
+    margin: 4rem auto;
+    padding: 2rem;
+    background: #2a2d3e;
+    border-radius: 12px;
+    box-shadow: 0 0 12px rgba(0,0,0,0.2);
+    color: white;
+  }
+
+  .login-container h2 {
+    text-align: center;
+    margin-bottom: 1.5rem;
+  }
+
+  .login-container input,
+  .login-container button {
+    width: 100%;
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    border: none;
+    border-radius: 6px;
+  }
+
+  .login-container button {
+    background-color: #4a90e2;
+    color: white;
+    cursor: pointer;
+  }
+
+  .login-container button:hover {
+    background-color: #357ab8;
+  }
+</style>
 {% endblock %}
