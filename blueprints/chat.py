@@ -1,6 +1,7 @@
-from flask import Blueprint, request, jsonify, redirect, url_for, render_template
+from flask import Blueprint, request, jsonify, redirect, url_for, render_template, current_app
 from datetime import datetime
 import httpx
+import openai
 import commands
 from db import logger, cursor, conn
 from flask_socketio import emit, join_room
@@ -51,8 +52,17 @@ def create_chat_blueprint(socketio):
             conn.commit()
 
             bot_response = commands.process_message(message, user_id, cursor, conn, socketio)
+
             if not bot_response:
-                bot_response = f"Echo: {message}"
+                openai.api_key = current_app.config.get("OPENAI_API_KEY")
+                completion = openai.ChatCompletion.create(
+                    model="gpt-4-turbo",
+                    messages=[
+                        {"role": "system", "content": "You are a helpful CRE assistant."},
+                        {"role": "user", "content": message}
+                    ]
+                )
+                bot_response = completion.choices[0].message.content.strip()
 
             cursor.execute(
                 "INSERT INTO chat_messages (user_id, sender, message, timestamp) VALUES (?, ?, ?, ?)",
