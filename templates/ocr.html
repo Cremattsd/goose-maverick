@@ -47,14 +47,14 @@
 
   async function handleUpload(file) {
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append('image', file);  // ✅ match backend expectation
 
     preview.src = URL.createObjectURL(file);
     preview.style.display = 'block';
-    result.innerHTML = 'Processing...';
+    result.innerHTML = '🔍 Scanning...';
 
     try {
-      const res = await fetch('/ocr/upload', {
+      const res = await fetch('/process-ocr', {
         method: 'POST',
         headers: {
           'Authorization': 'Bearer ' + localStorage.getItem('token')
@@ -63,9 +63,20 @@
       });
 
       const data = await res.json();
-      result.innerHTML = `<h3>Extracted Text:</h3><pre>${data.text || 'No text found.'}</pre>`;
+      if (data.error) {
+        result.innerHTML = `❌ Error: ${data.error}`;
+      } else {
+        result.innerHTML = `
+          <h3>Contact Parsed:</h3>
+          <pre>${JSON.stringify(data.parsed_contact, null, 2)}</pre>
+          <h3>OCR Text:</h3>
+          <pre>${data.text}</pre>
+          <h3>Sync Status:</h3>
+          <p>${data.sync_status}</p>
+        `;
+      }
     } catch (err) {
-      result.innerHTML = `❌ Error: ${err.message}`;
+      result.innerHTML = `❌ Upload Error: ${err.message}`;
     }
   }
 </script>
