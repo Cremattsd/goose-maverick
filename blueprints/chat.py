@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify, redirect, url_for, render_template, current_app
+from flask import Blueprint, request, jsonify, redirect, url_for, render_template
 from datetime import datetime
 import httpx
 import commands
@@ -25,28 +25,37 @@ def create_chat_blueprint(socketio):
             logger.info(f"User {user_id} joined room")
 
     @chat_bp.route('/', methods=['GET'])
-    @token_required
-    def index(user_id):
+    def index():
         return redirect(url_for('chat.chat_hub'))
 
     @chat_bp.route('/hub', methods=['GET'])
-    @token_required
-    def chat_hub(user_id):
-        return render_template('index.html', user_id=user_id)
+    def chat_hub():
+        return render_template('index.html')
 
     @chat_bp.route('/chat', methods=['POST'])
-    @token_required
-    def chat(user_id):
+    def chat():
         data = request.get_json()
         message = data.get('message')
+        token = request.headers.get('Authorization', '').replace('Bearer ', '')
+        user_id = None
+
         if not message:
             return jsonify({"error": "Message is required"}), 400
 
         try:
+            if token:
+                from jwt import decode, InvalidTokenError
+                from flask import current_app
+                try:
+                    decoded = decode(token, current_app.config['SECRET_KEY'], algorithms=['HS256'])
+                    user_id = decoded.get("user_id")
+                except InvalidTokenError:
+                    logger.warning("Invalid token used for chat message")
+
             timestamp = datetime.now().isoformat()
             cursor.execute(
                 "INSERT INTO chat_messages (user_id, sender, message, timestamp) VALUES (?, ?, ?, ?)",
-                (user_id, "user", message, timestamp)
+                (user_id or "anonymous", "user", message, timestamp)
             )
             conn.commit()
 
@@ -56,7 +65,7 @@ def create_chat_blueprint(socketio):
 
             cursor.execute(
                 "INSERT INTO chat_messages (user_id, sender, message, timestamp) VALUES (?, ?, ?, ?)",
-                (user_id, "bot", bot_response, datetime.now().isoformat())
+                (user_id or "anonymous", "bot", bot_response, datetime.now().isoformat())
             )
             conn.commit()
 
@@ -65,21 +74,22 @@ def create_chat_blueprint(socketio):
                 "sender": "bot",
                 "message": bot_response,
                 "timestamp": timestamp
-            }, namespace='/chat', room=user_id)
+            }, namespace='/chat', room=user_id or None)
 
             # Optional webhook
-            cursor.execute("SELECT webhook_url FROM webhooks WHERE user_id = ?", (user_id,))
-            webhook = cursor.fetchone()
-            if webhook:
-                try:
-                    httpx.post(webhook[0], json={
-                        "user_id": user_id,
-                        "message": message,
-                        "response": bot_response,
-                        "timestamp": timestamp
-                    })
-                except Exception as e:
-                    logger.error(f"Webhook failed: {e}")
+            if user_id:
+                cursor.execute("SELECT webhook_url FROM webhooks WHERE user_id = ?", (user_id,))
+                webhook = cursor.fetchone()
+                if webhook:
+                    try:
+                        httpx.post(webhook[0], json={
+                            "user_id": user_id,
+                            "message": message,
+                            "response": bot_response,
+                            "timestamp": timestamp
+                        })
+                    except Exception as e:
+                        logger.error(f"Webhook failed: {e}")
 
             logger.info(f"Bot response: {bot_response}")
             return jsonify({"bot": bot_response})
@@ -107,6 +117,6 @@ def create_chat_blueprint(socketio):
     @chat_bp.route('/ask', methods=['POST'])
     @token_required
     def ask(user_id):
-        return chat(user_id)
+        return chat()
 
     return chat_bp
