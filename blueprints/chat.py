@@ -1,10 +1,10 @@
-from flask import Blueprint, request, jsonify, redirect, url_for, render_template
+from flask import Blueprint, request, jsonify, redirect, url_for, render_template, current_app
 from datetime import datetime
 import httpx
-import commands
-from db import logger, cursor, conn
+import jwt
 from flask_socketio import emit, join_room
-from blueprints.auth import token_required
+from db import logger, cursor, conn
+import commands
 
 def create_chat_blueprint(socketio):
     chat_bp = Blueprint('chat', __name__)
@@ -42,33 +42,35 @@ def create_chat_blueprint(socketio):
         if not message:
             return jsonify({"error": "Message is required"}), 400
 
-        try:
-            if token:
-                from jwt import decode, InvalidTokenError
-                from flask import current_app
-                try:
-                    decoded = decode(token, current_app.config['SECRET_KEY'], algorithms=['HS256'])
-                    user_id = decoded.get("user_id")
-                except InvalidTokenError:
-                    logger.warning("Invalid token used for chat message")
+        # Decode JWT if present
+        if token:
+            try:
+                decoded = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=['HS256'])
+                user_id = decoded.get("user_id")
+            except jwt.InvalidTokenError:
+                logger.warning("Invalid token used for chat")
 
-            timestamp = datetime.now().isoformat()
+        timestamp = datetime.now().isoformat()
+
+        try:
+            # Save user message
             cursor.execute(
                 "INSERT INTO chat_messages (user_id, sender, message, timestamp) VALUES (?, ?, ?, ?)",
                 (user_id or "anonymous", "user", message, timestamp)
             )
             conn.commit()
 
-            bot_response = commands.process_message(message, user_id, cursor, conn, socketio)
-            if not bot_response:
-                bot_response = f"Echo: {message}"
+            # Generate bot response
+            bot_response = commands.process_message(message, user_id, cursor, conn, socketio) or f"Echo: {message}"
 
+            # Save bot response
             cursor.execute(
                 "INSERT INTO chat_messages (user_id, sender, message, timestamp) VALUES (?, ?, ?, ?)",
                 (user_id or "anonymous", "bot", bot_response, datetime.now().isoformat())
             )
             conn.commit()
 
+            # Emit to user room if available
             socketio.emit('message', {
                 "user_id": user_id,
                 "sender": "bot",
@@ -76,7 +78,7 @@ def create_chat_blueprint(socketio):
                 "timestamp": timestamp
             }, namespace='/chat', room=user_id or None)
 
-            # Optional webhook
+            # Trigger webhook if applicable
             if user_id:
                 cursor.execute("SELECT webhook_url FROM webhooks WHERE user_id = ?", (user_id,))
                 webhook = cursor.fetchone()
@@ -93,8 +95,9 @@ def create_chat_blueprint(socketio):
 
             logger.info(f"Bot response: {bot_response}")
             return jsonify({"bot": bot_response})
+
         except Exception as e:
-            logger.error(f"Chat error: {e}")
+            logger.error(f"Chat processing error: {e}")
             return jsonify({"error": f"Server error: {str(e)}"}), 500
 
     @chat_bp.route('/history', methods=['GET'])
@@ -115,8 +118,7 @@ def create_chat_blueprint(socketio):
             return jsonify({"error": f"Could not fetch history: {str(e)}"}), 500
 
     @chat_bp.route('/ask', methods=['POST'])
-    @token_required
-    def ask(user_id):
+    def ask():
         return chat()
 
     return chat_bp
