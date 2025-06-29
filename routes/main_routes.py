@@ -1,11 +1,10 @@
 from flask import Blueprint, render_template, request, jsonify
-from auth_utils import token_required
 import openai
 import os
 
 main_routes = Blueprint('main_routes', __name__)
 
-# Frontend Views
+# 🌐 Publicly accessible frontend views
 @main_routes.route("/")
 def index():
     return render_template("index.html")
@@ -42,9 +41,9 @@ def activity():
 def login():
     return render_template("login.html")
 
-# Chat Endpoint
+
+# 🤖 Public chat endpoint (no token required)
 @main_routes.route("/ask", methods=["POST"])
-@token_required
 def ask():
     query = request.json.get("query", "")
     if not query:
