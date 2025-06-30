@@ -5,6 +5,8 @@ import jwt
 from flask_socketio import emit, join_room
 from db import logger, cursor, conn
 import commands
+from blueprints.auth import token_required  # ← ADD THIS
+
 
 def create_chat_blueprint(socketio):
     chat_bp = Blueprint('chat', __name__)
