@@ -95,21 +95,24 @@
 
   window.onload = function () {
     const token = localStorage.getItem('token');
-    if (!token) {
-      window.location.href = "/auth/login";
-      return;
-    }
 
-    fetch('/chat/history', {
-      headers: {
-        'Authorization': 'Bearer ' + token
-      }
-    })
-    .then(res => res.json())
-    .then(data => {
-      const messagesDiv = document.getElementById('messages');
-      data.messages.forEach(msg => addMessage(msg.sender, msg.message));
-    });
+    if (token) {
+      fetch('/chat/history', {
+        headers: {
+          'Authorization': 'Bearer ' + token
+        }
+      })
+      .then(res => res.json())
+      .then(data => {
+        const messagesDiv = document.getElementById('messages');
+        data.messages.forEach(msg => addMessage(msg.sender, msg.message));
+      })
+      .catch(() => {
+        addMessage('bot', '⚠️ Failed to load chat history.');
+      });
+    } else {
+      addMessage('bot', '⚠️ No token found. Set it in Settings to enable history and features.');
+    }
 
     document.getElementById('message-input').addEventListener('keypress', e => {
       if (e.key === 'Enter') sendMessage();
@@ -132,11 +135,17 @@
     addMessage('user', message);
     input.value = '';
 
+    const token = localStorage.getItem('token');
+    if (!token) {
+      addMessage('bot', '🚨 Please set your token in Settings to enable this feature.');
+      return;
+    }
+
     fetch('/chat/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + localStorage.getItem('token')
+        'Authorization': 'Bearer ' + token
       },
       body: JSON.stringify({ message })
     })
